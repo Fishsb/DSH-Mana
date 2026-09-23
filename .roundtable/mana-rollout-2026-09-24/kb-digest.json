@@ -1,0 +1,13 @@
+{
+  "meetingId": "mana-rollout-2026-09-24",
+  "entries": [
+    {
+      "path": "D:\\Mana\\docs\\mana-v5-plan.md",
+      "size": 58676,
+      "mtimeMs": 1790191539610.7815,
+      "digest": "Mana（末那识）v5 方案 v5.0 全文 1241 行，目录级摘要：\n§1 概述：13 个 dsh-mana-* 插件、mana.db、事件域 mana/*、认知轨迹表 mana_trace。\n§2 文化根基：唯识学第七识末那识「恒审思量·我执」→ 映射为元认知 + 用户模型 + JEV 快判断。\n§3 理论：ACT-R 激活方程 A=B+S+P+ε（d=0.5、τ=-2.0、σ=0.3、F=0.35s、f=0.8）；SOAR chunking；JEV 三原语（choice/noul/score，只出结构化判定不出文本）；Jev-Mem 论文 LoCoMo 0.777。§3.2 明确 pyactup 只作算法参考、TS 自研。\n§4 总体架构：认知内核层(perception/attention/working-mem/scheduler) + 记忆层(long-term/consolidation/forgetting/metacognition) + 决策检索层(jev/vector/ui/user-model)，Cordis 事件总线，DSH 官方服务 inject。\n§5 机制：ACT-R 激活方程工程参数；SOAR chunking 三阶段（编码/解码/连接，触发条件=子目标 active→done、算子序列 ≤7、模式重复 ≥2）；工作记忆 ≤4 组块、∑W=1；SOAR 三阶段循环与 GoalStack。\n§6 JEV 三道门控：Write Gate(fail-open)/Recall Gate(fail-degraded)/Injection Gate(fail-closed)；不变式 I1 每 (session,turn) 最多注入一块、I2 每 session 每条最多注入一次、压缩后 ID 重置、自标识 <retrieved-memories>；批量 fan-out + TTL 300s 缓存 + 熔断(5 次/冷却 60s)。工具集 mem_remember/recall/list/view/forget/restore/merge/pin/gate_status/gate_log。物理删除永不发生。\n§7 检索：向量(sqlite-vec Top50) + FTS5 BM25(Top50) + 图(Top20) → RRF(k=60) → JEV 重排 → 时间衰减(h=14 天)。嵌入选型 BGE-M3(1024 维)。\n§8 巩固与遗忘：5 类触发；retention=exp(-t/S)，S 按 Pavlik&Anderson 更新；激活值四区间归档策略；90 天未访压缩摘要。\n§9 插件化：§9.1 13 插件表(P0: core/jev/vector/perception/attention/working-memory；P1: long-term/scheduler/consolidation/forgetting；P2: metacognition/user-model/ui)；§9.2 最小 bundle = package.json(dsh.bundle) + cordis.patch.yml + index.js，标准目录树（src/index.ts + event-types.ts + client/ + tests/ + vitest）；§9.3 事件契约 declare module '@deepseek-ai/cordis'，5 种分发模式，waterfall 必须 next()；§9.4 attention 插件入口示例（inject/mana-core,mana-jev；Config schema）；§9.5 schemastery 校验；§9.6 调试流程 dsh --profile dev --dump-config / pnpm build / dsh plugin add。\n§10 多 Agent 开发：13 个 Agent 分工、4 步并行流程（契约冻结 1-2 周 → jev+vector 2-3 周 → 认知 Agent 并行 4-6 周 → 每日集成）、契约变更 7 步、依赖规则（contracts 不依赖业务、services 间靠事件不 import 实现）。\n§11 存储：node:sqlite，路径 $DSH_HOME/memory/mana.db；6 张表 DDL（memory_items / production_rules / goals / user_model / mana_trace / jev_log）——注意 memory_items 内联 vector BLOB，未用 vec0 虚拟表。\n§12 可靠性：六层保障、降级链路总表",
+      "ts": 1790192037842
+    }
+  ],
+  "updatedAt": 1790192037842
+}

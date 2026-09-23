@@ -1,0 +1,4 @@
+# 圆桌会议运行态：逐字稿/中间稿体积大且可重生成，不入版本
+.roundtable/*/transcript.jsonl
+.roundtable/_extract/
+node_modules/

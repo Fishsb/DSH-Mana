@@ -1,0 +1,3 @@
+# 禁止任何行尾/编码自动改写：本仓内容的行尾是有意义的
+# （mana-rollout-plan.md 为 CRLF，检查器按 \r?\n 切分；被 git 归一化会污染 sha256 对账）
+* -text
