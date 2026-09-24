@@ -6,10 +6,16 @@
 
 ## 一、怎么用
 
-```powershell
-cd D:\Mana\docs
-node _check-consistency.mjs
+```bash
+cd ~/Mana/docs && node _check-consistency.mjs
 ```
+
+> **路径变更（2026-09-24 迁移）**：本项目已由 `D:\Mana`（WSL 挂载盘 `/mnt/d/Mana`）迁至
+> **Linux 原生路径 `~/Mana`**（= `/home/lk/Mana`）。检查器已实测在新路径运行，
+> `node _check-consistency.mjs` 退出码 **0**、20 项 PASS / 0 FAIL。
+> **Windows 侧说明（实测）**：Windows 上没有 `node`（`where node` 无输出），故命令须在 WSL 内执行；
+> Windows 侧仅能以 UNC 路径 `\\wsl.localhost\Ubuntu-26.04\home\lk\Mana\docs\` 浏览文件（实测可达），
+> 原 README 的 `cd D:\Mana\docs` 已随迁移失效。
 
 - **退出码 0** = 无 FAIL（通过）；**退出码 1** = 有 FAIL
 - 输出三类：`PASS`（通过项）/ `WARN`（已知可接受）/ `✗ FAIL`（必修）
@@ -17,7 +23,7 @@ node _check-consistency.mjs
 **跨平台（2026-09-24 修）**：脚本不再硬编码 `D:/Mana/docs/...`，改为**按脚本自身所在目录**定位两册，Windows 与 WSL 均可直跑：
 
 ```bash
-cd /mnt/d/Mana/docs && node _check-consistency.mjs     # WSL
+cd ~/Mana/docs && node _check-consistency.mjs              # WSL（迁移后路径）
 node _check-consistency.mjs <本册> <方案原件>            # argv 覆盖（可指向副本做变异测试）
 ```
 
