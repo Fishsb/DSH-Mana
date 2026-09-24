@@ -1,0 +1,137 @@
+[
+ {
+  "file": "docs/mana-rollout-plan.md",
+  "line": 336,
+  "needle": "输出 `v22.22.0` 与 `DatabaseSync,StatementSync,constants,backup`"
+ },
+ {
+  "file": "docs/mana-rollout-plan.md",
+  "line": 316,
+  "needle": "engines.node = 22.22.0"
+ },
+ {
+  "file": "docs/mana-rollout-plan.md",
+  "line": 70,
+  "needle": "`pnpm -v` → `The term 'pnpm' is not recognized`"
+ },
+ {
+  "file": "docs/mana-rollout-plan.md",
+  "line": 732,
+  "needle": "`pnpm -v` 不存在、`npm 10.9.4` 可用"
+ },
+ {
+  "file": "docs/mana-rollout-plan.md",
+  "line": 328,
+  "needle": "`pnpm`（本机不存在）→ npm"
+ },
+ {
+  "file": "docs/mana-rollout-plan.md",
+  "line": 179,
+  "needle": "本机 `uv`/`python` 均未找到"
+ },
+ {
+  "file": "docs/mana-rollout-plan.md",
+  "line": 191,
+  "needle": "本机实际运行版本"
+ },
+ {
+  "file": "docs/mana-rollout-plan.md",
+  "line": 196,
+  "needle": "本机 **`4.0.2`**"
+ },
+ {
+  "file": "docs/mana-rollout-plan.md",
+  "line": 402,
+  "needle": "1,157,672,605 B"
+ },
+ {
+  "file": "docs/mana-rollout-plan.md",
+  "line": 216,
+  "needle": "留在 0.1.5-rc.2 或升到 0.1.5-rc.3"
+ },
+ {
+  "file": "docs/mana-rollout-plan.md",
+  "line": 211,
+  "needle": "升级 = 重跑受影响判据，不是重写全册"
+ },
+ {
+  "file": "docs/mana-rollout-plan.md",
+  "line": 379,
+  "needle": "实际 profiles 只有 `desktop` / `headless` / `web`"
+ },
+ {
+  "file": "docs/mana-rollout-plan.md",
+  "line": 175,
+  "needle": "agent/pre-step"
+ },
+ {
+  "file": "docs/mana-rollout-plan.md",
+  "line": 174,
+  "needle": "lib/vec.js:254` 原文为 `catch { return null }"
+ },
+ {
+  "file": "docs/mana-rollout-plan.md",
+  "line": 462,
+  "needle": "`vec.js:254` 的 `catch { return null }` 不得照抄"
+ },
+ {
+  "file": "docs/mana-rollout-plan.md",
+  "line": 712,
+  "needle": "宿主进程内 `fetch` 打 11434"
+ },
+ {
+  "file": "docs/mana-rollout-plan.md",
+  "line": 712,
+  "needle": "无法把代码注入运行中的宿主进程"
+ },
+ {
+  "file": "docs/mana-rollout-plan.md",
+  "line": 216,
+  "needle": "留在 0.1.5-rc.2"
+ },
+ {
+  "file": "docs/mana-rollout-plan.md",
+  "line": 604,
+  "needle": "多设备同步"
+ },
+ {
+  "file": "docs/mana-rollout-plan.md",
+  "line": 394,
+  "needle": "`cosine`(93) / `embedMany`(246) / `recallRanked`(289)"
+ },
+ {
+  "file": "docs/mana-rollout-plan.md",
+  "line": 739,
+  "needle": "qwen3.5:0.8b` → `yes=0.887 / no=0.101`"
+ },
+ {
+  "file": "docs/mana-rollout-plan.md",
+  "line": 402,
+  "needle": "bge-m3:latest` 在库"
+ },
+ {
+  "file": "docs/mana-rollout-plan.md",
+  "line": 402,
+  "needle": "1,157,672,605 B"
+ },
+ {
+  "file": "docs/mana-rollout-plan.md",
+  "line": 345,
+  "needle": "不是与某个固定数字相等"
+ },
+ {
+  "file": "docs/mana-rollout-plan.md",
+  "line": 181,
+  "needle": "Test-Path ~/.dsh/memory` = **False**"
+ },
+ {
+  "file": "docs/mana-rollout-plan.md",
+  "line": 327,
+  "needle": "DSH 无 `memory` 约定目录"
+ },
+ {
+  "file": "docs/mana-rollout-plan.md",
+  "line": 299,
+  "needle": "所有命令可直接粘贴 PowerShell"
+ }
+]

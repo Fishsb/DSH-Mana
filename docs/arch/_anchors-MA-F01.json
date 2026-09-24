@@ -1,0 +1,462 @@
+[
+ {
+  "file": "docs/mana-v5-plan.md",
+  "line": 590,
+  "needle": "| `dsh-mana-core` | 事件类型、数据模型、共享 schema | — | P0 | 无 |"
+ },
+ {
+  "file": "docs/mana-v5-plan.md",
+  "line": 591,
+  "needle": "`dsh-mana-jev`"
+ },
+ {
+  "file": "docs/mana-v5-plan.md",
+  "line": 592,
+  "needle": "`dsh-mana-vector`"
+ },
+ {
+  "file": "docs/mana-v5-plan.md",
+  "line": 593,
+  "needle": "`dsh-mana-perception`"
+ },
+ {
+  "file": "docs/mana-v5-plan.md",
+  "line": 594,
+  "needle": "core, jev"
+ },
+ {
+  "file": "docs/mana-v5-plan.md",
+  "line": 595,
+  "needle": "`dsh-mana-working-memory`"
+ },
+ {
+  "file": "docs/mana-v5-plan.md",
+  "line": 596,
+  "needle": "core, jev, vector"
+ },
+ {
+  "file": "docs/mana-v5-plan.md",
+  "line": 597,
+  "needle": "`dsh-mana-scheduler`"
+ },
+ {
+  "file": "docs/mana-v5-plan.md",
+  "line": 598,
+  "needle": "core, long-term"
+ },
+ {
+  "file": "docs/mana-v5-plan.md",
+  "line": 599,
+  "needle": "core, long-term"
+ },
+ {
+  "file": "docs/mana-v5-plan.md",
+  "line": 600,
+  "needle": "`dsh-mana-metacognition`"
+ },
+ {
+  "file": "docs/mana-v5-plan.md",
+  "line": 601,
+  "needle": "`dsh-mana-user-model`"
+ },
+ {
+  "file": "docs/mana-v5-plan.md",
+  "line": 602,
+  "needle": "`dsh-mana-ui`"
+ },
+ {
+  "file": "docs/mana-v5-plan.md",
+  "line": 250,
+  "needle": "认知内核插件层（每个 = 独立 DSH Bundle 插件）"
+ },
+ {
+  "file": "docs/mana-v5-plan.md",
+  "line": 283,
+  "needle": "DSH 官方服务（插件通过 inject 声明依赖）"
+ },
+ {
+  "file": "docs/mana-v5-plan.md",
+  "line": 284,
+  "needle": "ctx.sessions · ctx.storage"
+ },
+ {
+  "file": "docs/mana-v5-plan.md",
+  "line": 289,
+  "needle": "提供方被卸载时，所有依赖它的插件自动卸载"
+ },
+ {
+  "file": "docs/mana-v5-plan.md",
+  "line": 632,
+  "needle": "不等待、不收集返回值"
+ },
+ {
+  "file": "docs/mana-v5-plan.md",
+  "line": 636,
+  "needle": "next() continuation"
+ },
+ {
+  "file": "docs/mana-v5-plan.md",
+  "line": 640,
+  "needle": "必须调用 `next()`"
+ },
+ {
+  "file": "docs/mana-v5-plan.md",
+  "line": 647,
+  "needle": "'mana/observation': Observation"
+ },
+ {
+  "file": "docs/mana-v5-plan.md",
+  "line": 656,
+  "needle": "'mana/jev/judge': (req: JevJudgeRequest, next: () => Promise<JevJudgeResult>)"
+ },
+ {
+  "file": "docs/mana-v5-plan.md",
+  "line": 657,
+  "needle": "'mana/jev/judged': JevJudgeResult"
+ },
+ {
+  "file": "docs/mana-v5-plan.md",
+  "line": 678,
+  "needle": "export const name = 'mana-attention'"
+ },
+ {
+  "file": "docs/mana-v5-plan.md",
+  "line": 679,
+  "needle": "export const inject = ['mana-core', 'mana-jev']"
+ },
+ {
+  "file": "docs/mana-v5-plan.md",
+  "line": 688,
+  "needle": "jevThreshold: Schema.number().default(0.7)"
+ },
+ {
+  "file": "docs/mana-v5-plan.md",
+  "line": 692,
+  "needle": "ctx.on('mana/observation'"
+ },
+ {
+  "file": "docs/mana-v5-plan.md",
+  "line": 693,
+  "needle": "ctx.emit('mana/jev/judge'"
+ },
+ {
+  "file": "docs/mana-v5-plan.md",
+  "line": 694,
+  "needle": "id: `att-${obs.id}`"
+ },
+ {
+  "file": "docs/mana-v5-plan.md",
+  "line": 703,
+  "needle": "ctx.on('mana/jev/judged'"
+ },
+ {
+  "file": "docs/mana-v5-plan.md",
+  "line": 706,
+  "needle": "result.probability > config.jevThreshold"
+ },
+ {
+  "file": "docs/mana-v5-plan.md",
+  "line": 707,
+  "needle": "id: result.requestId"
+ },
+ {
+  "file": "docs/mana-v5-plan.md",
+  "line": 436,
+  "needle": "Fail-open"
+ },
+ {
+  "file": "docs/mana-v5-plan.md",
+  "line": 437,
+  "needle": "Fail-degraded"
+ },
+ {
+  "file": "docs/mana-v5-plan.md",
+  "line": 438,
+  "needle": "Fail-closed"
+ },
+ {
+  "file": "docs/mana-v5-plan.md",
+  "line": 443,
+  "needle": "每个 session 中最多注入一次"
+ },
+ {
+  "file": "docs/mana-v5-plan.md",
+  "line": 446,
+  "needle": "字节级一致"
+ },
+ {
+  "file": "docs/mana-v5-plan.md",
+  "line": 500,
+  "needle": "向量检索（sqlite-vec）"
+ },
+ {
+  "file": "docs/mana-v5-plan.md",
+  "line": 501,
+  "needle": "关键词检索（FTS5 BM25）"
+ },
+ {
+  "file": "docs/mana-v5-plan.md",
+  "line": 502,
+  "needle": "图遍历（可选）"
+ },
+ {
+  "file": "docs/mana-v5-plan.md",
+  "line": 503,
+  "needle": "RRF 融合"
+ },
+ {
+  "file": "docs/mana-v5-plan.md",
+  "line": 504,
+  "needle": "JEV Recall Gate 逐条判断相关性"
+ },
+ {
+  "file": "docs/mana-v5-plan.md",
+  "line": 505,
+  "needle": "时间衰减加权"
+ },
+ {
+  "file": "docs/mana-v5-plan.md",
+  "line": 557,
+  "needle": "retention(t) = exp(-t / S)"
+ },
+ {
+  "file": "docs/mana-v5-plan.md",
+  "line": 563,
+  "needle": "Pavlik & Anderson"
+ },
+ {
+  "file": "docs/mana-v5-plan.md",
+  "line": 570,
+  "needle": "| 激活值区间 | 动作 |"
+ },
+ {
+  "file": "docs/mana-v5-plan.md",
+  "line": 573,
+  "needle": "正常保留"
+ },
+ {
+  "file": "docs/mana-v5-plan.md",
+  "line": 575,
+  "needle": "归档（retired=true），可恢复"
+ },
+ {
+  "file": "docs/mana-v5-plan.md",
+  "line": 576,
+  "needle": "压缩为统计摘要"
+ },
+ {
+  "file": "docs/mana-v5-plan.md",
+  "line": 580,
+  "needle": "物理删除永不发生"
+ },
+ {
+  "file": "docs/mana-v5-plan.md",
+  "line": 334,
+  "needle": "A(memory) = B(memory) + S(memory) + P(memory) + ε"
+ },
+ {
+  "file": "docs/mana-v5-plan.md",
+  "line": 339,
+  "needle": "衰减指数（默认 0.5）"
+ },
+ {
+  "file": "docs/mana-v5-plan.md",
+  "line": 548,
+  "needle": "任务结束（Goal status → done）"
+ },
+ {
+  "file": "docs/mana-v5-plan.md",
+  "line": 774,
+  "needle": "通过事件通信，不直接 import 实现"
+ },
+ {
+  "file": "docs/mana-v5-plan.md",
+  "line": 790,
+  "needle": "CREATE TABLE memory_items"
+ },
+ {
+  "file": "docs/mana-v5-plan.md",
+  "line": 797,
+  "needle": "base_level_activation REAL DEFAULT 0"
+ },
+ {
+  "file": "docs/mana-v5-plan.md",
+  "line": 809,
+  "needle": "vector BLOB"
+ },
+ {
+  "file": "docs/mana-v5-plan.md",
+  "line": 844,
+  "needle": "CREATE TABLE mana_trace"
+ },
+ {
+  "file": "docs/mana-v5-plan.md",
+  "line": 845,
+  "needle": "seq INTEGER PRIMARY KEY AUTOINCREMENT"
+ },
+ {
+  "file": "docs/mana-v5-plan.md",
+  "line": 869,
+  "needle": "$DSH_HOME/memory/mana.db"
+ },
+ {
+  "file": "docs/mana-v5-plan.md",
+  "line": 885,
+  "needle": "插件卸载时自动清理"
+ },
+ {
+  "file": "docs/mana-v5-plan.md",
+  "line": 895,
+  "needle": "不注入（沉默）"
+ },
+ {
+  "file": "docs/mana-v5-plan.md",
+  "line": 904,
+  "needle": "插件重启后从 mana_trace 回放"
+ },
+ {
+  "file": "docs/mana-v5-plan.md",
+  "line": 911,
+  "needle": "物理删除永不发生"
+ },
+ {
+  "file": "docs/mana-v5-plan.md",
+  "line": 979,
+  "needle": "衰减 + 归档 + 压缩"
+ },
+ {
+  "file": "docs/mana-rollout-plan.md",
+  "line": 44,
+  "needle": "被点名的 6 个包本机**一个都没装**"
+ },
+ {
+  "file": "docs/mana-rollout-plan.md",
+  "line": 167,
+  "needle": "性能数字跨采样浮动 1.2–13 倍"
+ },
+ {
+  "file": "docs/mana-rollout-plan.md",
+  "line": 168,
+  "needle": "检测方式」列 0 条真有信号"
+ },
+ {
+  "file": "docs/mana-rollout-plan.md",
+  "line": 169,
+  "needle": "不变式无可数之处"
+ },
+ {
+  "file": "docs/mana-rollout-plan.md",
+  "line": 170,
+  "needle": "扩展加载窗口不可后补"
+ },
+ {
+  "file": "docs/mana-rollout-plan.md",
+  "line": 171,
+  "needle": "中文 FTS5 静默归零"
+ },
+ {
+  "file": "docs/mana-rollout-plan.md",
+  "line": 172,
+  "needle": "用 `emit` 分发 waterfall 契约"
+ },
+ {
+  "file": "docs/mana-rollout-plan.md",
+  "line": 173,
+  "needle": "并发写立即失败；无事务封装"
+ },
+ {
+  "file": "docs/mana-rollout-plan.md",
+  "line": 174,
+  "needle": "静默降级形态已有先例"
+ },
+ {
+  "file": "docs/mana-rollout-plan.md",
+  "line": 175,
+  "needle": "agent/pre-step"
+ },
+ {
+  "file": "docs/mana-rollout-plan.md",
+  "line": 176,
+  "needle": "卸载 ≠ 数据回滚"
+ },
+ {
+  "file": "docs/mana-rollout-plan.md",
+  "line": 177,
+  "needle": "空壳与真插件同形"
+ },
+ {
+  "file": "docs/mana-rollout-plan.md",
+  "line": 178,
+  "needle": "复用承诺不实"
+ },
+ {
+  "file": "docs/mana-rollout-plan.md",
+  "line": 72,
+  "needle": "VIRTUAL TABLE"
+ },
+ {
+  "file": "docs/mana-rollout-plan.md",
+  "line": 224,
+  "needle": "默认度量是 L2，不是余弦"
+ },
+ {
+  "file": "docs/mana-rollout-plan.md",
+  "line": 225,
+  "needle": "`rowid` 必须 BigInt"
+ },
+ {
+  "file": "docs/mana-rollout-plan.md",
+  "line": 226,
+  "needle": "KNN 查询必须带 `LIMIT`"
+ },
+ {
+  "file": "docs/mana-rollout-plan.md",
+  "line": 246,
+  "needle": "**18 批次**"
+ },
+ {
+  "file": "docs/mana-rollout-plan.md",
+  "line": 249,
+  "needle": "逐行重数为 **18**"
+ },
+ {
+  "file": "docs/mana-rollout-plan.md",
+  "line": 284,
+  "needle": "计数归位"
+ },
+ {
+  "file": "docs/mana-rollout-plan.md",
+  "line": 298,
+  "needle": "反证判据"
+ },
+ {
+  "file": "docs/mana-rollout-plan.md",
+  "line": 394,
+  "needle": "走纯 JS 通道"
+ },
+ {
+  "file": "docs/mana-rollout-plan.md",
+  "line": 403,
+  "needle": "W-1/W-2/W-3 的落点"
+ },
+ {
+  "file": "docs/mana-rollout-plan.md",
+  "line": 478,
+  "needle": "向量权威唯一"
+ },
+ {
+  "file": "docs/mana-rollout-plan.md",
+  "line": 480,
+  "needle": "维护者却成了依赖者"
+ },
+ {
+  "file": "docs/mana-rollout-plan.md",
+  "line": 481,
+  "needle": "mana/plugin/inactive"
+ },
+ {
+  "file": "docs/mana-rollout-plan.md",
+  "line": 536,
+  "needle": "不属于反证"
+ }
+]
