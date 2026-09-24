@@ -14,6 +14,32 @@
 
 | v0.2.1 | **表结构补齐（三处「声明了却没建」）**：<br>① **新建 `user_model_history` 表**（A4-4 要求阶段 0 预留；`key`/`old_value`/`new_value`/`confidence`/`at`/`session_id`/`turn_id`/`source_evidence_id` + `(key,at)` 索引）；<br>② **`jev_log` 补 `gate` 列**（A1-8 原文要读它，而该列从未建过 ⇒ 判据结构上不可执行）+ `CHECK gate IN ('unavailable','budget')`；<br>③ **`memory_items_fts` 补三个同步触发器**（external content 虚表**不自动跟随主表** ⇒ 插入后 FTS 静默 0 命中） | I-3、I-4（表结构）、A1-8/A1-9/A1-10/A4-4 的落点 | S0 | 2026-09-25 | 全体：三条均由 ADR-6 的迁移机制承接（存量库自动补列/补表/补索引），无需手工 DDL；`splitStatements` 已支持 `CREATE TRIGGER ... BEGIN…END` 体内的分号 |
 
+| v0.2.2 | **五类 `gate` 枚举全部接通生产侧 + 判定链接入**：<br>① `attention` 新增 `judgeState`/`judgeQuestion` 配置，Injection Gate 先问 `mana/jev/judge`（waterfall）再决定注入；<br>② 补 `skip_below_threshold`（判了但未过阈）与 `degraded_unavailable`（判定链降级）两个写入点 —— 此前 5 类中只有 3 类可达；<br>③ 补 `reset` 检测（已注入块不在上下文里时显式记账）；<br>④ `jev` 新增 `mana/jev/judge` 监听器（此前**无监听器**，判定链是空链） | I-1（`mana/jev/judge` 的消费侧）、I-3 的 `gate` 五类可达性 | S0 | 2026-09-25 | 全体：`gate` 五类现各有生产侧写入点与判据；`attention` 的判定链缺省 `judgeState=''` ⇒ 必然 `degraded_unavailable`（fail-closed，比"没判就注入"安全） |
+
+## 变更背景（v0.2.2）
+
+**缺口**：`inject_log.gate` 的 5 类枚举在阶段 0 冻结，但实测**只有 3 类有生产侧写入点**
+（`injected` / `skip_no_candidate` / `reset`），另两类从未出现过：
+
+| 枚举 | 原状态 | 本轮 |
+|---|---|---|
+| `skip_below_threshold` | **无写入点** ⇒ 「判了但未过阈」与「候选池空」不可分辨 | 接 `mana/jev/judge` 后按阈值分流 |
+| `degraded_unavailable` | **无写入点** ⇒ fail-closed 的降级态无法留痕（A1-14 的核心） | 判定链不可用时显式记账 + 不注入 |
+| `reset` | 无写入点（需上下文生命周期知识） | 检测已注入块是否仍在 `messages` 里 |
+| `mana/jev/judge` | **全仓无监听器** ⇒ 判定链是空链，`jevProbability` 恒 null | `jev` 新增监听器（waterfall + next() 义务 + 降级显式） |
+
+**实测澄清一处文档表述**（`event-types.ts` 说「用 `emit` 会**同步抛** TypeError」）：
+逐轮探针后的准确表述是 —— `emit` **确实**会分发到监听器，但不提供 `next`
+⇒ **只要监听器调用 `next()`** 就抛 `TypeError`；抛出通道在裸 `Context` 下是 `uncaughtException`
+（会崩进程），经 `Loader` 装配时可能不冒泡。判据据此改为断言**因果链前两环**
+（能送达 + `next === undefined` + 调它必抛），不依赖错误冒泡。
+
+**另一处实测**：cordis 的 waterfall 是**洋葱模型**（**后注册者在更外层、先执行**，
+实测顺序 `A-in → B-in → default → B-out → A-out`）⇒ 验证「某监听器有没有调 `next()`」
+必须把哨兵注册在它的**内层**（即**先**注册），否则哨兵先跑、根本验证不到。
+
+**实测**：全量测试 248 → **251**；A1-13 判据由 3 条用例扩到 **6 条**（覆盖五类枚举各自可达）。
+
 ## 变更背景（v0.2.1）
 
 **三处都是同一形态：声明与生效不一致**（注释/判据承诺了，DDL 没给）。

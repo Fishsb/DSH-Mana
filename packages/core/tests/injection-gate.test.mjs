@@ -45,7 +45,18 @@ const PACKAGES = [
 const cleanups = []
 const settle = (ms = 250) => new Promise((r) => setTimeout(r, ms))
 
-async function boot({ injectionEnabled } = {}) {
+/**
+ * 装配测试环境。
+ *
+ * @param opts.injectionEnabled 注入门控开关（关掉后仍须留痕）
+ * @param opts.judgeProbability 判定链给的可用概率；`null` = 判定链降级（fail-closed 路径）
+ *
+ * ⚠ 为什么要显式给判定链：W3-2 之后 Injection Gate 会**先问判定链**
+ *   （`mana/jev/judge`，waterfall）。判定链不可用 ⇒ gate 记 `degraded_unavailable`
+ *   并 **fail-closed 不注入**（这是正确行为）。故要验证 `injected` 路径，
+ *   必须让判定链给出「可用且过阈」的答案 —— 本函数即为此提供一个桩监听器。
+ */
+async function boot({ injectionEnabled, judgeProbability = 0.95 } = {}) {
   const dir = mkdtempSync(join(tmpdir(), 'mana-a113-'))
   cleanups.push(dir)
   const store = join(dir, 'mana.db')
@@ -55,15 +66,46 @@ async function boot({ injectionEnabled } = {}) {
   ctx.plugin(Loader, { baseUrl: BASE_URL })
   await settle(200)
 
+  // 判定链桩：注册在**装载包之前** ⇒ 位于内层（本仓实测 waterfall 是洋葱模型，
+  // 后注册者在更外层先执行）。这样 attention 调的 `next()` 会落到本桩上。
+  const judgeCalls = []
+  if (judgeProbability !== null) {
+    ctx.on('mana/jev/judge', async (req, next) => {
+      judgeCalls.push(req.requestId)
+      return {
+        requestId: req.requestId,
+        source: 'test-stub-judge',
+        value: judgeProbability >= 0.7 ? 'yes' : 'no',
+        probability: judgeProbability,
+        degraded: false,
+        reason: null,
+      }
+    })
+  } else {
+    // 判定链降级：返回 degraded=true（模拟 JEV 不可用）
+    ctx.on('mana/jev/judge', async (req) => ({
+      requestId: req.requestId,
+      source: 'test-stub-judge',
+      value: 'unknown',
+      probability: null,
+      degraded: true,
+      reason: 'test-stub-degraded',
+    }))
+  }
+
   for (const [pkg] of PACKAGES) {
     const config = pkg === 'dsh-mana-core' ? { storePath: store } : {}
-    if (pkg === 'dsh-mana-attention' && injectionEnabled !== undefined) config.injectionEnabled = injectionEnabled
+    if (pkg === 'dsh-mana-attention') {
+      if (injectionEnabled !== undefined) config.injectionEnabled = injectionEnabled
+      // 判定链要有 state 才判（缺省 '' ⇒ 视为不可用）⇒ 这里显式给一个。
+      config.judgeState = 'S'
+    }
     await ctx.loader.create({ name: pkg, config })
     await settle(150)
   }
   const missing = PACKAGES.filter(([, svc]) => !ctx.get(svc)).map(([p]) => p)
   assert.deepEqual(missing, [], `未装配：${missing.join(', ')}`)
-  return { ctx, store }
+  return { ctx, store, judgeCalls }
 }
 
 /** 独立只读连接读 inject_log（不复用插件句柄）。 */
@@ -300,4 +342,73 @@ test('P10 A1-3 I2：每个 requestId 在同一 session 至多注入一次', asyn
     byTurn.set(k, (byTurn.get(k) ?? 0) + 1)
   }
   for (const [k, c] of byTurn) assert.equal(c, 1, `${k} 的注入块数=${c}（应 1）`)
+})
+
+// ── P11（A1-13 第五类）`reset`：块离开上下文时必须显式记账 ──────────────────
+test('P11 reset：注入块从上下文消失后，必须记 gate=reset（不得永久标着 injected）', async () => {
+  const { ctx, store } = await boot()
+  ctx.get('mana-perception').perceive({
+    content: '候选内容 R', sessionId: 'sess-a113', turnId: 1, requestId: 'req-reset-1',
+  })
+  await settle(250)
+
+  // ① 首次注入：应记 injected
+  const first = await firePreStep(ctx, { turn: 1 })
+  await settle(150)
+  assert.equal(readInject(store).filter((r) => r.gate === 'injected').length, 1, '首次应真注入')
+  const injectedMsg = first.messages[first.messages.length - 1]
+
+  // ② 再次 pre-step，但**上下文里已没有那个块**（模拟压缩/清空让块离开上下文）
+  await firePreStep(ctx, { turn: 2, messages: [] })
+  await settle(150)
+
+  const rows = readInject(store)
+  const resets = rows.filter((r) => r.gate === 'reset')
+  assert.ok(
+    resets.length >= 1,
+    `块已离开上下文却未记 reset ⇒ 审计里那行 injected 成了假账。实得 gates=${JSON.stringify(rows.map((r) => r.gate))}`,
+  )
+  // 反向：块**仍在**时不得误记 reset
+  await firePreStep(ctx, { turn: 3, messages: [injectedMsg] })
+  await settle(150)
+  const after = readInject(store).filter((r) => r.gate === 'reset').length
+  assert.equal(after, resets.length, '块仍在上下文里 ⇒ 不得重复记 reset（否则 reset 恒真，判据失效）')
+})
+
+// ── P12 判定链「判了但未过阈」⇒ skip_below_threshold（与"没候选"可分辨）──────
+test('P12 判定链未过阈：gate=skip_below_threshold（与 skip_no_candidate 必须可分辨）', async () => {
+  const { ctx, store } = await boot({ judgeProbability: 0.2 }) // 低于 jevThreshold(0.7)
+  ctx.get('mana-perception').perceive({
+    content: '候选内容 T', sessionId: 'sess-a113', turnId: 1, requestId: 'req-thr-1',
+  })
+  await settle(250)
+  const decision = await firePreStep(ctx, { turn: 1 })
+  await settle(150)
+
+  const rows = readInject(store)
+  assert.equal(rows.length, 1, '每次 pre-step 应留一行')
+  assert.equal(
+    rows[0].gate,
+    'skip_below_threshold',
+    `判了但未过阈必须记 skip_below_threshold（否则与"候选池空"同形）。实得=${rows[0].gate}`,
+  )
+  assert.equal(decision.messages.length, 0, '未过阈 ⇒ 不得注入')
+})
+
+// ── P13 判定链降级 ⇒ degraded_unavailable（fail-closed 且留痕）───────────────
+test('P13 判定链降级：gate=degraded_unavailable（不注入但留痕，A1-14）', async () => {
+  const { ctx, store } = await boot({ judgeProbability: null }) // 判定链恒降级
+  ctx.get('mana-perception').perceive({
+    content: '候选内容 U', sessionId: 'sess-a113', turnId: 1, requestId: 'req-deg-1',
+  })
+  await settle(250)
+  const decision = await firePreStep(ctx, { turn: 1 })
+  await settle(150)
+
+  const rows = readInject(store)
+  assert.equal(rows.length, 1, '降级也必须留痕（A1-14：不得静默）')
+  assert.equal(rows[0].gate, 'degraded_unavailable', `实得=${rows[0].gate}`)
+  assert.equal(rows[0].degraded, 1, '降级必须显式落位')
+  assert.equal(rows[0].jev_prob, null, '概率不可用 ⇒ null（不得用 0 冒充）')
+  assert.equal(decision.messages.length, 0, 'fail-closed ⇒ 不注入')
 })

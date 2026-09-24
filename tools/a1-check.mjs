@@ -459,12 +459,17 @@ function runCases(file, cases) {
 
 {
   const id = 'A1-13'
-  const title = 'A1-13 注入审计：每次 pre-step 都留痕且 gate 恒落 5 类枚举'
-  const r = runCases(W3_TESTS.gate, ['P1 A1-13①', 'P2 A1-13②', 'P7 门控关闭'])
-  if (r.failed.length === 0 && r.passed.length === 3) {
-    pass(id, title, '3 条用例全绿：gate 恒落枚举、每次 pre-step 均留痕、关掉门控也留痕', '判据表 docs/mana-rollout-plan.md:473；跑真 agent/pre-step 分发，非直接调 service')
+  const title = 'A1-13 注入审计：每次 pre-step 都留痕；5 类 gate 枚举**均有生产侧写入点**'
+  // ⚠ 本项覆盖**五类枚举各自可达**（不是只验"取值合法"）：
+  //   P1 留痕+枚举合法 / P2 injected / P7 门控关闭 / P9·P10 不变式 / P11 reset /
+  //   P12 skip_below_threshold / P13 degraded_unavailable
+  //   —— 「枚举有 5 类」与「5 类都真能出现」是两回事；后者才说明门控的每种结局都可观测。
+  const cases = ['P1 A1-13①', 'P2 A1-13②', 'P7 门控关闭', 'P11 reset', 'P12 判定链未过阈', 'P13 判定链降级']
+  const r = runCases(W3_TESTS.gate, cases)
+  if (r.failed.length === 0 && r.passed.length === cases.length) {
+    pass(id, title, `6 条用例全绿：每次 pre-step 均留痕；injected / skip_no_candidate / skip_below_threshold / degraded_unavailable / reset 五类各有写入点与判据`, '判据表 docs/mana-rollout-plan.md:473；跑真 agent/pre-step 分发 + 判定链桩，非直接调 service')
   } else {
-    fail(id, title, r.failed.length ? `挂的用例：${r.failed.join(' / ')}` : `本项用例未全绿（passed=${r.passed.length}/3）`, '回 Injection Gate（packages/attention）')
+    fail(id, title, r.failed.length ? `挂的用例：${r.failed.join(' / ')}` : `本项用例未全绿（passed=${r.passed.length}/${cases.length}）`, '回 Injection Gate（packages/attention）')
   }
 }
 

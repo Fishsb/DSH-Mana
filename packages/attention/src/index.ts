@@ -52,6 +52,10 @@ export interface Config {
   injectionEnabled: boolean
   /** 单次注入块的字符上限（与 working-memory 的 budgetChars 独立）。 */
   injectionBudgetChars: number
+  /** 送判定链的 state 文本（Injection Gate 的问法见方案 §6.2）。留空 = 不判、按不可用处理。 */
+  judgeState: string
+  /** 送判定链的问题原文。方案 §6.2 的 Injection Gate 问法。 */
+  judgeQuestion: string
 }
 
 export const Config: Schema<Config> = Schema.object({
@@ -59,6 +63,10 @@ export const Config: Schema<Config> = Schema.object({
   jevThreshold: Schema.number().default(0.7),
   injectionEnabled: Schema.boolean().default(true),
   injectionBudgetChars: Schema.number().default(4000),
+  // ⚠ 缺省留空 ⇒ 判定链拿不到 state ⇒ 必然 `degraded_unavailable`（fail-closed：不注入但留痕）。
+  //   这与「没判就注入」相比是**更安全**的缺省（注入是可见行为，不该在配置缺席时自发发生）。
+  judgeState: Schema.string().default(''),
+  judgeQuestion: Schema.string().default('此信息是否与当前目标高度相关？'),
 })
 
 /**
@@ -113,6 +121,12 @@ export function apply(ctx: Context, config: Config): void {
   const pending: ManaAttention[] = []
   /** 已注入过的 requestId（I2：每条记忆每 session 最多注入一次）。 */
   const injectedRequests = new Set<string>()
+  /**
+   * 已注入、但**是否仍在上下文中**尚未核对的块（`reset` 检测用）。
+   *
+   * ⚠ 存的是 blockId 集合；内容不进这里（A1-9：审计不泄内容，内存态同理）。
+   */
+  const injectedBlocks = new Set<string>()
   let injections = 0
   let lastGate: InjectionGate | null = null
 
@@ -177,11 +191,13 @@ export function apply(ctx: Context, config: Config): void {
    * 三条义务见文件头二：先留痕 → 调 next() → 只做尾部追加。
    */
   ctx.on('agent/pre-step', async (payload, next) => {
+    // ⚠ `sid`/`turn` 提到**外层**（不再只在 `finish` 里）：判定链的 requestId 兜底值
+    //   也要用到它（见下方 `pre-step:${turn}`）。放在 finish 内会让外部拿不到（编译期 TS2304）。
+    const sid = String((payload as { agent?: { session?: { id?: unknown } } })?.agent?.session?.id ?? '')
+    const turn = Number((payload as { turn?: unknown })?.turn ?? 0)
     /** 落痕 + 返回决策：把"留痕"做成**不可绕过**的一步（不依赖调用方记得写）。 */
     const finish = (gate: InjectionGate, extra: { memoryId?: string | null; blockId?: string | null } = {}) => {
       lastGate = gate
-      const sid = String((payload as { agent?: { session?: { id?: unknown } } })?.agent?.session?.id ?? '')
-      const turn = Number((payload as { turn?: unknown })?.turn ?? 0)
       try {
         core.writeInjectLog({
           sessionId: sid,
@@ -205,6 +221,33 @@ export function apply(ctx: Context, config: Config): void {
 
     const downstream = await next()
 
+    // ── `reset` 检测（5 类枚举中此前**唯一无生产侧写入**的一类）──────────────
+    // 语义：「该块**已离开上下文**」（`docs/contract/degradation.md` §4）。
+    // 宿主的 `agent/pre-step` 每步都分发，而上下文可能被压缩/清空
+    // ⇒ 先前注入的块已不在 `downstream.messages` 里。
+    //
+    // ⚠ **为什么必须显式记 `reset`**：块"悄悄消失"与"从未注入"表面完全同形。
+    //   若不检测，`inject_log` 里那行 `injected` 会**永久标着已注入**，而上下文里
+    //   其实早没了 —— 「注入审计」就成了假账（本仓首位缺陷类：让失败不可观测）。
+    // ⚠ 判定口径：用**块自身的 wrapper 特征**（`<mana-memory>`）在当前消息里找。
+    //   不用 blockId 是因为块内容里**不得留可反查的标识**（A1-9 要求审计不泄内容）。
+    // ⚠ `PreStepDecision` 是**联合类型**：`reject` 分支没有 `messages` 字段
+    //   ⇒ 必须先按 `kind` 收窄，否则连 `messages` 都取不到（编译期报 TS2339 —— 这是**正确报错**，
+    //     不要用 `as any` 压掉，那会把"拒绝分支没有消息"这个事实变成不可见）。
+    if (injectedBlocks.size > 0 && downstream?.kind === 'enter') {
+      const msgs = Array.isArray(downstream.messages) ? downstream.messages : []
+      const stillThere = msgs.some((m) =>
+        (Array.isArray(m?.content) ? m.content : []).some(
+          (b) => typeof b?.text === 'string' && b.text.includes('<mana-memory>'),
+        ),
+      )
+      if (!stillThere) {
+        injectedBlocks.clear()
+        finish('reset')
+        return downstream
+      }
+    }
+
     // 下游若已决定 reject，本门控**不注入**（尊重宿主决策），但仍留痕。
     if (downstream?.kind === 'reject') {
       finish('skip_no_candidate')
@@ -220,6 +263,49 @@ export function apply(ctx: Context, config: Config): void {
     if (block === '') {
       // 候选池空：留痕 skip_no_candidate（A1-13 的五类之一）。
       finish('skip_no_candidate')
+      return downstream
+    }
+
+    // ── 判定链：`mana/jev/judge`（**waterfall，必须用 ctx.waterfall 分发**）────
+    // ⚠ 用 `ctx.emit` 会**同步不炸、异步炸**（G6，本仓 judge-chain.test.mjs 的 J4 已实测钉住）
+    //   ⇒ 这里必须 `ctx.waterfall`，且必须自己提供默认 `next`（宿主不参与本事件的默认值）。
+    //
+    // 它给出三态之一：
+    //   · 可用且过阈 ⇒ 继续注入（gate='injected'）
+    //   · 可用但未过阈 ⇒ `skip_below_threshold`（**判了但没放行**，与"没候选"必须分辨）
+    //   · 不可用/降级 ⇒ `degraded_unavailable`（fail-closed：不注入但**必须留痕**）
+    let judge: { value?: string; probability?: number | null; degraded?: boolean; reason?: string | null } | null = null
+    try {
+      const req = {
+        requestId: pending[0]?.requestId ?? `pre-step:${turn}`,
+        judgeType: 'noul',
+        state: config.judgeState || '',
+        question: config.judgeQuestion,
+        threshold: config.jevThreshold,
+        source: name,
+      }
+      judge = await ctx.waterfall('mana/jev/judge', req, async () => ({
+        requestId: req.requestId,
+        source: name,
+        value: 'unknown',
+        probability: null,
+        degraded: true,
+        reason: 'no-judge-listener',
+      }))
+    } catch (error) {
+      // 判定链抛错 ⇒ 视为不可用（fail-closed），**但必须留痕**（A1-14）。
+      judge = { degraded: true, reason: `judge-threw: ${String((error as Error)?.message ?? error)}` }
+    }
+
+    if (!judge || judge.degraded === true) {
+      // fail-closed：不注入，但留痕（A1-14 两条都要真）。
+      finish('degraded_unavailable')
+      return downstream
+    }
+    const prob = typeof judge.probability === 'number' ? judge.probability : null
+    if (prob === null || prob < config.jevThreshold) {
+      // 判了但未过阈：与"候选池空"必须可分辨（否则门控为何没注入就说不清）。
+      finish('skip_below_threshold')
       return downstream
     }
 
@@ -239,7 +325,10 @@ export function apply(ctx: Context, config: Config): void {
     for (const p of pending) injectedRequests.add(p.requestId)
     pending.length = 0
     injections += 1
-    finish('injected', { blockId: `blk-${injections}` })
+    const blockId = `blk-${injections}`
+    // 记入"待核对是否仍在上下文"的集合：下次 pre-step 若找不到它 ⇒ 记 gate='reset'。
+    injectedBlocks.add(blockId)
+    finish('injected', { blockId })
     return {
       ...downstream,
       kind: 'enter',
