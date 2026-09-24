@@ -17,7 +17,7 @@
  *  · 「挂账」是**一等状态**，不等于通过（G14 挂账到阶段 1）。
  */
 import { execFileSync } from 'node:child_process'
-import { existsSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 import { tmpdir } from 'node:os'
@@ -139,22 +139,64 @@ if (want('A0-4')) {
   }
 }
 
-// ══ A0-5 插件形状静态可证 ════════════════════════════════════════════════════
+// ══ A0-5 插件形状静态可证（**扫实际目录**，不再硬编码清单）══════════════════════
+//
+// ⚠ 历史缺陷（本仓 2026-09-24 实测）：旧版 `DIRS` 是**硬编码 6 元素**，而仓库已有 13 个包
+//   ⇒ 7 个后建包（P1/P2）的形状与命名**从未被机检过**。同一时刻 `docs/contract/naming.md`
+//   也只列 6 个包 ⇒ 「契约表」与「机检」**互为盲区**。按该契约开头的成因说明，
+//   三者名字不一致「只在运行期表现为插件不启动」，编译期完全看不出来 —— 正是最该防的形态。
+//   现改为：① 扫实际 `packages/*` 目录（真源）；② 逐包核四要素；③ patch id 必须与 `name` 一致；
+//   ④ `naming.md` 必须覆盖每个包（契约漂移也能被发现）。
 if (want('A0-5')) {
-  // 目录名与包名分离（写面所有权用目录名，装配面用包名，见 docs/contract/naming.md）
-  const DIRS = ['core', 'jev', 'vector', 'perception', 'attention', 'working-memory']
+  const pkgRoot = P('packages')
+  const dirs = existsSync(pkgRoot)
+    ? readdirSync(pkgRoot, { withFileTypes: true })
+        .filter((d) => d.isDirectory())
+        .map((d) => d.name)
+        .sort()
+    : []
   const bad = []
-  for (const dir of DIRS) {
+  const naming = existsSync(P('docs/contract/naming.md'))
+    ? readFileSync(P('docs/contract/naming.md'), 'utf8')
+    : ''
+  for (const dir of dirs) {
     const src = P('packages', dir, 'src/index.ts')
     const patch = P('packages', dir, 'cordis.patch.yml')
     const txt = existsSync(src) ? readFileSync(src, 'utf8') : ''
-    const has4 =
-      /export const name/.test(txt) && /export const inject/.test(txt) &&
-      /export const Config/.test(txt) && /export function apply/.test(txt)
-    if (!has4 || !existsSync(patch)) bad.push(dir)
+    // 形状判据（**区分合法形态**，本仓 2026-09-24 普查后定）：
+    //   · `name` / `inject` / `apply` —— 全部包必备（cordis 三要素）。
+    //   · `Config` —— **三形态都合法**：① schemastery `export const Config`；
+    //     ② 纯类型 `export interface Config` + 代码内缺省（如 ui 的 `DEFAULT_CONFIG`）；
+    //     ③ 完全无配置（如 long-term/consolidation/forgetting 三个骨架）。
+    //     ⚠ 因此**不能**硬性要求 `export const Config` —— 那会造出 4 个假红。
+    //     真约束是：**若声明了 `export const Config`，它必须是 schemastery schema**（可被宿主校验）。
+    const hasBase =
+      /export const name/.test(txt) && /export const inject/.test(txt) && /export function apply/.test(txt)
+    if (!hasBase) {
+      bad.push(`${dir}: name/inject/apply 不齐`)
+      continue
+    }
+    if (/export const Config\s*=/.test(txt) && !/Schema\.object\(|Schema\.union\(|Schema\.boolean\(/.test(txt)) {
+      bad.push(`${dir}: export const Config 存在但不像 schemastery schema`)
+      continue
+    }
+    if (!existsSync(patch)) {
+      bad.push(`${dir}: 缺 cordis.patch.yml`)
+      continue
+    }
+    // patch id 必须与插件 name 一致（不一致 ⇒ 装配面与 inject 面各说各话）。
+    const name = (/export const name\s*=\s*['"]([^'"]+)['"]/.exec(txt) ?? [])[1]
+    const patchId = (/^\s*-\s*id:\s*(\S+)/m.exec(readFileSync(patch, 'utf8')) ?? [])[1]
+    if (!name) bad.push(`${dir}: 取不到 name`)
+    else if (patchId !== name) bad.push(`${dir}: patch id(${patchId}) ≠ name(${name})`)
+    // 契约表必须覆盖（否则命名契约本身漂移）。
+    if (!naming.includes(`packages/${dir}\``)) bad.push(`${dir}: naming.md 未登记`)
   }
-  if (bad.length === 0) pass('A0-5', '插件形状静态可证', `6/6 包 name/inject/Config/apply 齐 + cordis.patch.yml 存在`, '')
-  else fail('A0-5', '插件形状静态可证', `缺项: ${bad.join(', ')}`, '回骨架步骤')
+  if (bad.length === 0 && dirs.length > 0) {
+    pass('A0-5', '插件形状静态可证', `${dirs.length}/${dirs.length} 包 name/inject/apply 齐 + Config 形态合法 + patch id 与 name 一致 + naming.md 全覆盖`, '')
+  } else {
+    fail('A0-5', '插件形状静态可证', `共 ${dirs.length} 个包；问题: ${bad.join(' / ') || '(目录为空)'}`, '回骨架/命名契约步骤')
+  }
 }
 
 // ══ A0-6 CI 绿（新仓自测）════════════════════════════════════════════════════

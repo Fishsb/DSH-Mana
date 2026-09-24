@@ -9,6 +9,18 @@
 | v0.1 | 阶段 0 初版冻结：S1 五类事件 + 领域模型 + 6 表 DDL + `inject_log` | I-1…I-8 | S0 | 2026-09-24 | 全体（编译期报错即清单） |
 | v0.1.1 | **`createSchema` 补列迁移 + 签名/返回值变更**：<br>① 参数由 `{ exec }` 扩为 `{ exec, prepare }`；② 返回值由 `void` 改为 `SchemaResult`（`applied`/`blocked`/`userVersion`/`columnCounts`）；③ 新增 `parseSchema` / `splitStatements` 导出；④ `openManaDb` 结果新增 `appliedColumns` 字段；⑤ `autoMigrate` 语义修正（原为死开关：`false` 时仍建表） | I-3、I-4（DDL 施加方式）、I-7（开库器返回值） | S0 | 2026-09-24 | S1/S2：调用 `createSchema(db)` 的实参须是真 `DatabaseSync`（已自带 `prepare`）；忽略返回值的调用**不受影响**。`openManaDb` 新增字段为**增量**，不破坏既有读取 |
 | v0.1.1 | **冻结三件套口径修正**：`_freeze.files.txt` 的权威 walk 排除 `packages/*/lib/`（tsc 产物 + `.gitignore` 项；纳入会随「跑没跑过 build」漂移） | A0-12（三件套） | S0 | 2026-09-24 | 全体：重取清单腿须用新命令；`A0-12` 现**真读**三条腿（哈希/清单/HEAD），任一漂移即 FAIL |
+| v0.1.2 | **命名契约补齐到 13 包**（原只列 P0 六个）：`naming.md` 增补 `scheduler`/`long-term`/`consolidation`/`forgetting`/`metacognition`/`user-model`/`ui` 七行；`A0-5` 改**扫实际 `packages/*` 目录**并逐包核 `name`/`inject`/`apply` + **patch id 与 `name` 一致** + **本表覆盖率** | I-5（三名映射表） | S0 | 2026-09-25 | 全体：新建包**必须**在 `naming.md` 登记，否则 `A0-5` 报红。`Config` 判定放宽为「三形态合法」（schemastery / 纯类型+缺省 / 无配置），但**声明 `export const Config` 就必须是 schemastery schema** |
+
+## 变更背景（v0.1.2）
+
+**根因**：`naming.md` 自称「本表是契约，不是备忘」，却**只列 P0 六个包**；而 `A0-5` 的目录清单是
+**硬编码 6 元素数组**。两侧各存一份清单且都不完整 ⇒ **互为盲区**：7 个后建包若将三者名字写歧
+（包名 / 插件 `name` / 服务名 / patch id），**编译期与机检都不会报**。按该契约开头的成因说明，
+那正是「**只在运行期表现为插件不启动**」的形态（G11：装配清单 ≠ 生效）。
+
+**处置**：① `naming.md` 补齐 13 行；② `A0-5` 不再自带清单，改为扫实际目录 —— 清单与真源同源，
+漂移才可能被机检发现；③ 新增两条真判据：**patch id 必须等于插件 `name`**（原先无人核）、
+**每个目录必须在 `naming.md` 有登记**。实测：覆盖 6 → **13**，变异测试两例（改名 patch id / 删一条登记）均报红。
 
 ## 变更背景（v0.1.1）
 
