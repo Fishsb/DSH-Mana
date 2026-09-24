@@ -463,27 +463,39 @@ if (want('A0-14')) {
 // 判据（三条腿都要真读，缺一即红）：
 //   ① 退出码 0（a1-check 自身口径：无 FAIL **且** 判据项集等式通过）；
 //   ② 输出里「门判定」段两条腿都是 ✓（`判据腿` 与 `项集腿`）；
-//   ③ 报告里「共 N 项」的 N 等于其 EXPECTED 项数 6（交叉核对，不只看它自己说通过）。
+//   ③ 报告里「共 N 项」的 N 等于 **a1-check 自己声明的期望项数**（交叉核对，不只看它自己说通过）。
+//
+// ⚠ **不要在 a0-check 里硬编码期望项数**（本仓 2026-09-25 实测踩到）：
+//   原先写 `=== 6`，本轮 W3 给 a1-check 加了 4 项（6 → 10）⇒ **a0 的 A1 腿立刻假红**，
+//   而 a1-check 自身全绿。这与本仓已修过两次的缺陷同型（清单各自硬编码、互为盲区 ⇒
+//   `naming.md` 6 包 vs 13 包、`_freeze.files.txt` 无人读）。
+//   ⇒ 改为**从 a1-check 输出里读它自己声明的期望项数**，交叉核对三方一致（报告/声明/实测）；
+//     a0 不另存一份清单。
 if (want('A1')) {
   const r = node([P('tools/a1-check.mjs')])
   const out = r.out ?? ''
   const gate = /✓ 判据腿：无 FAIL/.test(out) && /✓ 项集腿：期望 == 实测/.test(out)
   const countM = /共 (\d+) 项：PASS/.exec(out)
-  const itemsOk = countM ? Number(countM[1]) === 6 : false
+  // a1-check 项集腿原文：`期望 10 项 [...] ／ 实测 10 项 [...]`
+  const declared = Number((/期望 (\d+) 项 \[/.exec(out) ?? [])[1] ?? NaN)
+  const measured = Number((/实测 (\d+) 项 \[/.exec(out) ?? [])[1] ?? NaN)
+  const itemsOk =
+    countM != null && Number.isFinite(declared) && Number.isFinite(measured) &&
+    Number(countM[1]) === declared && measured === declared
   const nCount = /PASS (\d+) · FAIL (\d+) · 挂账 (\d+) · 无实现者 (\d+)/.exec(out)
   if (r.ok && gate && itemsOk) {
     pass(
       'A1',
       'A1 判据入口（a1-check 已进自动门链）',
-      `共 ${countM?.[1]} 项（= 期望 6）· PASS ${nCount?.[1]} / FAIL ${nCount?.[2]} / 挂账 ${nCount?.[3]} / 无实现者 ${nCount?.[4]} · 判据腿与项集腿皆 ✓`,
-      'A1-4/A1-5/A1-11/A1-12 + W2-5 + ARTIFACTS；⚠ 「无实现者」与「挂账」都不是 PASS，见 a1-check 输出',
+      `共 ${countM?.[1]} 项（= 其声明的期望 ${declared}）· PASS ${nCount?.[1]} / FAIL ${nCount?.[2]} / 挂账 ${nCount?.[3]} / 无实现者 ${nCount?.[4]} · 判据腿与项集腿皆 ✓`,
+      '条目由 a1-check 自报并与实测交叉核对（**本处不另存一份清单**）；⚠ 「无实现者」与「挂账」都不是 PASS',
     )
   } else {
     const tail = out.split('\n').filter((l) => /FAIL|项集腿|不通过|缺 |多 /.test(l)).slice(0, 4).join(' / ')
     fail(
       'A1',
       'A1 判据入口（a1-check 已进自动门链）',
-      `ok=${r.ok} 门判定两腿=${gate} 项数=${countM?.[1] ?? '?'}（应 6）｜${tail.slice(0, 300)}`,
+      `ok=${r.ok} 门判定两腿=${gate} 报告项数=${countM?.[1] ?? '?'} / 声明=${Number.isFinite(declared) ? declared : '?'} / 实测=${Number.isFinite(measured) ? measured : '?'}｜${tail.slice(0, 300)}`,
       '回 tools/a1-check.mjs；若项集腿红 ⇒ 判据块被删或期望集未同步',
     )
   }

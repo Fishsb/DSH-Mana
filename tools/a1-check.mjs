@@ -45,12 +45,25 @@ import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, w
 import { tmpdir } from 'node:os'
 import { dirname, join, relative } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
+import { spawnSync } from 'node:child_process'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const ROOT = join(HERE, '..')
 const P = (...p) => join(ROOT, ...p)
 const SRC = P('packages/vector/src')
 const url = (f) => pathToFileURL(f).href
+
+/**
+ * 跑一个子进程（node 命令）。
+ *
+ * ⚠ **不得用管道取退出码**（本仓硬纪律）：`node x.mjs | tail` 的 `$?` 是 `tail` 的。
+ *   本函数用 `spawnSync` 直接取 `status`，不经 shell，故不存在该陷阱。
+ * ⚠ 只传数组参数、不经 shell ⇒ 无引号/通配注入面。
+ */
+function node(args, opts = {}) {
+  const r = spawnSync(process.execPath, args, { cwd: ROOT, encoding: 'utf8', ...opts })
+  return { ok: r.status === 0, code: r.status, out: r.stdout ?? '', err: r.stderr ?? '' }
+}
 
 const argv = process.argv.slice(2)
 const JSON_OUT = argv.includes('--json')
@@ -402,6 +415,92 @@ const fixed = (x, n = 6) => Number(x).toFixed(n)
   else pass(id, title, lines.join(' | '), '判据表 docs/session-allocation.md W2-5；「文件在长」不算通过 —— 断言到导出符号与产物新鲜度')
 }
 
+// ══ W3 注入审计：A1-13 / A1-14 / A1-6+A1-7 / A1-1（走真装配链 + 真 agent/pre-step 分发）══
+//
+// ⚠ 本组的判据**不重写**业务断言，而是把两个测试文件**真跑一遍**并解析 TAP 结果。
+//   理由：判据逻辑（枚举校验、fail-closed 留痕、尾部追加、seq 无洞）必须只有一份实现；
+//   在机检器里再写一遍就是**两个真源**，改一处漏一处即漂移（本仓 ADR-10 的同型教训）。
+//   ⇒ 机检器在此只做「跑 + 解析 + 归因到具体用例」，不复制断言。
+// ⚠ 归因要求：挂的时候必须**点名到用例**，不能只说"文件红了"（否则真因仍不可观测）。
+const W3_TESTS = {
+  chain: P('packages/core/tests/chain-e2e.test.mjs'),
+  gate: P('packages/core/tests/injection-gate.test.mjs'),
+}
+
+/**
+ * 跑一个测试文件，返回 { ok, out, failed(cases), passed }。
+ *
+ * ⚠ **判据只看「本项关心的用例」**，不看整个文件的 exit code（本仓 2026-09-25 实测踩到）：
+ *   同一文件里既有 A1-13 的用例也有 A1-14 的用例 ⇒ 若把 `r.ok`（文件级退出码）计入，
+ *   删掉留痕会让 **A1-6 也报红**，而 A1-6 的 2 条用例其实**全过**（实测 `passed=2/2` 且
+ *   被判 FAIL）—— 那是**假红**，会把排查者引向错误的位置。
+ *   ⇒ 本项成功的定义是：**我关心的那几条用例全绿**（且数量对得上，防"用例被删光")。
+ */
+function runCases(file, cases) {
+  const r = node(['--test', file])
+  const out = `${r.out ?? ''}${r.err ?? ''}`
+  const failed = cases.filter((name) => new RegExp(`not ok \\d+ - ${name}`).test(out))
+  const passed = cases.filter((name) => new RegExp(`ok \\d+ - ${name}`).test(out))
+  const tests = Number((/# tests (\d+)/.exec(out) ?? [])[1] ?? -1)
+  // 用例被删光/改名 ⇒ `passed` 长度不足，调用方按 `passed.length === cases.length` 判红。
+  return { out, failed, passed, tests, fileOk: r.ok }
+}
+
+{
+  const id = 'A1-1'
+  const title = 'A1-1 端到端事件链：perception→attention→WM→scheduler 且 seq 连续无洞'
+  const r = runCases(W3_TESTS.chain, ['C1 A1-1'])
+  if (r.failed.length === 0 && r.passed.length === 1) {
+    pass(id, title, '从 perception 真触发走通全链（三段各写库）；seq 连续无洞', '判据表 docs/mana-rollout-plan.md:451；走真 cordis Loader 装配链，装配判据=服务可读')
+  } else {
+    fail(id, title, r.failed.length ? `挂的用例：${r.failed.join(' / ')}` : `用例未命中（tests=${r.tests}）`, '回 B2.1 接线步骤')
+  }
+}
+
+{
+  const id = 'A1-13'
+  const title = 'A1-13 注入审计：每次 pre-step 都留痕且 gate 恒落 5 类枚举'
+  const r = runCases(W3_TESTS.gate, ['P1 A1-13①', 'P2 A1-13②', 'P7 门控关闭'])
+  if (r.failed.length === 0 && r.passed.length === 3) {
+    pass(id, title, '3 条用例全绿：gate 恒落枚举、每次 pre-step 均留痕、关掉门控也留痕', '判据表 docs/mana-rollout-plan.md:473；跑真 agent/pre-step 分发，非直接调 service')
+  } else {
+    fail(id, title, r.failed.length ? `挂的用例：${r.failed.join(' / ')}` : `本项用例未全绿（passed=${r.passed.length}/3）`, '回 Injection Gate（packages/attention）')
+  }
+}
+
+{
+  const id = 'A1-14'
+  const title = 'A1-14 fail-closed 不得吞掉「未判」：不注入 **且** 仍留痕（两条都要真）'
+  const r = runCases(W3_TESTS.gate, ['P5 A1-14', 'P6 A1-14'])
+  if (r.failed.length === 0 && r.passed.length === 2) {
+    pass(id, title, '无候选/降级两条路径：注入块 == 0 **且** inject_log 均新增对应枚举行（只满足前者即静默）', '判据表 docs/mana-rollout-plan.md:474；G8「降级必须落显式字段」')
+  } else {
+    fail(id, title, r.failed.length ? `挂的用例：${r.failed.join(' / ')}` : `本项用例未全绿（passed=${r.passed.length}/2）`, '回 Injection Gate 的留痕路径')
+  }
+}
+
+{
+  const id = 'A1-2'
+  const title = 'A1-2/A1-3 注入不变式 I1/I2：每 (session,turn) ≤1 注入块、每条记忆每 session ≤1 次'
+  const r = runCases(W3_TESTS.gate, ['P9 A1-2', 'P10 A1-3'])
+  if (r.failed.length === 0 && r.passed.length === 2) {
+    pass(id, title, '同一 turn 连打 3 次 pre-step：3 行留痕但 injected **仅 1 行**；跨 turn 不重复注入同一批候选', '判据表 docs/mana-rollout-plan.md:452-453；前置 A0-8（表 + 列）已具备')
+  } else {
+    fail(id, title, r.failed.length ? `挂的用例：${r.failed.join(' / ')}` : `本项用例未全绿（passed=${r.passed.length}/2）`, '回 Injection Gate 的去重/清空步骤')
+  }
+}
+
+{
+  const id = 'A1-6'
+  const title = 'A1-6/A1-7 注入块转义（内层 < = 0）+ 尾部追加（前缀逐字节不变）'
+  const r = runCases(W3_TESTS.gate, ['P3 A1-6', 'P4 A1-7'])
+  if (r.failed.length === 0 && r.passed.length === 2) {
+    pass(id, title, '含尖括号内容被转义（内层 < = 0）；注入为尾部追加、既有消息逐字节不变', '判据表 docs/mana-rollout-plan.md:456-457；宿主契约「this waterfall cannot mutate messages」')
+  } else {
+    fail(id, title, r.failed.length ? `挂的用例：${r.failed.join(' / ')}` : `本项用例未全绿（passed=${r.passed.length}/2）`, '回注入块组装/追加步骤')
+  }
+}
+
 // ══ 附加腿：全仓 lib 产物新鲜度（挂账状态，可用 --require-fresh-artifacts 升级为 FAIL）══
 {
   const id = 'ARTIFACTS'
@@ -452,7 +551,7 @@ const fixed = (x, n = 6) => Number(x).toFixed(n)
  * ⚠ 本腿是**元判据**，不进 `results`（判定项集必须恰好是 EXPECTED_IDS 这 6 项，
  *   报告里的「共 N 项」也就是判据项数，不得被元判据灌水）。
  */
-const EXPECTED_IDS = ['A1-4', 'A1-5', 'A1-11', 'A1-12', 'ARTIFACTS', 'W2-5']
+const EXPECTED_IDS = ['A1-1', 'A1-2', 'A1-4', 'A1-5', 'A1-6', 'A1-11', 'A1-12', 'A1-13', 'A1-14', 'ARTIFACTS', 'W2-5']
 const ids = results.map((r) => r.id)
 const missingIds = EXPECTED_IDS.filter((x) => !ids.includes(x))
 const extraIds = [...new Set(ids)].filter((x) => !EXPECTED_IDS.includes(x))

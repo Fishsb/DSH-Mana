@@ -33,6 +33,10 @@ import {
   type BackupResult,
 } from './open.ts'
 import { createSchema, SCHEMA_VERSION } from './schema.ts'
+// ⚠ `writeInjectLog` 的取值域校验要用 `INJECTION_GATES`（运行期）与 `InjectionGate`（类型）
+//   ⇒ 必须**真正 import 进本模块作用域**。只写 `export ... from './domain.ts'` 是**再导出**，
+//   不会把名字引入本地作用域（那是两个不同的语义，混同会得到「Cannot find name」）。
+import { INJECTION_GATES, type InjectionGate } from './domain.ts'
 // ⚠ 这行是**契约生效的唯一开关**：`declare module` 只有在该模块被加载时才参与类型合并。
 //   当初用裸 import（无 from）写，被一次路径改名脚本漏掉 ⇒ 契约静默失效、
 //   而报错表现为「mana/xxx 不是 keyof Events」（看起来像事件名写错）。
@@ -109,6 +113,66 @@ export interface TraceEntry {
   at?: string
 }
 
+/**
+ * 注入审计的一次写入请求（阶段 1 · W3-2 的落点）。
+ *
+ * ⚠ **为什么这个类型必须在 core 而不在消费方**（G8 / `docs/contract/degradation.md`）：
+ *   `inject_log` 是「没注入」可分辨的**唯一落点** —— fail-closed 门控的**正常态与故障态
+ *   表面完全同形**（都是"没注入"）。若写入口散落在各插件里，`gate` 的取值就无人统一校验，
+ *   写入方可以悄悄写 `null` 或写死一个非枚举值，而**判据读到的仍是"有行"** ⇒ 假绿。
+ *   故取值域在此处**运行期强校验**（非法即抛，不静默落库）。
+ */
+export interface InjectLogEntry {
+  /** 会话标识（G3）。 */
+  sessionId: string
+  /** 轮次（G3）。 */
+  turnId: number
+  /** 关联键：与 `JevJudgeRequest.requestId` 同源（I-6 统一为 `requestId`）。 */
+  requestId: string
+  /**
+   * 门控判定结果 —— **五类枚举之一，生产侧写死**（`docs/contract/degradation.md` §4）。
+   *
+   * `injected`（真注入了）/ `skip_no_candidate`（候选池空）/ `skip_below_threshold`
+   * （判了但未过阈）/ `degraded_unavailable`（JEV 不可用）/ `reset`（该块已离开上下文）。
+   */
+  gate: InjectionGate
+  /** 本次是否降级（与 `gate='degraded_unavailable'` 同时为真才自洽）。 */
+  degraded?: boolean
+  /** 被注入记忆的 id；未注入时为 null。 */
+  memoryId?: string | null
+  /** 注入块 id；未注入时为 null。 */
+  blockId?: string | null
+  /** 本地排序分（A1-11：降级时排序依据须落到此字段而非 `jev_prob`）。 */
+  localScore?: number | null
+  /** JEV 判定概率；不可用时为 `null`（**不得用 0 冒充「概率为零」**）。 */
+  jevProb?: number | null
+  /** 该块是否已离开上下文（与 `gate='reset'` 配对的显式位）。 */
+  reset?: boolean
+  /** 发生时刻；缺省为当前时间。 */
+  at?: string
+}
+
+/** 一条读回的注入审计行（字段名与 DDL 列一一对应，便于判据直接断言）。 */
+export interface InjectLogRow {
+  id: number
+  session_id: string
+  turn_id: number
+  request_id: string
+  memory_id: string | null
+  block_id: string | null
+  injected_at: string
+  gate: string
+  degraded: number
+  local_score: number | null
+  jev_prob: number | null
+  reset: number
+}
+
+/** `gate` 是否属于 5 类枚举（唯一真源来自 `domain.ts` 的 `INJECTION_GATES`）。 */
+export function isInjectionGate(value: unknown): value is InjectionGate {
+  return typeof value === 'string' && (INJECTION_GATES as readonly string[]).includes(value)
+}
+
 /** core 对外提供的服务面（其余插件只依赖它，不直接摸库）。 */
 export interface ManaCoreService {
   /** 库句柄（只读用途；写路径统一走 `writeTrace` / `withTransaction`）。 */
@@ -123,6 +187,22 @@ export interface ManaCoreService {
   vecVersion(): string | null
   /** 写一条认知轨迹，返回自增 `seq`。 */
   writeTrace(entry: TraceEntry): number
+  /**
+   * 写一条**注入审计**（W3-2 落点），返回自增 `id`。
+   *
+   * ⚠ **非法 `gate` 立即抛错**，不静默落库：`A1-13` 的判据是「枚举值必须落在 5 类内，
+   *   出现 `null`/空值即判红」—— 若写入侧能悄悄写进非枚举值，判据只会看到"有行"。
+   *   故校验放在写入口这**一个点**上（DDL 的 CHECK 是第二道防线，不是唯一防线：
+   *   老库可能建于 CHECK 约束之前，见 `schema.ts` 的迁移说明）。
+   */
+  writeInjectLog(entry: InjectLogEntry): number
+  /**
+   * 按会话读回注入审计（A1-13/A1-14 的取证面）。
+   *
+   * @param sessionId 会话过滤；省略 = 不限会话。
+   * @param limit 最多返回条数（按 `id` 倒序，最新在前）。
+   */
+  listInjectLog(sessionId?: string, limit?: number): InjectLogRow[]
   /** 手写 BEGIN IMMEDIATE 事务（G7）。 */
   withTransaction<T>(fn: () => Promise<T> | T): Promise<T>
   /** 记录一次「插件因依赖缺失未运行」。 */
@@ -226,6 +306,48 @@ export function apply(ctx: Context, config: Config): void {
         entry.at ?? new Date().toISOString(),
       )
       return Number(info.lastInsertRowid)
+    },
+    writeInjectLog(entry: InjectLogEntry): number {
+      // ⚠ 运行期强校验：非法 gate **立即抛**（见接口注释的理由）。
+      if (!isInjectionGate(entry.gate)) {
+        throw new Error(
+          `mana-core: 非法 gate "${String(entry.gate)}" —— 只允许 ${INJECTION_GATES.join(' / ')}。` +
+            '拒绝落库（否则「没注入」的五种情形将不可分辨）。',
+        )
+      }
+      // 自洽性校验：`gate='degraded_unavailable'` **蕴含** `degraded=1`。
+      // ⚠ 用 `||` 而**不是** `??`：`??` 会让调用方传 `degraded:false` 抹掉降级事实
+      //   —— 那正是「让失败不可观测」（gate 已声明降级，落库却说没降级）。
+      //   降级是**客观事实**，不是调用方可选的标注。
+      const degraded = entry.degraded === true || entry.gate === 'degraded_unavailable'
+      const stmt = opened.db.prepare(
+        `INSERT INTO inject_log
+           (session_id, turn_id, request_id, memory_id, block_id, injected_at,
+            gate, degraded, local_score, jev_prob, reset)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      const info = stmt.run(
+        entry.sessionId,
+        entry.turnId,
+        entry.requestId,
+        entry.memoryId ?? null,
+        entry.blockId ?? null,
+        entry.at ?? new Date().toISOString(),
+        entry.gate,
+        degraded ? 1 : 0,
+        entry.localScore ?? null,
+        entry.jevProb ?? null,
+        entry.reset ? 1 : 0,
+      )
+      return Number(info.lastInsertRowid)
+    },
+    listInjectLog(sessionId?: string, limit = 100): InjectLogRow[] {
+      const rows = sessionId
+        ? opened.db
+            .prepare('SELECT * FROM inject_log WHERE session_id = ? ORDER BY id DESC LIMIT ?')
+            .all(sessionId, limit)
+        : opened.db.prepare('SELECT * FROM inject_log ORDER BY id DESC LIMIT ?').all(limit)
+      return rows as unknown as InjectLogRow[]
     },
     withTransaction: <T>(fn: () => Promise<T> | T) => withImmediateTransaction(opened.db, fn),
     recordInactive(id: string, missing: string[]): void {

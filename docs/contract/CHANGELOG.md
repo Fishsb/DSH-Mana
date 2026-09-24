@@ -10,6 +10,23 @@
 | v0.1.1 | **`createSchema` 补列迁移 + 签名/返回值变更**：<br>① 参数由 `{ exec }` 扩为 `{ exec, prepare }`；② 返回值由 `void` 改为 `SchemaResult`（`applied`/`blocked`/`userVersion`/`columnCounts`）；③ 新增 `parseSchema` / `splitStatements` 导出；④ `openManaDb` 结果新增 `appliedColumns` 字段；⑤ `autoMigrate` 语义修正（原为死开关：`false` 时仍建表） | I-3、I-4（DDL 施加方式）、I-7（开库器返回值） | S0 | 2026-09-24 | S1/S2：调用 `createSchema(db)` 的实参须是真 `DatabaseSync`（已自带 `prepare`）；忽略返回值的调用**不受影响**。`openManaDb` 新增字段为**增量**，不破坏既有读取 |
 | v0.1.1 | **冻结三件套口径修正**：`_freeze.files.txt` 的权威 walk 排除 `packages/*/lib/`（tsc 产物 + `.gitignore` 项；纳入会随「跑没跑过 build」漂移） | A0-12（三件套） | S0 | 2026-09-24 | 全体：重取清单腿须用新命令；`A0-12` 现**真读**三条腿（哈希/清单/HEAD），任一漂移即 FAIL |
 | v0.1.2 | **命名契约补齐到 13 包**（原只列 P0 六个）：`naming.md` 增补 `scheduler`/`long-term`/`consolidation`/`forgetting`/`metacognition`/`user-model`/`ui` 七行；`A0-5` 改**扫实际 `packages/*` 目录**并逐包核 `name`/`inject`/`apply` + **patch id 与 `name` 一致** + **本表覆盖率** | I-5（三名映射表） | S0 | 2026-09-25 | 全体：新建包**必须**在 `naming.md` 登记，否则 `A0-5` 报红。`Config` 判定放宽为「三形态合法」（schemastery / 纯类型+缺省 / 无配置），但**声明 `export const Config` 就必须是 schemastery schema** |
+| v0.2 | **W3 波次：`inject_log` 生产侧写入口 + 端到端事件链**：<br>① core 服务面新增 `writeInjectLog(entry)` / `listInjectLog(sessionId?, limit?)`，新增导出类型 `InjectLogEntry` / `InjectLogRow` 与守卫 `isInjectionGate`；<br>② `perception` 新增 `perceive(input)` 服务 + `chunkText()` 纯函数（发 `mana/observation`）；<br>③ `working-memory` 新增 `push()` / `snapshot()` 服务（消费 `mana/attention`，容量闸 + `evicted` 记账）；<br>④ `attention` 新增 `buildBlock()` 服务 + **Injection Gate**（挂 `agent/pre-step`，写 `inject_log`）；<br>⑤ `attention` 的 `status()` 增加 `injections` / `lastGate` 字段 | I-3（`inject_log` 读写面）、I-7（core 服务面） | S0 | 2026-09-25 | 全体：`gate` 取值域**只能**经 `writeInjectLog` 写入（非法值抛错）；消费方读审计用 `listInjectLog` 而非直连 `db`。`ManaCoreService` 新增方法为**增量**，既有调用不受影响 |
+
+## 变更背景（v0.2）
+
+**根因**：`inject_log` 表在阶段 0 已建、5 类 `gate` 枚举已冻结（`docs/contract/degradation.md` §4），
+但**从无生产侧写入** —— 全仓搜 `INSERT INTO inject_log` 只命中 `schema.ts` 的 DDL。
+后果：`A1-13`/`A1-14` 两条判据**无表可查**，而它们覆盖的恰是本仓最在意的一类缺陷
+（fail-closed 门控的**正常态与故障态表面完全同形**：都是"没注入"）。
+
+**处置**：① 写入口收在 core 一处，`gate` 取值域**运行期强校验**（非法即抛，不静默落库）；
+② `degraded` 用 `||` 而非 `??` 计算 —— 传 `degraded:false` **不得**抹掉 `gate='degraded_unavailable'`
+已声明的降级事实（本仓实测：写测试时正是这条抓出了初版实现的漏洞）；
+③ 注入面**尾部追加**，绝不改写既有消息（宿主契约原文「this waterfall cannot mutate messages」，
+且 A1-7 要求前缀哈希逐字节相等）。
+
+**实测**：全量测试 202 → **223**（+21）；`a1-check` 判据项 6 → **10**（新增 A1-1 / A1-13 / A1-14 / A1-6）。
+变异自证：删留痕 ⇒ 仅 A1-13/A1-14 红（A1-1/A1-6 不误伤）；改尾部追加为前插 ⇒ 仅 A1-6 红。
 
 ## 变更背景（v0.1.2）
 
