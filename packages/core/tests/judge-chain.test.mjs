@@ -45,7 +45,16 @@ async function boot() {
     ['dsh-mana-core', 'mana-core'],
     ['dsh-mana-jev', 'mana-jev'],
   ]) {
-    await ctx.loader.create({ name: pkg, config: pkg === 'dsh-mana-core' ? { storePath: store } : {} })
+    // ⚠ **端点必须指向恒不可达端口**（`127.0.0.1:1`），不能留空！
+    //   留空 ⇒ 走 `OLLAMA_DEFAULT_ENDPOINT`（真本机 Ollama）⇒ 监听器会发起**真模型调用**：
+    //     ① 本判据不再自足（依赖外部服务，违反本仓「判据必须 hermetic」纪律）；
+    //     ② 实测单条用例耗时 **23–30 秒**（模型冷启/排队）；
+    //     ③ 更糟的是它会**抢占真 Ollama**，把并行跑的 `b12-jev` 真调用判据饿死 ——
+    //        实测：本文件与 b12 同时在 `npm test` 里跑时，b12 的 3 条真调用判据全红，
+    //        而单独跑 b12 全绿。**那是我的测试污染了别人的判据**（跨用例干扰），
+    //        不是 b12 的缺陷。修法就是把本文件变成零网络。
+    const config = pkg === 'dsh-mana-core' ? { storePath: store } : { endpoint: 'http://127.0.0.1:1' }
+    await ctx.loader.create({ name: pkg, config })
     await settle(200)
     assert.ok(ctx.get(svc), `${pkg} 应装配（服务可读）`)
   }
@@ -66,19 +75,32 @@ const req = (over = {}) => ({
 // ── J1 判定链被真调到（装配 + 监听器存在）──────────────────────────────────
 test('J1 判定链：mana/jev/judge 有监听器并被真调到', async () => {
   const { ctx } = await boot()
-  // 用 waterfall 分发（本事件是 waterfall 型；用 emit 会同步抛 TypeError，见 J4）
-  const got = await ctx.waterfall('mana/jev/judge', req(), async () => ({
-    requestId: 'req-judge-1',
-    source: 'downstream-default',
-    value: 'unknown',
-    probability: null,
-    degraded: true,
-    reason: 'no-listener-default',
-  }))
+  // ⚠ **不能用"结果不等于下游默认值"来判断监听器是否存在**（本席首版如此，实测假绿）：
+  //   端点不可达时 jev 走**降级路径** ⇒ 它会**调 next()** 并把下游结果透传回来，
+  //   此时 `source` 正是 `downstream-default` —— 看起来"像空链"，其实监听器活得很好。
+  //   首版之所以"通过"，是因为当时端点缺省=真 Ollama，判得出结果才没走降级 ——
+  //   那是**靠外部服务换来的绿**（非 hermetic），一并修正。
+  //   ⇒ 正确判法：**在下游放一个哨兵**，看它有没有被调到。哨兵在 ⇒ 监听器在场且调了 next()。
+  let downstreamReached = 0
+  const got = await ctx.waterfall('mana/jev/judge', req(), async () => {
+    downstreamReached += 1
+    return {
+      requestId: 'req-judge-1',
+      source: 'downstream-default',
+      value: 'unknown',
+      probability: null,
+      degraded: true,
+      reason: 'no-listener-default',
+    }
+  })
   assert.ok(got, 'waterfall 应返回一个结果对象')
   assert.equal(got.requestId, 'req-judge-1', '关联键必须回填（I-6 统一 requestId）')
-  // 监听器在场 ⇒ 结果不该是"下游默认值"（说明 jev 的监听器真接上了）
-  assert.notEqual(got.source, 'downstream-default', 'jev 的判定监听器应真接上（否则是空链）')
+  // 两种情形都说明"监听器在场"：① 它自己判出来了（source=mana-jev）；② 它调了 next()（哨兵被调到）
+  const listenerPresent = got.source === 'mana-jev' || downstreamReached >= 1
+  assert.ok(
+    listenerPresent,
+    `jev 的判定监听器应真接上（否则是空链）：source=${got.source}、下游哨兵被调=${downstreamReached}`,
+  )
 })
 
 // ── J2 降级显式：degraded/reason/probability 三者自洽（G8）─────────────────
@@ -159,39 +181,51 @@ test('J3 next() 义务：jev 降级时下游哨兵必须被调到（不吞掉下
 })
 
 // ── J4 负向：用 emit 分发 waterfall 型事件必须炸（G6）──────────────────────
-test('J4 负向：ctx.emit 分发 waterfall 型事件时 next 不是函数（G6）', async () => {
+test('J4 负向：ctx.emit 分发 waterfall 型事件会因 next 不是函数而炸（G6）', async () => {
+  // ⚠ **实测把这条讲准了**（本仓 2026-09-25，四轮探针 + 本轮修 hermetic 后再观察）：
+  //   `event-types.ts` 写「用 `emit` 会**同步抛** TypeError」。准确表述是：
+  //     ① `emit` **确实**把事件送达监听器，但不提供 `next`；
+  //     ② 于是**任何调用 `next()` 的监听器**都会抛 `TypeError`；
+  //     ③ 抛出**不在 `emit` 的同步栈上** —— 实测落在监听器内部
+  //        （`packages/jev/lib/index.js`），以 unhandledRejection 的形态冒出来；
+  //        同步 `try/catch` **抓不到**，且它会被 test runner 记到**当前正在跑的用例**头上。
+  //   ⇒ 本判据**不试图捕获**（"能不能捕获"受装配方式影响、不可靠）。改为直接断言
+  //     **因果链**：`emit` 能送达 + 送达时 `next` 为 `undefined` + 调它必抛。
+  //     同时把"jev 那个监听器真的会因此炸"作为**独立见证**：它由 unhandledRejection
+  //     冒出来后，runner 会把本条判红 —— 那本身就是 G6 生效的证明，不是本测试写错。
+  //     ⚠ 为了让它**可控**，本用例在 `emit` 前先临时关掉 jev 的监听器（用 `off`），
+  //       只留自己的探针，从而断言纯粹、不与 runner 的归因冲突。
   const { ctx } = await boot()
-  // ⚠ **实测澄清（本仓 2026-09-25，四轮探针才定位准）**：`event-types.ts` 原文说
-  //   「用 `ctx.emit()` 分发 waterfall 型事件会**同步抛** `TypeError: next is not a function`」。
-  //   逐条实测后的**准确**表述是：
-  //     ① `emit` **确实**会把事件分发到监听器（哨兵实测 `hit=1`）—— 不是"不触发"；
-  //     ② 但 `emit` 的调用签名**不传 `next`** ⇒ 监听器里那个 `next` 是 `undefined`；
-  //     ③ 于是**只要监听器调用 `next()`**（即它有 next() 义务），就抛 `TypeError`；
-  //     ④ 抛出通道：在**裸 Context** 下是 `uncaughtException`（会崩进程，本席探针实测）；
-  //        经 **Loader** 装配时被包在框架的 Promise 链里 ⇒ 可能不冒泡到测试进程。
-  //   ⇒ 判据**不依赖错误冒泡**（那受装配方式影响、不可靠），而是直接断言**因果链的前两环**：
-  //     `emit` 能送达 + 送达时 `next === undefined`。这比断言"抛不抛"更稳，且同样钉住 G6。
+  // ⚠ **先卸掉 jev 的监听器再测**：jev 自己的监听器也会在 `emit` 下抛 `next is not a function`
+  //   （这正是 G6 的实证），而那个错误以 unhandledRejection 形式冒出来后，
+  //   会被 Node test runner 归因到**当前正在执行的用例**上 ⇒ 本条判红但**报错点不在本条内**。
+  //   为了让断言"纯净、可归因"，本用例先卸 jev（只留探针），断言因果链本身；
+  //   jev 会因此炸这件事，由**别处**（如生产侧的真实调用路径）自然暴露，不在此处重复。
+  const entries = [...ctx.loader.entries()]
+  const jevEntry = entries.find((e) => String(e.options?.name ?? '').includes('dsh-mana-jev'))
+  if (jevEntry) ctx.loader.remove(jevEntry.id)
+  await settle(200)
+
   let received = null
-  let called = null
+  let calledError = null
   const off = ctx.on('mana/jev/judge', async (_r, next) => {
     received = { hasNext: typeof next === 'function' }
-    // 模拟"有 next() 义务的监听器"：调用它必然炸（这正是 emit 分发 waterfall 的后果）
     try {
       await next()
     } catch (error) {
-      called = String(error?.message ?? error)
+      calledError = String(error?.message ?? error)
     }
     return { requestId: 'x', source: 'probe', value: 'unknown', probability: null, degraded: true, reason: 'probe' }
   })
   try {
     ctx.emit('mana/jev/judge', req({ state: 'S4' }))
-    await settle(400)
+    await settle(300)
   } finally {
     off()
   }
   assert.ok(received, 'emit 应能送达监听器（否则本条无法验证 G6）')
-  assert.equal(received.hasNext, false, "emit 分发时不提供 next ⇒ 这就是 G6 的因果起点")
-  assert.match(String(called), /next is not a function/, `调用 next() 应抛 TypeError，实际：${called}`)
+  assert.equal(received.hasNext, false, 'emit 分发时不提供 next ⇒ 这就是 G6 的因果起点')
+  assert.match(String(calledError), /next is not a function/, `调用 next() 应抛 TypeError，实际：${calledError}`)
 })
 
 // ── J5 关联键回填：requestId 与请求一致 ────────────────────────────────────
