@@ -187,7 +187,7 @@
  {
   "file": "docs/mana-v5-plan.md",
   "line": 500,
-  "needle": "向量检索（sqlite-vec）"
+  "needle": "向量检索（纯 JS 余弦；sqlite-vec 为可选加速）"
  },
  {
   "file": "docs/mana-v5-plan.md",

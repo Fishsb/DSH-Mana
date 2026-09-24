@@ -152,6 +152,7 @@ git rev-parse HEAD > docs/contract/_freeze.head
 
 开工第一步（不要跳过）：覆写 B0.1 的环境钉点 —— 实测本机 node v22.22.1 / npm 11.19.1 / pnpm 12.4.2 存在 / DSH 0.1.7-rc.1 / cordis 4.0.4 / profiles = headless,system,web。
 ⚠ A0-1 原写「v22.22.0 逐字相等」会假红；engines.node 用 ^22.22.0（见检查报告 L1-2）。
+⚠⚠ **Node 必须是官方构建**（`/opt/nodejs/bin/node`，经 `/usr/local/bin/node` 接线）：Ubuntu 自带的 `/usr/bin/node` **编译时未启用 TypeScript 支持**，`import './x.ts'` 直接报 `ERR_UNKNOWN_FILE_EXTENSION` ⇒ 全仓 `import ../src/*.ts` 的测试**一条都加载不了**、而 `typecheck` 仍绿（假绿）。开工前先跑 `printf 'export const a: number = 1\n' > /tmp/t.ts && node -e "import('/tmp/t.ts').then(m=>console.log('TS-OK',m.a)).catch(e=>console.log('TS-FAIL',e.code))"` 须打印 `TS-OK 1`。详见 `docs/env-baseline.md` §2.0 与 `docs/mana-rollout-plan.md §A.2`。
 
 完成定义：A0-1..A0-13 全绿 + R0 反证 + docs/contract/ 冻结三件套落盘 + docs/handoff/S0.md 六段齐全。
 收工用一条消息汇报：契约冻结哈希 + A0-* 通过清单 + 未决项。

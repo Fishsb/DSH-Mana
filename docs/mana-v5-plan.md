@@ -497,7 +497,7 @@ GoalStack:
 ```text
 查询 → 查询意图识别
      → 并行执行：
-       ├─ 向量检索（sqlite-vec）→ Top 50
+       ├─ 向量检索（纯 JS 余弦；sqlite-vec 为可选加速）→ Top 50
        ├─ 关键词检索（FTS5 BM25）→ Top 50
        └─ 图遍历（可选）→ Top 20
      → RRF 融合 → 统一排序
@@ -722,7 +722,7 @@ DSH 支持 HMR：服务启动后，用户 `cordis.patch.yml` 的变更会被 boo
 mkdir dsh-mana-attention && cd dsh-mana-attention
 # 在 DSH 的 cordis.patch.yml 中加一行指向你的 src/index.ts
 dsh --profile dev --dump-config
-pnpm build
+npm run build
 dsh plugin --profile dev add ./dsh-mana-attention
 ```
 
@@ -889,7 +889,7 @@ $DSH_HOME/memory/mana.db
 | 组件 | 正常路径 | 降级路径 | 最终兜底 |
 |---|---|---|---|
 | JEV 判断 | JEV API 调用 | 缓存命中 → 本地规则 | 向量相似度排序 |
-| 向量检索 | sqlite-vec 查询 | 关键词 FTS5 | 时间排序 |
+| 向量检索 | 纯 JS 余弦（BLOB 物化） | 关键词 FTS5（trigram） | 时间排序 |
 | 嵌入模型 | BGE-M3 自托管 | API 调用 | 关键词匹配 |
 | LLM 推理 | DSH ctx.llm | 小模型降级 | 模板回复 |
 | 记忆注入 | JEV Injection Gate | 本地规则门控 | 不注入（沉默） |
@@ -1012,7 +1012,7 @@ Newell Test 的 12 条标准可用于评估认知架构的理论完备性：灵�
 | 插件 | 功能 | 与 Mana 的关系 |
 |---|---|---|
 | dsh-shoucang-memory（守藏） | 会话蒸馏自动沉淀 + 深度睡眠反思归纳 + 词法+向量混合召回 + 主动遗忘 | 核心参考：本地向量 bge-m3 + RRF 融合，未配置向量服务自动降级为纯词法 |
-| dsh-memory | 分层 + 图谱 + 时间维度 + 向量语义检索，sqlite-vec KNN 余弦 + FTS5 BM25 + 关键词三路 RRF 融合 | 直接复用 |
+| ~~dsh-memory~~ | ~~分层 + 图谱 + 时间维度 + 向量语义检索，sqlite-vec KNN 余弦 + FTS5 BM25 + 关键词三路 RRF 融合~~ ⇒ **实测不符实**：`dsh-memory@0.1.0` 仅 5 个文件、`grep vec0/sqlite-vec/rrf/cosine/bm25` 零命中，README 自述无嵌入服务 ⇒ 纯 FTS5 词法件 | **不采用** |
 | dsh-hindsight-memory | 本地 Hindsight daemon（PostgreSQL + pgvector + DeepSeek embeddings） | 参考：pgvector 方案 |
 | dsh-graphmemory | 知识图谱记忆，双路召回，PageRank 社区发现 | 参考：图记忆层实现 |
 | dsh-memoria | 向量 + 图记忆层接入 DSH | 参考 |
@@ -1026,10 +1026,10 @@ Newell Test 的 12 条标准可用于评估认知架构的理论完备性：灵�
 |---|---|---|
 | APUS fast-browser-use | 单 Token Logits 快速决策，跳过自回归解码 | 全球最早一批跨平台复现 |
 | JEV-CPU | 在 CPU 上运行 Jev-style 语义 if 决策 | 适合无 GPU 环境 |
-| LitJev | 将 Qwen 全系列模型变成 Jev 式快速决策层，无需训练 | 最适合 Mana |
+| ~~LitJev~~ | 将 Qwen 全系列模型变成 Jev 式快速决策层，无需训练 | ⚠ **本机不可行**：需 Qwen3.8-27B + H100 80GB（本机 RTX 2070S 8GB）；改用本机 Ollama logprob |
 | jev-forge | 端到端工具包 | 适合需要自定义训练的场景 |
 
-**决策**：首选 LitJev 方案。基于 Qwen 系列模型，与 DSH 生态兼容性好，无需训练，定义问题和选项即可获取类型化决策和概率分布。备选：JEV-CPU（无 GPU 环境）或 APUS fast-browser-use（浏览器自动化场景）。
+**决策（2026-09-24 按本机环境适配）**：**改用本机 Ollama 的 logprob 单 token 原语**合成 Jev 式决策 —— `/api/chat` + `think:false` + `logprobs:true` + `top_logprobs:5` + `num_predict:1` + `temperature:0`，从 pos0 取 yes/no 归一概率。理由：LitJev 需 H100 80GB，本机物理不可行；且本机 Ollama 已常驻（`:11434`）零 token 成本。⚠ **判据只认 `logprobs`**：实测 `content` 在 `temperature:0` 下仍不确定、且与 `logprobs` 的 argmax 可不一致（采样 token ≠ argmax）。备选：JEV-CPU（原方案备选，未实测）。
 
 ### 15.5 向量检索索引算法
 
@@ -1039,7 +1039,7 @@ Newell Test 的 12 条标准可用于评估认知架构的理论完备性：灵�
 | IVF-Flat | 95%+ | 快 | 中等 | 平衡精度与内存 |
 | IVF-PQ | 70-90% | 快 | 低 | 内存受限、大规模向量 |
 
-**决策**：选择 sqlite-vec 的 vec0 虚拟表（余弦相似度），无需手动选择索引算法。sqlite-vec 内部已优化，且社区插件已实现完整流水线。如果未来数据量增长到需要独立向量数据库，再考虑迁移到 pgvector（HNSW 索引）。
+**决策**：**主通道为物化 BLOB + 常驻 `Float32Array` 的纯 JS 余弦**（一万条规模实测优于 vec0）；`sqlite-vec` 的 `vec0` 虚表作**规模化升级项**（数据量 >10 万条启用），启用时须固定 `distance_metric=cosine` 并用 `float[]` 维度显式声明。若未来增长到需要独立向量数据库，再考虑 pgvector（HNSW 索引）。
 
 ### 15.6 记忆遗忘与巩固算法
 
@@ -1055,7 +1055,7 @@ Newell Test 的 12 条标准可用于评估认知架构的理论完备性：灵�
 
 ### 15.7 混合检索 RRF
 
-**决策**：直接采用标准 RRF 算法（k=60）。sqlite-vec 已实现 `recall_hybrid` 方法，基于向量余弦和 BM25 的两遍 RRF 融合，默认参数与 pgvector 一致。无需自行实现。
+**决策**：直接采用标准 RRF 算法（k=60），**自行实现**（约 30 行，闭式值 `1/(60+rank)`，`[1,1]` 融合分 `0.032787` 可逐字复现）。⚠ 原稿称「sqlite-vec 已实现 `recall_hybrid` 方法」**不实** —— `sqlite-vec` 仅提供 `vec0` KNN（本机实测 `vec_version()=v0.1.9`，无 RRF 接口），融合层必须自研。
 
 ### 15.8 完整技术决策汇总表
 
@@ -1064,12 +1064,12 @@ Newell Test 的 12 条标准可用于评估认知架构的理论完备性：灵�
 | 认知架构 | ACT-R 激活方程 | 参考 pyactup，TypeScript 自研 | 跨语言运行时增加复杂度 |
 | 认知架构 | SOAR chunking | TypeScript 自研 | 同上 |
 | 认知架构 | CLARION | 暂不采用 | 实验性实现，重叠度低 |
-| JEV 决策 | JEV 适配层 | 首选 LitJev，备选 JEV-CPU | 利用现有 Qwen 模型，无需训练 |
+| JEV 决策 | JEV 适配层 | ~~首选 LitJev~~ ⇒ **本机 Ollama logprob 单 token**，备选 JEV-CPU | LitJev 需 H100 80GB 不可行；Ollama 已常驻、零 token |
 | 记忆框架 | Mem0/Letta | 不直接集成，借鉴工程模式 | 与 DSH 架构冲突 |
-| 向量检索 | sqlite-vec | 直接采用 | 零基础设施，社区已验证 |
+| 向量检索 | 纯 JS 余弦 + 物化 BLOB | 直接采用 | 一万条实测优于 vec0；sqlite-vec 列为 >10 万条升级项 |
 | 向量检索 | bge-m3 + Ollama | 直接采用 | 本地运行，零外部依赖 |
-| 混合检索 | RRF (k=60) | 直接采用 | 标准算法，sqlite-vec 已实现 |
-| DSH 插件 | dsh-memory | 直接复用 | sqlite-vec + FTS5 + RRF 完整实现 |
+| 混合检索 | RRF (k=60) | **自研**（约 30 行） | sqlite-vec 无 RRF 接口，原「已实现」描述不实 |
+| DSH 插件 | ~~dsh-memory~~ | **不采用** | 实测为纯 FTS5 词法件，无向量能力 |
 | DSH 插件 | dsh-shoucang-memory | 核心参考 | 本地向量 + 降级策略 |
 | DSH 插件 | dsh-memory-jev | 直接复用 | JEV 三道门控实现 |
 | 遗忘算法 | ACT-R + 艾宾浩斯 | 组合采用 | 已有学术验证 |
@@ -1084,13 +1084,13 @@ Newell Test 的 12 条标准可用于评估认知架构的理论完备性：灵�
 | 语言 | TypeScript | DSH 插件强制要求 |
 | 框架 | Cordis（DSH 内置） | 类型化事件、依赖注入、服务热插拔 |
 | 存储 | SQLite（`node:sqlite`） | DSH 生态默认，零外部依赖 |
-| 向量库 | sqlite-vec | 零基础设施，社区已验证 |
+| 向量库 | 纯 JS 余弦（可选 sqlite-vec） | 零基础设施；vec0 在 <10 万条无优势 |
 | 嵌入模型 | BGE-M3（自托管 / Ollama） | 多语言、8192 上下文、混合检索 |
-| JEV 通道 | LitJev（Qwen 基座） | 无需训练，类型化决策 |
+| JEV 通道 | 本机 Ollama logprob（`:11434`） | 零 token 成本；LitJev 需 H100 80GB 不可行 |
 | LLM | DSH `ctx.llm` | 通过插件注入 |
-| 测试 | Vitest | DSH 生态标准 |
-| 包管理 | pnpm | DSH 推荐 |
-| 构建 | tsc（Host）+ tsdown（Client） | DSH 标准构建链 |
+| 测试 | `node:test` | 本机可用且样板即此；Vitest 非必需 |
+| 包管理 | npm（workspaces） | 本机 pnpm 可用，但项目统一 npm 以对齐样板与 DSH profile |
+| 运行平台 | WSL2 / Ubuntu（ext4） | 全部命令为 Linux/bash 口径，不用 PowerShell |
 | ACT-R 参考 | pyactup 算法移植 | Python 库无法直接在 DSH 运行 |
 
 ---
@@ -1102,12 +1102,12 @@ Newell Test 的 12 条标准可用于评估认知架构的理论完备性：灵�
 - 创建 monorepo 和所有 Mana 插件目录
 - Agent-Contract 冻结事件类型和数据模型
 - 每个插件搭空骨架（name + inject + apply）
-- 配 CI：typecheck + vitest + plugin-shape 校验
+- 配 CI：typecheck + `node:test` + plugin-shape 校验
 
 ### 阶段 1：核心闭环 MVP（3–4 周）
 
-- Agent-JEV 基于 LitJev 实现 JEV 适配插件（含缓存、降级、熔断）
-- Agent-Vector 直接复用 sqlite-vec + FTS5 + RRF 实现
+- Agent-JEV 基于**本机 Ollama logprob** 实现 JEV 适配插件（含缓存、降级、熔断）
+- Agent-Vector 自研纯 JS 余弦 + FTS5(trigram) + RRF（约 30 行）实现
 - 实现最小闭环：perception → attention → working-memory → scheduler → action
 - 跑通端到端事件流
 

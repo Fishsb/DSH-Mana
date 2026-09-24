@@ -2,22 +2,22 @@
  {
   "file": "docs/mana-rollout-plan.md",
   "line": 336,
-  "needle": "输出 `v22.22.0` 与 `DatabaseSync,StatementSync,constants,backup`"
+  "needle": "输出 **`v22.22.1`**（⚠ **不是 `v22.22.0`**"
  },
  {
   "file": "docs/mana-rollout-plan.md",
   "line": 316,
-  "needle": "engines.node = 22.22.0"
+  "needle": "engines.node = ^22.22.0"
  },
  {
   "file": "docs/mana-rollout-plan.md",
   "line": 70,
-  "needle": "`pnpm -v` → `The term 'pnpm' is not recognized`"
+  "needle": "WSL 复核推翻 v1.0 实测"
  },
  {
   "file": "docs/mana-rollout-plan.md",
   "line": 732,
-  "needle": "`pnpm -v` 不存在、`npm 10.9.4` 可用"
+  "needle": "理由已按 WSL 修正"
  },
  {
   "file": "docs/mana-rollout-plan.md",
@@ -47,7 +47,7 @@
  {
   "file": "docs/mana-rollout-plan.md",
   "line": 216,
-  "needle": "留在 0.1.5-rc.2 或升到 0.1.5-rc.3"
+  "needle": "升级决策已不适用"
  },
  {
   "file": "docs/mana-rollout-plan.md",
@@ -57,7 +57,7 @@
  {
   "file": "docs/mana-rollout-plan.md",
   "line": 379,
-  "needle": "实际 profiles 只有 `desktop` / `headless` / `web`"
+  "needle": "WSL 实测 profiles = `headless` / `system` / `web`"
  },
  {
   "file": "docs/mana-rollout-plan.md",
@@ -102,7 +102,7 @@
  {
   "file": "docs/mana-rollout-plan.md",
   "line": 739,
-  "needle": "qwen3.5:0.8b` → `yes=0.887 / no=0.101`"
+  "needle": "`yes=0.887 / no=0.101` 复现不出"
  },
  {
   "file": "docs/mana-rollout-plan.md",
@@ -122,7 +122,7 @@
  {
   "file": "docs/mana-rollout-plan.md",
   "line": 181,
-  "needle": "Test-Path ~/.dsh/memory` = **False**"
+  "needle": "`~/.dsh/memory` **不存在**（WSL 复核"
  },
  {
   "file": "docs/mana-rollout-plan.md",
@@ -132,6 +132,6 @@
  {
   "file": "docs/mana-rollout-plan.md",
   "line": 299,
-  "needle": "所有命令可直接粘贴 PowerShell"
+  "needle": "所有命令可直接粘贴 **bash（WSL2 / Ubuntu）**"
  }
 ]

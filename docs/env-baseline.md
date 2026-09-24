@@ -3,6 +3,7 @@
 > **本档的定位**：`A0-1` 说「**DSH 版本必须记录在案**」，并规定退回动作是「停止阶段 0，先报环境变更」。而两册的「实测」全部产自 **Windows 侧**（`D:\Mana` + `C:\Users\lk\.dsh-win`），项目现已在 **WSL**。**本档是那份「记录在案」的现役版本**——方案册里的环境段应视为历史快照。
 > **每条带复验命令**，且**全部于 2026-09-24 在本机实跑**。凡未跑过的写「未验证」，不写推测值。
 > **读法**：要开工前核对 → 跑 §六 一把梭；要查某项为什么是硬前提 → 看 §一的「如果错会怎样」。
+> **⚠ 平台适配轮（2026-09-24 晚）**：本档的结论已被采纳进两册正文（方案 20 行、落地册 32 行 + 新增 §A）。**本节末尾「工具链安装」+ §六.1 记录本轮的安装动作与回滚方式**。
 
 ---
 
@@ -37,7 +38,20 @@
 | `git` | 2.53.0 | 未记 | — |
 | `python3` | **3.14.4**（存在） | 「`uv`/`python` 均未找到」（`册:179` G13） | 漂移（G13 结论已被 Ollama 方案取代，不影响） |
 | `uv` | **不存在** | 不存在 | ✓ 一致 |
-| `sqlite3` CLI | **不存在** | 未记 | 需用 `node:sqlite` 代替（方案本就如此） |
+| `sqlite3` CLI | **3.46.1**（本轮安装） | 未记 | 人工查库用；运行仍走 `node:sqlite` |
+| `jq` | **1.8.1**（本轮安装） | 未记 | 判据脚本解析 JSON 必需 |
+| `gh` | WSL 侧**无**；Windows 侧 `/mnt/c/Users/lk/gh-cli/bin/gh.exe` = 2.70.0 | 未记 | 如需发 release 走 `gh.exe` |
+
+### 2.0 ⚠⚠ **Node 构建差异（本轮最关键的发现，两册完全没写）**
+
+| 构建 | `.ts` 直载 | 实测 |
+|---|---|---|
+| **`/usr/bin/node`**（Ubuntu `nodejs` 包） | ❌ **不支持** | `import('./x.ts')` → `ERR_UNKNOWN_FILE_EXTENSION`；`--experimental-strip-types` → **`Node.js is not compiled with TypeScript support`** |
+| **官方构建** `/opt/nodejs/bin/node`（同版本 `v22.22.1`） | ✅ **支持** | `import('./x.ts')` **成功**（22.22 已默认启用类型剥离） |
+
+**为什么这是硬前提**：工程样板（以及本项目照抄的测试脚手架）**33 个测试文件全部 `import ../src/*.ts`**。
+⇒ 用 Ubuntu 版 node，**整仓测试全部无法加载**：实测 `# tests 106 / # pass 67 / # fail 39`（每条报 `ERR_UNKNOWN_FILE_EXTENSION`），而 **`typecheck` 在 ext4 上仍是 exit 0** ⇒ **「CI 绿」而测试能力已归零**，属典型「让失败不可观测」。
+**处置（已完成）**：安装官方构建于 `/opt/nodejs`，`/usr/local/bin/{node,npm,npx}` 软链指向它（`/usr/local/bin` 在 PATH 中先于 `/usr/bin`）⇒ 交互/非交互 shell 解析一致。回滚：删三个软链即可恢复 Ubuntu 版。
 
 ### 2.1 `node:sqlite`（阶段 0 的核心依赖）
 
@@ -49,7 +63,7 @@
 
 ### 2.2 `node:test`（册 C3 的选型依据）
 
-实测可用（`node --test` 正常执行）。册 C3 结论「本机无 `vitest` ⇒ 用 `node:test`」**依然成立**（`vitest` 实测 `MODULE_NOT_FOUND`）。
+实测可用（`node --test` 正常执行）。⚠ **复核补充**：`vitest` 本机**可以装**（实测 `npm i -D vitest` → `5.0.1`，装成功），故册 C3 的**理由句**（「本机无 vitest」）不成立；保留 `node:test` 的**有效理由**改为「对齐样板与 `dsh-memory-jev` 的既有测试体系，且无需额外构建链」。
 
 ---
 
@@ -117,7 +131,9 @@ NODE_USE_ENV_PROXY = 1
 - 来源：`.wslconfig` 的 **`autoProxy=true`**，由 WSL 注入，**非 shell 配置**（不写进 `.bashrc`）。
 - **`no_proxy` 覆盖 `127.0.0.1`** ⇒ Ollama 访问**不走代理**，这是它能通的原因。
 - 实测：GitHub 直连 `200`；`git ls-remote` 到 `Fishsb/dsh-shoucang-memory` **成功**（`exit=0`）⇒ 册 C15「优先 clone」**成立**。
-- 实测：`npm view @deepseek-ai/dsh version` → **`0.1.5-rc.3`**（registry 可达）。
+- 实测：`npm view @deepseek-ai/dsh version` → **`0.1.5-rc.3`**（registry 可达）。⚠ 现已升 `0.1.7-rc.1`。
+- **`git clone` 的代理依赖（本轮新增实测）**：带环境代理 → clone `Fishsb/dsh-shoucang-memory` **exit 0 / 210 个 TS 文件**；`env -u http_proxy -u https_proxy` 后再 clone → **超时 exit 124**，而同条件下 `git ls-remote` **仍通**。⇒ **大仓 clone 必须经环境代理**；`git config http.proxy` 未设（靠环境变量）。
+- `npm` 亦经环境变量代理可用（`npm view` 4.3 s 返回），**无需** `npm config set proxy`（实测 `proxy`/`https-proxy` 均为 `null`）。
 
 ---
 
@@ -163,8 +179,10 @@ NODE_USE_ENV_PROXY = 1
 
 ```bash
 echo "— 平台 —"; uname -r; . /etc/os-release && echo "$PRETTY_NAME"; nproc; free -g | head -2
-echo "— 工具链 —"; node -v; npm -v; pnpm -v; git --version
+echo "— 工具链 —"; node -v; npm -v; pnpm -v; git --version; python3 -V; jq --version
 node -e "const s=require('node:sqlite');console.log(Object.keys(s).join(','))"
+# ⚠ Node 必须支持 .ts 直载，否则全仓测试静默归零（见 §2.0）
+printf 'export const a: number = 1\n' > /tmp/t.ts && node -e "import('/tmp/t.ts').then(m=>console.log('TS-OK',m.a)).catch(e=>console.log('TS-FAIL',e.code))"
 echo "— DSH —"; dsh --version
 node -e "console.log(require('/usr/local/lib/node_modules/@deepseek-ai/dsh/package.json').version)"
 node -e "console.log(require('/usr/local/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/cordis/package.json').version)"
@@ -177,7 +195,18 @@ echo "— 既有件 —"; ls ~/.dsh/profiles/web/node_modules/dsh-* -d
 echo "— G8 行锚 —"; sed -n '277,279p' /mnt/d/FF/shoucang/lib/vec.js
 ```
 
-**期望**：§二/§三/§四 的表逐项对上。**任一项变** = 环境已漂，按 `A0-1` 退回动作**先报环境变更**，不要带病开工。
+**期望**：§二/§三/§四 的表逐项对上（须打印 `TS-OK 1`）。**任一项变** = 环境已漂，按 `A0-1` 退回动作**先报环境变更**，不要带病开工。
+
+### 6.1 本轮的安装动作（可回滚）
+
+| 动作 | 命令 | 回滚 |
+|---|---|---|
+| 官方 Node 装到 `/opt/nodejs` | `sudo mkdir -p /opt/nodejs && sudo tar -xf node-v22.22.1-linux-x64.tar.xz -C /opt/nodejs --strip-components=1` | `sudo rm -rf /opt/nodejs` |
+| PATH 接线（单一真源） | `sudo ln -sf /opt/nodejs/bin/node /usr/local/bin/node`（npm/npx 同；**npm/npx 保持指向 `/usr/local/lib/node_modules/npm`** 以保住 `npm 11.19.1` 与 `/usr/local` prefix） | `sudo ln -sf ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm`；`sudo rm /usr/local/bin/node` |
+| `jq` + `sqlite3` | `sudo apt-get install -y jq sqlite3` | `sudo apt-get remove -y jq sqlite3` |
+| `pnpm`（已存在） | 无需动作（12.4.2） | — |
+
+> ⚠ **接线踩过的坑（已消除）**：一度同时在 `/etc/profile.d/00-mana-node.sh` 与 `~/.bashrc` 里前置 `/opt/nodejs/bin`，导致**交互 shell 的 `npm` = 10.9.4、非交互 = 11.19.1**（同一命令两种结果）。现两处均已删除，**只留 `/usr/local/bin` 一套软链**。复核：`bash -lc 'command -v npm'` 与 `command -v npm` 必须同值。
 
 ---
 

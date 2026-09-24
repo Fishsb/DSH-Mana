@@ -1,7 +1,7 @@
 # Mana（末那识）分阶段落地册
 
 > **版本**：v1.0 · 2026-09-24
-> **生成方式**：圆桌会议 `mana-rollout-2026-09-24` 七席产出 + 本机（Windows / Node v22.22.0 / Ollama :11434）工具实测 + 主持人逐条裁定。本册不重新论证方案，只把《Mana v5 方案》（`D:\Mana\docs\mana-v5-plan.md`，1241 行）转成可照着执行的实施 + 验收册。
+> **生成方式**：圆桌会议 `mana-rollout-2026-09-24` 七席产出 + 主机工具实测 + 主持人逐条裁定。本册不重新论证方案，只把《Mana v5 方案》（`docs/mana-v5-plan.md`，1241 行）转成可照着执行的实施 + 验收册。⚠ **平台适配轮（2026-09-24 晚）**：v1.0 全部实测产自 **Windows**；项目现役为 **WSL2 / Ubuntu 26.04.1**（项目根 `/home/lk/Mana`，ext4），**命令口径已全部改为 Linux/bash**，细则与复验命令见 **§A 环境适配（WSL2）**；凡冲突处以 §A 为准。
 > **与方案原件的关系**：方案是**设计意图**，本册是**可执行口径**。凡两者冲突处，本册以「本机实测」为准，并在 §1 逐条列出冲突、在 §8 记录裁定理由。方案原件**未被修改**。
 > **阅读法**：要开工 → 直接读 §3.1 找到你的批次号，再跳到 §4 对应阶段；要查某个数能不能当阈值 → 读 §6；要查某条结论的可信度 → 读 §7。
 > **⚠ 引用约定（本册与方案原件章节号撞号，必读）**：
@@ -34,7 +34,7 @@
 - **18 个批次**（逐行 `3+5+2+2+2+2+2`）；「关键路径」分**两种口径**，见 §3.1.1（早前写的「11」是笔误残留值，已废）
 - 人类等价工期保留方案原值，**实算 20–30 周**（方案未给「34」的来源，见 §1 第 11 条）
 - agent 口径**不用周**：批次 = 一次可独立验证的执行段，可数、不估时
-- **宿主基线：DSH `0.1.5-rc.2` · cordis `4.0.2`** —— 本册全部实测依附于此版本。npm `next` 通道已有 `0.1.7-rc.1`（`latest` 是 `0.1.5-rc.3`），**升级后须按 §2.1 版本纪律重跑受影响判据**，不是重写全册
+- **宿主基线：DSH `0.1.7-rc.1` · cordis `4.0.4`**（实测，2026-09-24 WSL）—— 本册 v1.0 实测依附于 Windows 侧 `0.1.5-rc.2`，现役已升。npm `latest` = `0.1.5-rc.3`、`next` = `0.1.7-rc.1`、`alpha` = `0.1.7-alpha.2`。**升级后须按 §2.1 版本纪律重跑受影响判据**，不是重写全册（`next`:`0.1.7-rc.1`，`latest`:`0.1.5-rc.3`）
 
 > **⚠ 批次数差异说明（必读）**：本册的姊妹稿《R1 分期骨架》表头写「17 批次」，同表的阶段 1 却列了 5 项（B1.0 / B1.1 / B1.2 / B2.1 / B2.2）而标注 `（4）` —— 那是**计数笔误**，逐行相加为 5。本册**逐行重数**：`3+5+2+2+2+2+2 = 18`。以本册 §3.1 的表为准。按本册第 3 章数字纪律，此处显式声明差异而非改数凑平。
 
@@ -64,10 +64,10 @@
 |---|---|---|---|
 | 1 | §15.3 行1010–1021「直接复用 dsh-memory / dsh-shoucang-memory / dsh-hindsight-memory / dsh-graphmemory / dsh-memoria / dsh-memory-jev」 | 本机**一个都没装**（`profiles/web/node_modules` + super-injector registry + 全盘深 6 层搜索，均未命中）。**但三条取证通道结论不同**，必须分列（见下「三分法」） | 复用件清单改**三分法**：本机已装 / npm 可得 / npm 无但 GitHub 有。**禁跨通道混用** |
 | 2 | §15.3 行1015 称 `dsh-memory` 提供「sqlite-vec KNN 余弦 + FTS5 BM25 + 三路 RRF 融合」 | `npm pack dsh-memory@0.1.0`（8699 字节）解开后**仅 5 个文件**；`grep vec0/sqlite-vec/rrf/cosine/bm25` **零命中**；README 自述 "no embedding service, no API key, no sidecar process"，存储为 "a `memories` table plus an external-content FTS5 index" | 该描述**不符实，不得据此设计**。它是纯 FTS5 词法件 |
-| 3 | §16 行1087「sqlite-vec 零基础设施，社区已验证」 | 可用但有三条硬约束：① 主包**不含 DLL**，靠 optionalDependencies 分发（`sqlite-vec-windows-x64@0.1.9` 内 `vec0.dll` = **289,280 B**）；② 扩展加载窗口**只在开库瞬间** —— `new DatabaseSync(p)` 后 `enableLoadExtension(true)` 报 `Cannot enable extension loading because it was disabled at database creation`，且 `{allowExtension:true}` 可开、每个新句柄都会重新关闭该窗口（**不可后补，只能删库重建**）；③ 加载失败极易被 `catch` 吞成静默词法降级 | 显式声明平台包；开库一律 `{allowExtension:true}`；启动做 `vec_version()` 探针，拿不到**显式报错不静默降级** |
+| 3 | §16 行1087「sqlite-vec 零基础设施，社区已验证」 | 可用但有三条硬约束：① 主包**不含扩展二进制**，靠 optionalDependencies 分发（**WSL 实测** `sqlite-vec-linux-x64@0.1.9` 内 `vec0.so` = **159,816 B**；Windows 侧为 `vec0.dll` = **289,280 B**）；② 扩展加载窗口**只在开库瞬间** —— `new DatabaseSync(p)` 后 `enableLoadExtension(true)` 报 `Cannot enable extension loading because it was disabled at database creation`，且 `{allowExtension:true}` 可开、每个新句柄都会重新关闭该窗口（**不可后补，只能删库重建**）；③ 加载失败极易被 `catch` 吞成静默词法降级 | 显式声明平台包（Linux 用 `sqlite-vec-linux-x64`）；开库一律 `{allowExtension:true}`；启动做 `vec_version()` 探针，拿不到**显式报错不静默降级** |
 | 4 | §7.1 行500–503「关键词检索 FTS5 BM25」 | 中文在默认分词器（unicode61）下 **MATCH 命中 0**（"末那识"→0、"藏识"→0、"降级"→0，**英文 `MATCH test` → 1**，证明不是"库空"）；`tokenize='trigram'` 后 4 字命中（"末那识"→1、"认知架构"→1）、但 **2 字查询返回 `[]` 且不报错** | 建表显式 `tokenize='trigram'` + 查询最小长度约束（<3 字符即显式拒绝）；**0 命中与「库空」必须可分辨** |
-| 5 | §16 行1091「测试 Vitest」/ §17 行1105「配 CI：typecheck + vitest」 | 本机 `node_modules\vitest` **不存在**；样板 `test` 脚本实为 `node --test "test/*.test.mjs"`，实测 `# tests 365 / # pass 365 / # fail 0`，**2.59 s** | 改 **node:test**。写法硬规定 `node --test "tests/*.test.mjs"`（glob）或 `node --test`（无参）；**禁止写 `node --test tests/`** —— 实测该写法报 `# tests 1 / # fail 1`，形似「测试失败」实为「命令写错」 |
-| 6 | §16 行1092「包管理 pnpm」/ §9.6 调试流程全用 `pnpm`/`dsh plugin` | `pnpm -v` → `The term 'pnpm' is not recognized`；`npm -v` → **10.9.4** 可用；`corepack 0.34.0` 在 PATH；`dsh plugin --profile web ...` 直接报 `'pnpm' is not recognized` + `dsh: pnpm failed in profile directory C:\Users\lk\.dsh\profiles\web` | 改 **npm workspaces**（见 §8 C1）。该报错会被误读成插件问题，须在阶段 0 显式消除 |
+| 5 | §16 行1091「测试 Vitest」（方案已改 `node:test`）/ §17 行1105「配 CI：typecheck + vitest」 | `node_modules/vitest` **不存在**（但**可装**：WSL 实测 `npm i -D vitest` 成功 → `vitest/5.0.1`；仍不采用，见 §8 C3）；样板 `test` 脚本实为 `node --test "test/*.test.mjs"` | 改 **node:test**。写法硬规定 `node --test "tests/*.test.mjs"`（glob）或 `node --test`（无参）；**禁止写 `node --test tests/`** —— 实测该写法报 `# tests 1 / # fail 1`，形似「测试失败」实为「命令写错」 |
+| 6 | §16 行1092「包管理 pnpm」（方案已改 npm）/ §9.6 调试流程 | ⚠ **WSL 复核推翻 v1.0 实测**：`pnpm -v` → **12.4.2 存在**；`npm -v` → **11.19.1**；`corepack` → **0.24.0**；`dsh plugin --profile web list` **实测成功**（exit 0，13 packages）。**v1.0 的「pnpm 不存在 / dsh plugin 报错」系 Windows 侧特征，在 WSL 不成立** | **仍改 npm workspaces**（见 §8 C1，理由改为「对齐样板与 DSH profile 的 pnpm-lock」而非「pnpm 不存在」）。⚠ 该条的旧表述会被误读成插件问题，须在阶段 0 显式更正 |
 | 7 | §9.4 行693 用 `ctx.emit` 分发 §9.3 行656 声明的 waterfall 契约 `mana/jev/judge` | 全文 `ctx.waterfall` **0 命中**、行691–710 **从未注册任何 waterfall 监听器**。实测为 waterfall 型事件注册 `(req,next)` 监听器却用 `ctx.emit()` 分发 → **同步抛 `TypeError: next is not a function`**（cordis `lib/index.js:281` map 分发） | 该契约是**死契约**：判定结果**结构上无法从该路径返回**，只能靠旁路事件带回；且关联键不一致（请求用 `id`，结果用 `requestId`）。**必须改成 `ctx.waterfall('mana/jev/judge', req, next)`** |
 | 8 | §11.2 行809 `memory_items.vector BLOB` vs §7 行500 / §15.5 行1042 的 sqlite-vec vec0 | DDL 块（行789–864）内 `VIRTUAL TABLE` 全文 **0**、`fts5` **0**、`journal_mode` **0**、`PRAGMA` **0**；6 张表**全是普通表，无一虚表** ⇒ §7.1 三路检索与 §15.5 vec0 决策**在数据层没有任何落点** | 向量归属须唯一（见 §8 C4）；建表须补全虚表与 WAL 语句 |
 | 9 | §11.2 行790–863 六张表 | **无 `session_id` / `turn_id` 列**；`mana_trace` 仅 `(seq,event_type,payload,timestamp)`。而 §6.1 行442–443 要求按 `(session,turn)` 计数 | 阶段 0 补列（见 §8 C6）。不补则 I1/I2 判据**永久无可数之处** |
@@ -75,8 +75,8 @@
 | 11 | §17 行1100–1140 工期 | 实算：下限 1+3+4+4+4+4 = **20**，上限 2+4+6+6+6+6 = **30**。**「34 周」在全仓无任何来源** | 双口径并列（见 §8 C10）。请勿按 34 排缓冲，否则凭空多出 4 周并掩盖真实关键路径 |
 | 12 | §17 行1140「多设备同步」 | 全文 grep `多设备同步\|同步\|sync` 仅 4 命中：行632/635 是事件语义「同步广播/同步版本」、行692 是 `ctx.on`、**行1140 仅这五个字，零设计** | 移出范围（见 §8 C5），记为独立课题 |
 | 13 | §14 行969–984 十条「检测方式」 | 逐条判定：**真有信号 0 条 / 半真 3 条（#1 JEV 超时、#3 向量库不可用、#6 工作记忆溢出）/ 愿望 7 条**。"影响"列 10/10 清楚、"对策"列 8/10 有机制，唯独"检测方式"列 9/10 无落点 | 入阶段 0 硬判据（见 §8 C9）：每条故障模式必须给出表/字段名，给不出即标「**不可观测**」并入缺口清单 |
-| 14 | 工程样板 `D:\lk\FF\dsh-plugin-roundtable` | 其 `typecheck` 实为**红**：**exit 2** / 7 条 error（`src/members.ts` `ctx.subagents` ×5 = TS2551，官方已改名 `ctx.agents`；`ContentBlock` 导入 TS2614；`dsh-subagent` 无声明文件 TS7016），HEAD = `a8c8bb7`，跑前跑后 `git status --porcelain` 均 **15 行**（非我造成）。其 `npm test` 则**exit 0**，365/365 | **只能抄袭工程外形，不能抄 API 用法**；新仓必须自测一次 typecheck，**不得拿样板当绿基线** |
-| **15** | §6.1 行438 Injection Gate 挂在 `agent/pre-step` 阶段注入记忆 | `C:\Users\lk\.dsh\profiles\web\node_modules\dsh-shoucang-memory\lib\` 下，`agent/pre-step` 在**两个文件共 6 处**出现：`panel-inject.js` 行 **525 / 626 / 773**、`mcl.js` 行 **6 / 372 / 477**。**真实注册点有两个**（已逐行核实）：`panel-inject.js:773` → `hook.on('agent/pre-step', async (payload, next) => …)`；**`mcl.js:372` → `ctx.on('agent/pre-step', (payload, next) => handlePreStep(...))`**。源码注释另自述：「`agent/pre-step` 可追加消息」（`panel-inject.js` 行546 附近）、「零抛出（异常只审计，绝不打断了 agent 循环）」（`mcl.js` 行6 附近）。`agent/pre-step` 是 DSH 官方 **waterfall** 扩展点（签名 `(payload:{agent,messages,turn,step,signal}, next)`，见 `dsh-agent/lib/types/runtime-types.d.ts`） | **本册风险最高的一条**：waterfall 是环绕中间件，**不调 `next()` 就吞掉下游全部行为且不报错**。Mana 的 Injection Gate 若也挂这里而漏调 `next()`，会**静默掐死用户现有的热记忆注入（773 路径）与 MCL 慢通道（372 路径）**。⚠ **只盯 773 取证会假绿** —— 两条链是**独立注册**的，漏调 `next()` 时 773 可能仍绿而 372 已被掐死 ⇒ **回归观察点必须分链落地**。且「不改 shoucang」的 notDoing 清单**挡不住它 —— 破坏方是新代码**。这是「拆东墙补西墙」的判定样例。处理见 **§2 G9** |
+| 14 | 工程样板 `dsh-plugin-roundtable`（**WSL 现役副本 `/home/lk/dsh-src/dsh-plugin-roundtable`**；`/mnt/d/lk/FF/` 下另有一份 9p 副本，平台包版本不同，见 §A.4） | **WSL 复测结果与 v1.0 不同**：在 **ext4 副本**上 `npm run typecheck` = **exit 0**（v1.0 记的 exit 2 / 7 error 是 **9p 副本 + 0.1.5 平台包**的产物）；`npm test` = **348 tests / 327 pass / 21 fail**，HEAD = `a8c8bb7`，跑前跑后 `git status --porcelain` 均 **19 行**（非我造成）。21 条失败**全是样板自身的跨平台假设**（13 条渲染面用 `.pathname.replace(/^\//,` + "'" + `)` 拼路径 ⇒ Linux 下丢根导致 ENOENT；另 3 文件缺 `@deepseek-ai/dsh-scope`） | **只能抄袭工程外形，不能抄 API 用法**；新仓必须自测一次 typecheck，**不得拿样板当绿基线**。⚠ 其**测试脚本自身**在 Linux 上不可用，抄测试脚手架时须先修路径（`fileURLToPath`） |
+| **15** | §6.1 行438 Injection Gate 挂在 `agent/pre-step` 阶段注入记忆 | **WSL 实测**：`~/.dsh/profiles/web/node_modules/dsh-shoucang-memory/lib/` 下 `agent/pre-step` 在**4 个文件共 9 处**出现：`panel-inject.js` 533/626/773（v1.0 记 525，已漂）、`mcl.js` 6/372/477、`relevance-supply.js` 17/168、`targets.js` 421。**真实注册点仍只有 2 个**（`.on('agent/pre-step'` 逐行核实）：`panel-inject.js:773` → `hook.on('agent/pre-step', async (payload, next) => …)`；**`mcl.js:372` → `ctx.on('agent/pre-step', (payload, next) => handlePreStep(...))`**。`agent/pre-step` 是 DSH 官方 **waterfall** 扩展点（签名 `(payload:{agent,messages,turn,step,signal}, next)`） | **本册风险最高的一条**：waterfall 是环绕中间件，**不调 `next()` 就吞掉下游全部行为且不报错**。Mana 的 Injection Gate 若也挂这里而漏调 `next()`，会**静默掐死用户现有的热记忆注入（773 路径）与 MCL 慢通道（372 路径）**。⚠ **只盯 773 取证会假绿** —— 两条链是**独立注册**的，漏调 `next()` 时 773 可能仍绿而 372 已被掐死 ⇒ **回归观察点必须分链落地**。且「不改 shoucang」的 notDoing 清单**挡不住它 —— 破坏方是新代码**。这是「拆东墙补西墙」的判定样例。处理见 **§2 G9** |
 
 ### 1.1 复用件三分法（替换一切「直接复用/查无此物」的单一表述）
 
@@ -84,9 +84,9 @@
 
 | 档 | 包 | 版本/证据 | 取件方式 |
 |---|---|---|---|
-| **① 本机已装** | `dsh-shoucang-memory` | **v0.3.1**，`C:\Users\lk\.dsh\profiles\web\node_modules\dsh-shoucang-memory`，Apache-2.0（LICENSE 11359 B），`"private": true` | 目录即用（本机版本真源、可作行为对照） |
+| **① 本机已装** | `dsh-shoucang-memory` | **v0.3.1**，`~/.dsh/profiles/web/node_modules/dsh-shoucang-memory`（WSL 实存），Apache-2.0，`"private": true` | 目录即用（本机版本真源、可作行为对照）。⚠ 该目录由 shoucang 仓 `link:` 装配，**非只读件**，见 §A.5 |
 | **② npm 可得** | `dsh-memory` | **0.1.0**（仅此一版，2026-08-13，无 repository/homepage/author 字段 ⇒ 无法从包回溯源码仓） | `npm i` —— **但不推荐**：它是纯 FTS5 词法件（见 §1 第 2 条） |
-| | `dsh-graphmemory` | **0.2.0**，3.62 MB / 99 文件；`peerDependencies` 含 `@deepseek-ai/dsh-typert-protocol`，**本机 `Test-Path` = False** | `npm i` 需补 DSH 平台包，与「零外部依赖」冲突 |
+| | `dsh-graphmemory` | **0.2.0**，3.62 MB / 99 文件；`peerDependencies` 含 `@deepseek-ai/dsh-typert-protocol`，**本机不可用**（`test -e` = false） | `npm i` 需补 DSH 平台包，与「零外部依赖」冲突 |
 | | `dsh-memoria` | **0.1.0**；npm README 自述 "owns one long-lived **Python subprocess** (`python -m memoria.plugin_server`)" | 与方案 §16「存储 SQLite 零外部依赖」**直接冲突** |
 | **③ npm 无、GitHub 有** | `dsh-memory-jev` | npm **E404**；GitHub `Towzai/dsh-memory-jev` **存在**，**v0.4.1**，MIT，pushed 2026-09-20，66 KB | **可 clone / 可走 API 逐文件取，不可 `npm i`** |
 | | `dsh-shoucang-memory` | npm E404；GitHub `Fishsb/dsh-shoucang-memory` **存在且 public**（`private: false`），Apache-2.0，pushed 2026-09-23，tree 953 项，**含 105 个 TS 源文件**（`src/vec.ts` 23815 B ↔ `lib/vec.js` 22915 B） | 同上。⚠ 修正：**不是「私有件」，是「已开源未发布 npm」**；且**有 TS 源可取**，不必只搬 107 个 `lib/*.js` |
@@ -178,21 +178,21 @@
 | **G12** | **方案 §15.3 复用承诺不实 + 复用件分三档** | 见 §1 第 1–2 条与 §1.1。三档：本机已装（仅 shoucang）/ npm 可得（dsh-memory、dsh-graphmemory、dsh-memoria）/ **npm 无但 GitHub 有**（dsh-memory-jev、dsh-shoucang-memory）。⚠ **取件通道经复核可用 `git clone`**（3/3 成功），早前「443 不通」的判定系瞬时抖动所致、已撤销（见 §8 C15） | 阶段 1 照「直接复用」写 ⇒ 找不到东西；把 npm E404 误判为「不存在」⇒ 重复自研 | **阶段 1 前置** |
 | **G13** | **JEV 承载方式**（原为未定项） | 方案 §15.4 首选 LitJev：需 `Qwen3.8-27B` + **H100 80GB**（本机 RTX 2070S 8GB）；且本机 `uv`/`python` 均未找到。替代实测：Ollama `/api/chat` + `logprobs` + `think:false` + `num_predict=1` → `qwen3.5:0.8b` 出 `yes=0.887 / no=0.101` | 阶段 1 首日即撞；若照 LitJev 写则整批作废 | ✅ **已拍板（2026-09-24）**：走本机 Ollama logprob，见 §8 C8 |
 | **G14** | **性能目标与实测规模脱节（方案 §6.4 的 Top-50 fan-out）** | 实测 `qwen3.5:0.8b` × 50 并发 → `ok=50/50, wall=7599ms, p50=5756ms`；而方案 §13.2 目标是 `<500ms`，**超十倍以上**。且 50 条 yes 概率全落在 `[0.266, 0.405]` 窄带（基本无区分度） | 按 §6.4 原样实现必然不可达；且窄带意味着**该模型对这批 prompt 无判别力** | **阶段 1**（改分批 + 早停 + 预算） |
-| **G15** | **存储目录与资源上限未定** | `Test-Path ~/.dsh/memory` = **False**（DSH 无 `memory` 约定目录，shoucang 用 `~/.dsh/suite/knowledge`）。另：方案 §11.2 把 `vector BLOB` 放主表，实测等效每条 JSON `12,962 B`（含 1024 维 float）；float32 BLOB 为 `4,096 B` + 元数据，10 万条 ≈ 400MB 起，且单行 >2KB 会溢到 overflow page | 阶段 0 建库即找不到父目录；向量方案在数据量增长后退化 | **阶段 0 建目录 / 阶段 1 定内存常驻策略** |
+| **G15** | **存储目录与资源上限未定** | `~/.dsh/memory` **不存在**（WSL 复核：`test -e ~/.dsh/memory` = false；DSH 无 `memory` 约定目录，shoucang 用 `~/.dsh/suite/knowledge`）。另：方案 §A.2 把 `vector BLOB` 放主表，实测等效每条 JSON `12,962 B`（含 1024 维 float）；float32 BLOB 为 `4,096 B` + 元数据，10 万条 ≈ 400MB 起，且单行 >2KB 会溢到 overflow page | 阶段 0 建库即找不到父目录；向量方案在数据量增长后退化 | **阶段 0 建目录 / 阶段 1 定内存常驻策略** |
 
 ### 2.1 宿主版本纪律（DSH 版本会漂，本册所有实测都依附于一个具体版本）
 
-> **本节是 2026-09-24 复核后新增。起因**：用户提示「当前 DSH 最新 0.1.7-rc.1，注意环境差异」。主持人实测后确认**本机未升级**，但该提示暴露了本册一个真实脆弱点：**所有「实测」都依附于一个具体宿主版本，而册中未记录版本号作为前提**。
+> **本节是 2026-09-24 复核后新增，并在同日晚的「平台适配轮」再次更新**。起因：用户提示「当前 DSH 最新 0.1.7-rc.1，注意环境差异」。⚠ **该提示当时被误判为「本机未升级」** —— 那是**Windows 侧**的结论；**WSL 现役实测已是 `0.1.7-rc.1` + cordis `4.0.4`**。以下表格已按 WSL 复核更新，**v1.0 的「本机未升级」结论作废**。
 
 **实测环境事实（2026-09-24）**
 
 | 项 | 值 | 取证 |
 |---|---|---|
-| 本机实际运行版本 | **`0.1.5-rc.2`** | `C:\Users\lk\.dsh-win\prefix\node_modules\@deepseek-ai\dsh\package.json` → `version` |
+| 本机实际运行版本（**WSL 现役**） | **`0.1.7-rc.1`** | `npm ls -g @deepseek-ai/dsh --depth=0` → `/usr/local/lib/node_modules/@deepseek-ai/dsh`；`node -p "require('/usr/local/lib/node_modules/@deepseek-ai/dsh/package.json').version"` |
 | npm `latest` 通道 | **`0.1.5-rc.3`** | `npm view @deepseek-ai/dsh dist-tags` |
 | npm `next` 通道 | **`0.1.7-rc.1`** | 同上（**0.1.7-rc.1 确实存在，但不在 latest 通道**） |
 | npm `alpha` 通道 | `0.1.7-alpha.2` | 同上 |
-| 已发布版本序列 | `… 0.1.5-rc.1 / rc.2 / rc.3 → 0.1.7-alpha.1 / alpha.2 / rc.1` | `npm view @deepseek-ai/dsh versions` |
+| 已发布版本序列 | `… 0.1.5-rc.1 / rc.2 / rc.3 → 0.1.7-alpha.1 / alpha.2 / rc.1` | `npm view @deepseek-ai/dsh versions`（dist-tags 实测：`latest` `0.1.5-rc.3` / `next` `0.1.7-rc.1` / `alpha` `0.1.7-alpha.2`） |
 | cordis 版本 | 本机 **`4.0.2`**；0.1.7-rc.1 要求 **`~4.0.4`** | 两版 dependencies 对比 |
 
 **⚠ 三条直接影响的差异（已核对，附处置）**
@@ -209,11 +209,11 @@
 
 1. **A0-1 必须记录 DSH 版本号**（已改，见 §0.2）：不记录版本，一切「实测」在升级后都失去前提。
 2. **升级 = 重跑受影响判据，不是重写全册**：影响面已按上表**收敛到 V-1 的三类事件语义探针 + V-3 的 `interpolate`/`defineTool` 两条**；其余判据（`node:sqlite` / FTS5 / vec0 / 嵌入服务 / 文件路径 / 构建链）**与宿主版本弱耦合**，只需复跑 A档确定性值（§6.0）确认未漂。
-3. **装配面三处复账**（引用自 `[环境] 插件官方安装通道` 的既有经验）：升级后须核对 **① `C:\Users\lk\.dsh-win\prefix`（本机实际运行源）② `~/.dsh/profiles/*/node_modules`（profile 装配）③ 全局 npm（`dsh` 命令来源）** 三处版本是否一致——本机当前这三处**并不一致**（prefix = `0.1.5-rc.2`；全局 npm 下并存 `dsh = 0.1.5-rc.2` 与一个 `.dsh-yYJNJcqz = 0.1.5-rc.1`），这正是「版本漂移不可观测」的现成样本。
+3. **装配面三处复账**（引用自 `[环境] 插件官方安装通道` 的既有经验）：升级后须核对 **① 全局 npm 安装源 `/usr/local/lib/node_modules/@deepseek-ai/dsh`（`dsh` 命令来源）② `~/.dsh/profiles/*/node_modules`（profile 装配，`dsh plugin --profile web list`）③ 正在运行的宿主进程 `ps -o cmd -p <pid>` 与其 `readlink /proc/<pid>/exe`** 三处版本是否一致。⚠ v1.0 记的 `C:\Users\lk\.dsh-win\prefix` 是 **Windows 侧遗留路径**，WSL 不适用（但该目录仍在，见 §A.1 双安装）
 4. **通道语义**（引用自 `[路径] 判 @deepseek-ai/dsh 稳定/预发布通道与变更`）：`latest` = 稳定（**rc 即稳定**）、`alpha` = 预发布、`next` 介于其间；**无 CHANGELOG**，变更对比只能靠 **git log 区间或 npm 依赖增量**；alpha 可领先稳定上千提交 ⇒ **升级先验证勿直装**。
 5. **判现役版本以实跑为准，不按主包版本硬查**（引用自 `[环境] 内置技能与配置定位`）：DSH 子包**各有独立版本线**，`@deepseek-ai/dsh-tools` 等在 `dsh` 自带嵌套 `node_modules` 而非 profile 根；权威判据是**实跑 `dump-config` 与真启动**，不是读主包 `package.json`。
 
-> **升级决策不属本册范围**：是否升到 0.1.7-rc.1 是独立决策（`next` 通道 = 预发布，`latest` 才是 `0.1.5-rc.3`）。**本册的建议**：阶段 0–1 期间**留在 0.1.5-rc.2 或升到 0.1.5-rc.3（同为 latest 通道）**，把 0.1.7 升级留到阶段 1 验收通过之后单独做一轮——理由是阶段 0–1 的判据密度最高，此时换宿主会把「实现有 bug」与「宿主改了」两类失败混在一起，**真因被淹没**。
+> **升级决策已不适用**：v1.0 建议「阶段 0–1 留在 0.1.5-rc.2」，前提是**当时未升级**；**WSL 现役已在 `0.1.7-rc.1`**（`next` 通道），该建议**失效**。现改为：**以 `0.1.7-rc.1` 为基线开工，不再做版本切换**（避免在判据密度最高的阶段 0–1 制造「实现有 bug」与「宿主改了」两类失败混淆）；§2.1 的 V-1/V-2/V-3 三条差异**须在阶段 0 首日按实测复跑一次**并回填结论。
 
 ### 2.2 四条「方案没写但会静默出错」的 vec0 语义（实测新增）
 
@@ -224,7 +224,7 @@
 | W-1 | **默认度量是 L2，不是余弦** | 同一对向量：L2 距离 `0.8944` vs 余弦距离 `0.4000`；不写 `distance_metric=cosine` 即静默用 L2 | 建表显式 `distance_metric=cosine`（方案 §7.1/§15.5 声称余弦） |
 | W-2 | **`rowid` 必须 BigInt** | 传 `1` 报 `Only integers are allows for primary key values`；传 `1n` 才通。普通表用 number 正常 | 同一进程两套 id 语义并存，须在适配层统一 |
 | W-3 | **KNN 查询必须带 `LIMIT`** | 不带 LIMIT 报 `A LIMIT or 'k = ?' constraint is required on vec0 knn queries.`（errcode 1） | 所有 KNN 查询强制带 `limit`/`k=?` |
-| W-4 | **样板测试依赖 `.gitattributes`** | 缺失则测试数 `365`→`364`，红的项是「行尾契约」而非实现问题 | 阶段 0 抄样板时**一并抄 `.gitattributes`**，否则得到一个形似 bug 的假红 |
+| W-4 | **样板测试依赖 `.gitattributes`** | 缺失则测试数会漂（v1.0 在 Windows 记 `365`→`364`；WSL 实测样板当前为 **348** 总用例，**行尾契约仍应固化**） | 阶段 0 抄样板时**一并抄 `.gitattributes`**，否则得到一个形似 bug 的假红。⚠ Mana 仓现用 `* -text`（禁自动改写），与样板策略不同，须显式决策见 §A.6 |
 
 ---
 
@@ -296,7 +296,7 @@ B0.1 ─→ B0.2 ─┬─→ B0.3 ───────────────
 
 > **统一验收模板**：每阶段三条判据缺一不予通过 ——
 > **① 装配判据**（机制自证，必给但**不足**）→ **② 行为判据**（产物侧字节/行数/审计记录）→ **③ 反证判据**（卸载后同一触发**不再产生新行**；仍产生即判不通过，这是「卸载即净」的机检）。
-> **命令口径**：所有命令可直接粘贴 PowerShell。`$LASTEXITCODE` 是 Windows 下的退出码变量。
+> **命令口径**：所有命令可直接粘贴 **bash（WSL2 / Ubuntu）**。退出码变量为 **`$?`**（Windows 的 `$LASTEXITCODE` 已全部替换；`Test-Path` → `test -e`；`Measure-Object -Line` → `wc -l`）。⚠ 平台细节与复验命令见 **§A**。
 > **阈值分档**：A 档（确定性值）可进阈值列；B 档（浮动量）不进。见 §6.0。
 
 ---
@@ -313,7 +313,7 @@ B0.1 ─→ B0.2 ─┬─→ B0.3 ───────────────
 
 | 批次 | 交付物 | 步骤要点 | 硬依赖 | 可并行 |
 |---|---|---|---|---|
-| **B0.1** | 工作区根（npm workspaces）+ 钉 Node 版本 + `tsconfig.base` | ① `npm init -w` 建 workspace 根；② `engines.node = 22.22.0`；③ 抄样板 `tsconfig` 基线；④ **一并抄 `.gitattributes`**（否则测试数 `365→364`，见 §2.2 W-4）；⑤ 消除 `pnpm` 误报（`corepack enable pnpm` 或全项目统一 npm） | 无 | — |
+| **B0.1** | 工作区根（npm workspaces）+ 钉 Node 版本 + `tsconfig.base` | ① `npm init -w` 建 workspace 根；② `engines.node = ^22.22.0`（**不可写精确 `22.22.0`**：本机 `node -v` = `v22.22.1`，实测 `engine-strict=true` 下报 `EBADENGINE ... Actual: v22.22.1` ⇒ 精确值必然假红，见 §A.2）；③ 抄样板 `tsconfig` 基线；④ **一并抄 `.gitattributes`**（否则测试数漂移，见 §2.2 W-4）；⑤ `pnpm` 本机**存在**，但全项目统一 **npm**（见 §8 C1 修正） | 无 | — |
 | **B0.2** | `dsh-mana-core` v0.1：S1 五类事件 + 领域模型 + `mana_trace` schema | ① 只冻 **S1 五类事件**（observation / attention / decision / recall / injection），不做一次性全冻；② **core 独占 `Events` 接口与领域模型**，其余插件**禁止**自建 `event-types.ts`（删方案 §9.2:619 该行，见 §8 C11）；③ 出「包 id ↔ name ↔ 服务名」映射表；④ 关联键统一为 `requestId`；⑤ **新建 `inject_log` 注入审计表**（最小列集见阶段 1 验收节开头的「表落点声明」）——本表是 I1/I2 与降级判据的唯一落点，**方案 §11.2 未含此表**；⑥ 建表须**补全** `session_id` / `turn_id` 列（G3）、`fts5` 虚表与 WAL 语句（方案 DDL 内 `VIRTUAL TABLE`/`fts5`/`journal_mode`/`PRAGMA` **全为 0 命中**） | B0.1 | ∥ B0.3 |
 | **B0.3** | P0 六个骨架（`core`/`jev`/`vector`/`perception`/`attention`/`working-memory`），`name` + `inject` + `apply` 空实现 | ① **只建 P0 六个**（P1/P2 按阶段分批建，见 §8 C12）；② 骨架的 `apply` 必须**注册一条 waterfall 监听器并调 `next()`**（把 G9 钉成结构约束）；③ 建库一律 `new DatabaseSync(p,{allowExtension:true})`（G4）；④ 目录一律 `owner-only` 权限风格 | B0.2 | ∥ B0.2 |
 
@@ -324,7 +324,7 @@ B0.1 ─→ B0.2 ─┬─→ B0.3 ───────────────
 - **方案 §14 检测方式落点入契约**：十条故障模式每条必须给出表/字段名，给不出即标「不可观测」并入 §7 缺口清单（G2，见 §8 C9）。
 - **独立心跳**：由 **Mana 之外**的启动脚本每 5 分钟写 `$DSH_HOME/memory/mana.heartbeat`（一行 JSON：时间戳 + core 是否在 ctx 中）。**必须外部写**，否则会在最需要它的时候一起死（理由：若挂掉的是 P0 的 `dsh-mana-core`，13 个插件全进 waiting，**写入 `mana_trace` 的代码本身没在跑** ⇒ Mana 所有自证通道同时失声，数据面全空与「还没被用过」在报表上同形）。判据见 **A0-11**。
   ⚠ **A0-11 的判定口径修正**：心跳文件本身**不记写入者** ⇒ 「写入方必须是 Mana 之外的东西」**无法从文件判定**。改为可判定的形态：**把全部 Mana 插件卸载后，该文件仍须继续更新**（仍更新 = 写入方确实独立于插件；停止更新 = 写入方仍是插件自身，判红）。
-- **存储目录自建**：`Test-Path ~/.dsh/memory` = **False**，DSH 无 `memory` 约定目录（G15）。
+- **存储目录自建**：`~/.dsh/memory` 不存在（`test -e` = false），DSH 无 `memory` 约定目录（G15）。
 - **撤销方案的两条**：`pnpm`（本机不存在）→ npm；`vitest`（本机不存在）→ `node:test`（见 §8 C1/C3）。
 
 #### 0.2 验收方案
@@ -333,16 +333,16 @@ B0.1 ─→ B0.2 ─┬─→ B0.3 ───────────────
 
 | ID | 判据 | 检查方式（可粘贴） | 阈值 | 退回动作 |
 |---|---|---|---|---|
-| A0-1 | **环境钉点一致** | `node -v` + `node -e "const s=require('node:sqlite');console.log(Object.keys(s).join(','))"` + `npm ls @deepseek-ai/dsh --depth=0` 或读 `C:\Users\lk\.dsh-win\prefix\node_modules\@deepseek-ai\dsh\package.json` 的 `version` | ① 输出 `v22.22.0` 与 `DatabaseSync,StatementSync,constants,backup` **逐字相等**；② **DSH 版本必须记录在案**（实测开工时为 **`0.1.5-rc.2`**，见 §2.2 的版本纪律） | 停止阶段 0，先报环境变更 |
+| A0-1 | **环境钉点一致** | `node -v` + `node -e "const s=require('node:sqlite');console.log(Object.keys(s).join(','))"` + `npm ls -g @deepseek-ai/dsh --depth=0` + `node -p "require('/usr/local/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/cordis/package.json').version"` | ① 输出 **`v22.22.1`**（⚠ **不是 `v22.22.0`** —— v1.0 的「逐字相等」判据会**假红**，见 §A.2）与 `DatabaseSync,StatementSync,constants,backup` **逐字相等**；② DSH 版本与 cordis 版本必须记录在案（实测 `0.1.7-rc.1` / `4.0.4`，见 §2.1 版本纪律） | 停止阶段 0，先报环境变更 |
 | A0-2 | **扩展加载窗口未走错**（负向判据） | 建库时**故意**用默认 ctor，断言 `enableLoadExtension(true)` **必须抛错**；再用 `{allowExtension:true}` 断言成功 | 前者报错、后者成功，二者**都要真** | 修开库点；不得后补 |
 | A0-3 | **中文分词口径**（负向判据） | `trigram` 下 4 字查询 `MATCH` 命中 ≥1；默认分词器断言 **0 命中**（用英文 `MATCH test` → 1 证明非库空） | 4 字命中 ≥1 且默认分词器 0 命中 | 契约冻结前改 tokenizer + 最小长度 |
 | A0-4 | **typecheck 真接了宿主类型**（负向判据） | 故意引用不存在的宿主成员（如 `ctx.subagents`），跑 `npm run typecheck` | **必须报错**；不报错即判「类型检查未接上宿主类型」 | 修 tsconfig/依赖；否则后续所有 typecheck 判据不可信 |
 | A0-5 | 插件形状静态可证 | `node -e "const m=require('<pkg>/lib/index.js');…"` 断言 `name`/`inject`/`Config`/`apply` 齐 + `cordis.patch.yml` 存在 | 4 项齐全 | 回骨架步骤 |
-| A0-6 | **CI 绿（新仓自测）** | `npm run typecheck; $LASTEXITCODE` 与 `npm test` | typecheck **= 0** 且 test 全绿。⚠ **不得拿样板当绿基线**（其 typecheck 实测 **exit 2 / 7 条 error**） | 先修 A0-4 类宿主 API 错误（样板自身 7 条 error 即此类）再进阶段 1 |
+| A0-6 | **CI 绿（新仓自测）** | `npm run typecheck; echo "exit=$?"` 与 `npm test` | typecheck **= 0** 且 test 全绿。⚠ **不得拿样板当绿基线**（其 **9p 副本** typecheck 实测 exit 2 / 24 error；**ext4 副本** exit 0 ⇒ 差异来自平台包版本与文件系统，见 §A.4） | 先修 A0-4 类宿主 API 错误（样板自身 error 即此类）再进阶段 1 |
 | A0-7 | **测试命令写法正确**（负向判据） | `node --test "tests/*.test.mjs"` 与 `node --test tests/` **都跑一次** | 前者 `exit 0`；后者**必须失败**（实测报 `Cannot find module ...\tests` 并打印 `# tests 1 / # fail 1`，形似测试失败实为命令写错） | 改 CI 脚本写法 |
 | A0-8 | **`session_id`/`turn_id` 列已补 + `<inject_log>` 表已建** | `PRAGMA table_info(mana_trace)`、各表 `table_info`，**并单独 `PRAGMA table_info(inject_log)`** | ① `mana_trace` 等表目标列存在；② **`inject_log` 表本身存在且列齐**（`session_id`/`turn_id`/`memory_id`/`block_id`/`injected_at`/`gate`/`degraded`/`local_score`/`jev_prob`/`reset`）；③ **`gate` 列须能落 5 类枚举值**（见阶段 1 表落点声明）且**非空**。⚠ 只验「已存在表的列」**不够** —— `inject_log` 是**新建表**，漏验则 A1-2/A1-3/A1-11/A1-13/A1-14 到阶段 1 仍无表可查 | 未补前 **I1/I2 判据（A1-2/A1-3）不得放行** |
 | A0-9 | 方案 §14 落点齐备 | 逐条核 方案 §14 十条是否各有表/字段名 | 每条有落点或显式标「不可观测」 | 标「不可观测」者入 §7 缺口清单 |
-| A0-10 | **不碰既有件** | `cd D:\lk\FF\dsh-plugin-roundtable; git status --porcelain` 后 `Measure-Object -Line`，并 `git rev-parse --short HEAD` | ⚠ **判据形态 = 与「本批开工前实测值」相等**，**不是与某个固定数字相等**（该行数会随插件自身开发漂移：本册初稿实测 **15 行**，复核时已为 **18 行**）。开工前先记录 `(行数, HEAD)` 二元组作为本批基线，收工时比对**二者都要相等** | 任何漂移 → 先查是否本轮造成（比对文件 mtime 与本批时间窗）；确属本轮 → 回滚并写报告 |
+| A0-10 | **不碰既有件** | `cd /home/lk/dsh-src/dsh-plugin-roundtable && git status --porcelain \| wc -l`，并 `git rev-parse --short HEAD` | ⚠ **判据形态 = 与「本批开工前实测值」相等**，**不是与某个固定数字相等**（该行数随插件自身开发漂移：v1.0 在 Windows 记 **15 行**、复核 **18 行**；**WSL 实测 19 行**）。开工前先记录 `(行数, HEAD)` 二元组作为本批基线，收工时比对**二者都要相等** | 任何漂移 → 先查是否本轮造成（比对文件 mtime 与本批时间窗）；确属本轮 → 回滚并写报告 |
 | A0-11 | **独立心跳存在且新鲜**（交付物补判据） | 读 `$DSH_HOME/memory/mana.heartbeat`（一行 JSON：时间戳 + core 是否在 ctx 中） | ① 文件存在且**新鲜度 ≤ 10 分钟**；② **可判定的独立性检验**：**卸载全部 Mana 插件后该文件仍继续更新**（文件本身不记写入者，故不能靠读文件判「谁写的」；停止更新即判红 —— 说明写入方仍是插件自身） | 回阶段 0 心跳步骤 |
 | A0-12 | **契约快照哈希已存**（交付物补判据） | 对 `dsh-mana-core` v0.1 的 `Events` 接口与领域模型取 `sha256` 存盘 | 哈希文件存在；后续每次契约变更须与上一版比对并留痕（防 G10 的契约漂移不可见） | 回 B0.2 |
 | A0-13 | **G1–G15 全数归属**（2026-09-24 拍板项的落点） | 逐条核 §2 的 G1–G15：每条**要么有阶段 0 的对应产物**（列出文件名/表名/判据 ID），**要么显式标「挂账」并写明挂到哪个阶段** | **15/15 有归宿**；出现「既无产物又无挂账」即判红 | 回 §2 补归属；**不得以「已在正文提过」代替归属** |
@@ -375,8 +375,8 @@ B0.1 ─→ B0.2 ─┬─→ B0.3 ───────────────
 
 | 阻塞点 | 说明 | 回滚 |
 |---|---|---|
-| `pnpm` 不在 PATH | `dsh plugin --profile web …` 直接报 `'pnpm' is not recognized`，该报错会被误读成插件问题 | 尚无产物，删工作区目录即可 |
-| `--profile dev` 不存在 | 实际 profiles 只有 `desktop` / `headless` / `web`；§9.6 的 `dsh --profile dev --dump-config` 不能照抄 | — |
+| ~~`pnpm` 不在 PATH~~ **【前提已推翻】** | ⚠ WSL 实测 `pnpm -v` = **12.4.2 存在**、`dsh plugin --profile web list` **exit 0** ⇒ v1.0 所记 `'pnpm' is not recognized` **是 Windows 侧特征**，此处不再成立 | 无需回滚；改口径见 §8 C1 修正 |
+| `--profile dev` 不存在 | **WSL 实测 profiles = `headless` / `system` / `web`**（**无 `desktop`**；v1.0 记的 `desktop` 是 Windows 侧）；§9.6 的 `dsh --profile dev --dump-config` 不能照抄 | 改用 `--profile web` |
 | 样板 API 已过期 | 样板 7 条 type error 源于宿主 API 改名（`ctx.subagents`→`ctx.agents`）⇒ **只抄袭工程外形，不抄 API 用法** | 删除误抄的调用 |
 | 契约漂移不可见 | 声明合并是开放的，`core` 加临时字段不走评审也看不出来 ⇒ 须契约快照哈希 | 哈希比对回退到上一版 |
 
@@ -671,7 +671,7 @@ B0.1 ─→ B0.2 ─┬─→ B0.3 ───────────────
 
 | 档 | 含义 | 能否进阈值列 | 例 |
 |---|---|---|---|
-| **A 档** | 确定性值，**跨运行可逐字复现** | ✅ **可以** | RRF `[1,1]=0.032787`；衰减 `decay(14)=0.500000`；ACT-R `B{[1,2]}=0.534800`；`vec_version()=v0.1.9`；`vec0.dll=289,280 B`；测试 `365/365`；`typecheck exit 2`；HEAD 短哈希（`git rev-parse --short HEAD`）；样本量 `385/289/246/196/139`；各类 **exit code / 计数 / 版本号** |
+| **A 档** | 确定性值，**跨运行可逐字复现** | ✅ **可以** | RRF `[1,1]=0.032787`；衰减 `decay(14)=0.500000`；ACT-R `B{[1,2]}=0.534800`；`vec_version()=v0.1.9`；`vec0` 扩展体积（**Linux `vec0.so` 159,816 B / Windows `vec0.dll` 289,280 B**）；测试总数（随仓漂移，须现场取）；`typecheck` exit code；HEAD 短哈希；样本量 `385/289/246/196/139`；各类 **exit code / 计数 / 版本号** |
 | **B 档** | 浮动量，**同机跨采样差 1.2–13 倍** | ❌ **不可**；只进「测量条件说明」 | JS 余弦 10k `20.92` vs `8.40 ms`；vec0 KNN 10k `35.877` vs `11.17 ms`；bge-m3 冷启 `1037` vs `77.2 ms`；改写相似度 `0.784169` vs `0.979985`；无关相似度 `0.336102` vs `0.393894` |
 | **未验证** | 明确标注，**不得升格** | ❌ | 见 §7 |
 
@@ -729,21 +729,21 @@ B0.1 ─→ B0.2 ─┬─→ B0.3 ───────────────
 
 | # | 决定 | 证据 | 备选 | 若改按什么改 |
 |---|---|---|---|---|
-| **C1** | 仓库 = **单仓库 + npm workspaces** | `pnpm -v` 不存在、`npm 10.9.4` 可用；`core` 被 12 包共享；单插件 `node_modules` 实测 **69 MB**，13 份独立安装 ≈ 900 MB，而 C 盘仅余 **32.3 GB** / D 盘 **227.6 GB**（实测值，随使用浮动；用户对磁盘占敏感） | 13 独立仓库贴样板 | 零基础设施下共享 `core` 需 link/registry |
+| **C1** | 仓库 = **单仓库 + npm workspaces** | ⚠ **理由已按 WSL 修正**：`pnpm` **存在**（12.4.2）、`npm` = **11.19.1**（v1.0 记 10.9.4 系 Windows 侧）；改 npm 的**真实理由**是「对齐样板与 DSH profile 的 `pnpm-lock.yaml` 之外再引入一套 lock 会增加漂移面」而非「pnpm 不存在」。`core` 被 12 包共享；单插件 `node_modules` 实测 **69 MB**，13 份独立安装 ≈ 900 MB（**WSL `df`：根分区 950 GB 可用，磁盘压力远小于 v1.0 的 C 盘 32.3 GB** —— 但用户仍对磁盘占用敏感） | 13 独立仓库贴样板 | 零基础设施下共享 `core` 需 link/registry |
 | **C2** | **13 个源码目录，装配单元收敛为 3 个 patch + 1 个 client** | 单个变更横跨 **5–6 包**（arch 席三条真实流：写 7 包 / 召回 5 包 / 巩固 4 包）；shoucang 实测用**一个包 + 两行 patch** 承载整条记忆链 | 13 bundle 各自独立安装 | 按变更面再拆 |
-| **C3** | 测试/CI = **node:test** | 本机 `node_modules\vitest` **不存在**；样板 `test` 脚本实为 `node --test "test/*.test.mjs"`，32 个文件、**365/365** 通过、**2.59 s**；`dsh-memory-jev` 亦为 node:test 系 | Vitest（方案 §16） | 须先证明装得进且不碰受保护仓 |
-| **C4** | 检索 = **物化 BLOB + 纯 JS 余弦**；vec0 列规模化升级项 | 暴力 JS 余弦 10k = `20.92 ms` / vec0 KNN 10k = `35.877 ms`（B 档，两席采样比值 `1.33–1.71`，**方向一致：一万条规模 vec0 无优势**）。但 sqlite-vec 真机**可用**（`vec0.dll` `289,280 B`、`vec_version()=v0.1.9`、KNN 返回 `[{"rowid":1,"distance":0},{"rowid":2,"distance":1.0954450368881226}]`）⇒ **阶段 0 建库一律 `{allowExtension:true}` 零成本预留升级窗口**，数据量 >10 万条时启用 | 先啃 sqlite-vec / 两条互备 | 需处理 §2.1 的 V-1/V-2/V-3 三条语义 |
+| **C3** | 测试/CI = **node:test** | ⚠ **理由已按 WSL 修正**：`vitest` 在本机**可装**（实测 `npm i -D vitest` → `5.0.1`），故「装不进」不成立；保留 `node:test` 的**真实理由**是「样板与 `dsh-memory-jev` 均为 node:test 系，且无需额外构建链」。样板 `test` 脚本 = `node --test "test/*.test.mjs"`（**WSL 实测 348 用例**，非 v1.0 的 365） | Vitest（方案 §16 已改） | 须先证明装得进且不碰受保护仓 |
+| **C4** | 检索 = **物化 BLOB + 纯 JS 余弦**；vec0 列规模化升级项 | 暴力 JS 余弦 10k = `20.92 ms` / vec0 KNN 10k = `35.877 ms`（B 档，两席采样比值 `1.33–1.71`，**方向一致：一万条规模 vec0 无优势**）。sqlite-vec 真机**可用**（**WSL 实测** `vec0.so` 159,816 B、`vec_version()=v0.1.9`、`getLoadablePath()` 可用；Windows 侧为 `vec0.dll` 289,280 B）⇒ **阶段 0 建库一律 `{allowExtension:true}` 零成本预留升级窗口**，数据量 >10 万条时启用 | 先啃 sqlite-vec / 两条互备 | 需处理 §2.2 的 W-1/W-2/W-3 三条语义 |
 | **C5** | **多设备同步移出范围** | 全文仅**方案 §17 行1140** 五个字、零设计；与**方案 §11.1 行785**「本地 SQLite 单文件」+ **方案 §12.4 行911**「本地优先/隐私」张力 | 降为阶段 5 备注 / 独立成阶段 | 出现明确的跨设备冲突解决设计时重启 |
 | **C6** | **阶段 0 补 `session_id` + `turn_id` 列** | §6.1 行442–443 要求按 `(session,turn)` 计数，但方案 §11.2 六张表**无此列** ⇒ 不变式**无可数之处** | 放弃机检改人工抽读 | 不补则 I1/I2 永久不可验 |
 | **C7** | 方案 §13.2 七个目标值 = **全部改标「待定，需首测后自设」** | 本机**一个都没有实测基线**。⚠ 这些数写在方案「**目标**」列，**不是**谎报成实测值；真缺陷是**没有任何可达性基线** | 沿用方案数字并注明「未实证」 | 先定标准后补数据是本册要避免的做法 |
-| **C8** | JEV 承载 = **本机 Ollama logprob 合成 noul** | LitJev 需 `Qwen3.8-27B` + **H100 80GB**（本机 RTX 2070S 8GB）+ Python/uv（本机均无）；替代实测 `qwen3.5:0.8b` → `yes=0.887 / no=0.101`。⚠ **模型选型有硬约束**：`qwen3:8b` → `"yes"=1.000`（饱和，不可用作概率）；`qwen2.5:7b` → pos0 被无关 token 抢位 | 照方案用 LitJev（本机不可行）/ 阶段 1 先纯本地规则、JEV 延到阶段 2 | 若采用 `dsh-memory-jev` 的 OpenRouter 通道，须处理无 key 降级 |
+| **C8** | JEV 承载 = **本机 Ollama logprob 合成 noul** | LitJev 需 `Qwen3.8-27B` + **H100 80GB**（本机 RTX 2070S 8GB）。⚠ **WSL 复核修正两处**：① **`python3` 存在**（3.14.4），v1.0 的「Python/uv 均无」只对 `uv` 成立；② **`yes=0.887 / no=0.101` 复现不出** —— 同参数实测（`qwen3.5:0.8b`/`think:false`/`num_predict:1`/`temperature:0`）得 `Yes=-0.5635` → **归一 yes=0.577 / no=0.423**。⚠ 模型选型硬约束仍成立：`qwen3:8b` → `"yes"=1.000`（饱和不可用概率） | 照方案用 LitJev（本机不可行） | 若采用 `dsh-memory-jev` 的 OpenRouter 通道，须处理无 key 降级 |
 | **C9** | 方案 §14「检测方式」列入 **阶段 0 硬判据** | 逐条判定 **真有信号 0 / 半真 3 / 愿望 7**；本项目只有一名使用者、**无报障通道** ⇒ 这一列是唯一安全网 | 留到阶段 6 补 | 检测落点属契约层，阶段 6 改表要动已上线数据面 |
 | **C10** | 工期 **双口径并列** | 人类等价保留方案原值，**实算 20–30 周**（`1+3+4+4+4+4=20`、`2+4+6+6+6+6=30`）；**「34 周」在全仓无来源** | 单口径 | 按 34 排缓冲会凭空多 4 周并掩盖真实关键路径 |
 | **C11** | 契约**灰度分版**：`v0.1`（S1 五类事件）→ `v0.2`（长时记忆增补）→ `v0.3`（巩固遗忘增补） | §10.4 行774「services 之间靠事件通信、不直接 import 实现」正是灰度可行的依据（事件声明合并，新增事件不破坏既有订阅者）。**这是唯一的总工期压缩杠杆**：`v0.1` 冻结后最大并行扇出 **7 路** | 一次性全冻 | 全冻是伪瓶颈 |
 | **C12** | 阶段 0 **只建 P0 六个骨架** | 13 个空壳同批装配后面板上分不出哪几个真有行为 ⇒ 后续每批失败被 13 项等权清单稀释（G11） | 13 个一次全建 | P1 在 B2.2 建、P2 在 B5.1 建 |
 | **C13** | **`core` 独占契约**，其余插件**禁止**自建 `event-types.ts` | 声明一旦分散到 13 个文件，编译期护栏失效，错误推迟到运行期（arch 席成因 B）；删方案 §9.2:619 该行 | 每插件自带事件声明 | 改一个事件签名现状 ≥3 文件，改后 1 文件 + 编译期全量报错 |
 | **C14** | **派生量唯一写者** | 时间衰减三套公式并存（`d=0.5` / `h=14天` / `S`+Pavlik–Anderson）而作用于同一条记忆 ⇒ 排序被两家乘过；激活值 A 既被计算又落库而读写方未指定；上下文尾部有**两个写者**（working-memory 与 JEV Injection Gate） | 维持现状 | 见 §4 阶段 2 实施要点 |
-| **C15** | **取件优先 `git clone`；clone 失败时才回退 API 逐文件** | ⚠ **本条曾被我判错，现已纠正**：我早前一次 `git clone https://github.com/…` 报 `Failed to connect to github.com port 443`，据此写成「clone 不通」。**经复核 3/3 次 clone 全部成功**（含 `Fishsb/dsh-shoucang-memory` 取到 **105 个 TS 源文件**），无代理、443 连通 ⇒ **那次失败是瞬时抖动，不构成决策依据**。API 通道亦可作回退（`contents/<file>`、`trees?recursive=1`） | 直连 clone（**首选**） | 若 clone 真失败：先重试，再走 API 逐文件；**不要**因一次失败就改走慢路径 |
+| **C15** | **取件优先 `git clone`；clone 失败时才回退 API 逐文件** | ⚠ **WSL 复核补充关键前提**：`git clone` 成功**依赖环境代理** `http_proxy`/`https_proxy` = `http://127.0.0.1:10808`（WSL `autoProxy` 注入）。实测：**带代理** clone `Fishsb/dsh-shoucang-memory` **exit 0 / 210 个 TS 文件**；**清空代理变量后 clone 超时（exit 124）**，但 `git ls-remote` 仍通 ⇒ clone 大仓**必须经代理**。`git config http.proxy` 未设（靠环境变量） | 直连 clone（**首选，但须确认 `http_proxy` 在环境里**） | 若 clone 真失败：先确认代理环境变量存在并重试，再走 API 逐文件 |
 
 ---
 
@@ -753,8 +753,8 @@ B0.1 ─→ B0.2 ─┬─→ B0.3 ───────────────
 |---|---|
 | **本机工具实测** | 全部标「实测」的项均由命令产出，可复算；三档分档见 §6.0 |
 | **圆桌会议 7 席产出** | 会议 `mana-rollout-2026-09-24`，orchestrated 模式；角色：复用与查重 / 场景与干系人 / 架构主审 / 落地可行性 / 验收判据 / 分期落地 / 独立验证 |
-| **方案原件** | `D:\Mana\docs\mana-v5-plan.md`（1241 行，**未被修改**，sha256 `D332C940…7F2FD01A`） |
-| **会议记录** | `D:\Mana\.roundtable\mana-rollout-2026-09-24\`（transcript + 8 份分席素材于 `_extract\`） |
+| **方案原件** | `docs/mana-v5-plan.md`（1241 行；**2026-09-24 平台适配轮已按 WSL 改写 20 行**，行号未变，sha256 `459DA3E2…0508AD`；适配前快照 `d332c940…7f2fd01a`） |
+| **会议记录** | `.roundtable/mana-rollout-2026-09-24/`（transcript + 8 份分席素材于 `_extract/`） |
 
 **三条取证纪律**（本轮踩过并已固化）
 1. **搜索通道返回空 ≠ 不存在**：本次 GitHub 搜索返回空而 API 逐仓库求证实存，二者结论相反。
@@ -829,3 +829,99 @@ B0.1 ─→ B0.2 ─┬─→ B0.3 ───────────────
 ---
 
 > **本册结束**。若要开工：读 §3.1 找到你的批次号 → 跳 §4 对应阶段 → 按 §4 每阶段开头的「统一验收模板」产出三条判据。若要改本册任何裁定：先读 §8 对应条目的「证据」列；若要查某条异议的归宿：读 §10。
+
+---
+
+## A. 环境适配（WSL2 / Ubuntu）—— 2026-09-24 平台适配轮
+
+> **为什么有这一节**：本册 v1.0 的全部「本机实测」产自 **Windows**（`D:\Mana` + `C:\Users\lk\.dsh-win`）。项目现役环境是 **WSL2 / Ubuntu 26.04.1**，项目根 `/home/lk/Mana`（ext4）。两边的**包管理器、Node 构建、文件系统、DSH 安装位置、Shell** 全不同。本节是**本轮实测取数**，与正文冲突时**以本节为准**。
+
+### A.1 平台与既有件位置（实测）
+
+| 项 | Windows（v1.0 口径） | **WSL2（现役，本节口径）** |
+|---|---|---|
+| 系统 | Windows（`D:` 盘） | **Ubuntu 26.04.1 LTS**，kernel `6.18.33.2-microsoft-standard-WSL2`，12 vCPU / 15 GiB |
+| 项目根 | `D:\Mana` | **`/home/lk/Mana`**（ext4；`D:\Mana` 是它的软链） |
+| DSH 安装 | `C:\Users\lk\.dsh-win\prefix` | **`/usr/local/lib/node_modules/@deepseek-ai/dsh`**（`0.1.7-rc.1`） |
+| `DSH_HOME` | `C:\Users\lk\.dsh` | **`/home/lk/.dsh`**（ext4） |
+| profiles | `desktop`/`headless`/`web` | **`headless`/`system`/`web`**（**无 `desktop`**） |
+| 文件系统 | NTFS | `/home/lk/*` = **ext4**；`/mnt/d` = **9p(v9fs)** |
+| Shell | PowerShell | **bash**（退出码 `$?`） |
+
+> ⚠ **双 DSH 并存**：WSL 侧为现役；Windows 侧 `C:\Users\lk\.dsh` 仍有遗留 registry。两者**互不影响**，但排障时勿混（`DSH_HOME` 不同）。
+
+### A.2 工具链（实测值 —— A0-1 的判据以此为准）
+
+| 工具 | 实测 | 说明 |
+|---|---|---|
+| `node -v` | **`v22.22.1`** | ⚠ **不是 `22.22.0`**。`engines.node` 若写精确 `22.22.0` + `engine-strict=true` ⇒ **必然 `EBADENGINE` 假红**（已实测）。写 **`^22.22.0`** |
+| `npm -v` | **`11.19.1`** | v1.0 记 10.9.4（Windows 侧） |
+| `pnpm -v` | **`12.4.2`**（存在） | ⚠ **推翻 v1.0「pnpm 不存在」** |
+| `corepack -v` | **`0.24.0`** | v1.0 记 0.34.0 |
+| `python3 -V` | **`3.14.4`**（存在） | v1.0 记「Python 无」**不成立**；`uv` 仍缺 |
+| `sqlite3` CLI | **3.46.1**（本轮安装） | 用于人工查库，**非**运行依赖（运行走 `node:sqlite`） |
+| `jq` | **1.8.1**（本轮安装） | 判据脚本大量用 `jq` 解析 JSON |
+| `git` | **2.53.0** | |
+| `gh` | WSL 侧**无**（Windows 侧 `/mnt/c/Users/lk/gh-cli/bin/gh.exe` = 2.70.0 可用） | 如需 release 走 `gh.exe` |
+
+> ⚠⚠ **Node 构建差异（本轮最关键的发现）**：Ubuntu 自带的 `/usr/bin/node`（`nodejs` 包）**编译时未启用 TypeScript 支持**，实测：
+> - `/usr/bin/node -e "import('./m.ts')"` → **`ERR_UNKNOWN_FILE_EXTENSION`**
+> - `/usr/bin/node --experimental-strip-types` → **`Node.js is not compiled with TypeScript support`**
+> - **官方 Node 构建**（nodejs.org 同版本 `v22.22.1`）→ **`.ts` 直接 import 成功**（22.22 已默认启用类型剥离）
+>
+> 本项目 33 个测试文件**全部** `import ../src/*.ts` ⇒ **用 Ubuntu 版 node，整仓测试全部无法加载**（实测 `# tests 106 / # fail 39`，报 `ERR_UNKNOWN_FILE_EXTENSION`），而类型检查在 ext4 上绿 ⇒ **测试能力静默归零、CI 仍「绿」**。
+> **处置（已完成）**：安装官方构建到 `/opt/nodejs`，并用 `/usr/local/bin/{node,npm,npx}` 软链指向它（PATH 中 `/usr/local/bin` 先于 `/usr/bin`）⇒ 交互/非交互 shell 解析一致。复验：`node -e "import('/tmp/x.ts')"` 须成功。
+
+### A.3 网络与代理（取件/装包的前置）
+
+- 环境变量由 WSL `.wslconfig` 的 `autoProxy=true` 注入：`http_proxy`/`https_proxy` = **`http://127.0.0.1:10808`**；`NODE_USE_ENV_PROXY=1`。
+- `no_proxy` 含 `127.*` / `localhost` ⇒ **Ollama（`127.0.0.1:11434`）直连不走代理**。
+- `npm` 实测**经环境变量代理可用**（`npm view` 4.3 s 返回；`npm i` 成功），**无需** `npm config set proxy`（实测 `proxy`/`https-proxy` 均为 `null`）。
+- `git` **未设** `http.proxy`，靠环境变量。**实测**：带代理 clone 成功（exit 0 / 210 TS 文件）；**`env -u http_proxy -u https_proxy` 后 clone 超时（exit 124）**，而 `git ls-remote` 仍通 ⇒ **大仓 clone 必须经代理**（细化 C15）。
+- `apt` 经代理可用（`apt-get update` 成功）。
+
+### A.4 工程样板的两副本差异（决定「绿基线」取哪一个）
+
+| 副本 | 路径 | 平台包版本 | `typecheck` | `npm test` |
+|---|---|---|---|---|
+| **ext4（现役）** | `/home/lk/dsh-src/dsh-plugin-roundtable` | `@deepseek-ai/dsh-*` = **0.1.7-rc.1** | **exit 0** | 348 tests / 327 pass / **21 fail** |
+| 9p | `/mnt/d/lk/FF/dsh-plugin-roundtable` | `@deepseek-ai/dsh-*` = **0.1.5-rc.2** | **exit 2** / 24 error | — |
+
+两份 `HEAD` 同为 `a8c8bb7`、`git status` 同为 19 行、`src`/`test` 逐文件相同，**差异只来自 `node_modules` 的平台包版本**。
+⇒ **结论**：v1.0 的「样板 typecheck 红」是 **9p 副本 + 0.1.5 平台包**的结论；**现役 ext4 副本 typecheck 绿**。抄样板时**用 ext4 副本**。
+⚠ 两副本的 21 条测试失败**均为样板自身的跨平台缺陷**（`new URL(...).pathname.replace(/^\//, '')` 在 Linux 下丢掉根 ⇒ ENOENT；3 个文件缺 `@deepseek-ai/dsh-scope`），**不是本项目造成**，但**抄测试脚手架时必须先修**（改用 `fileURLToPath`）。
+
+### A.5 存储路径与磁盘（G15 / C1 的 WSL 口径）
+
+- `~/.dsh/memory` **不存在**（`test -e` = false）⇒ G15 结论**在 WSL 同样成立**，阶段 0 仍须自建目录。
+- **`mana.db` 落在 ext4**（`DSH_HOME=/home/lk/.dsh`、项目根 `/home/lk/Mana` 均在 `/dev/sdd`），**不在 9p 上** ⇒ v1.0 隐含的「跨盘/9p SQLite 风险」在本项目中**不存在**。实测 9p 与 ext4 上 `busy_timeout` 行为一致（均 2003–2005 ms 后 `database is locked`）。
+- 磁盘：WSL 根分区 **950 GB 可用**（v1.0 记 Windows C 盘仅余 32.3 GB）⇒ C1 的磁盘压力论据**已不成立**（但用户仍对占用敏感，共享 `core` 的结论不变）。
+- ⚠ **`~/.dsh/profiles/web/node_modules/dsh-shoucang-memory` 是 `link:` 装配的活跃开发树**（非只读副本），对它的任何写入都会直接影响运行中的 shoucang。
+
+### A.6 行尾与编码（两仓策略不同，须显式决策）
+
+| 仓 | 策略 | 实测 |
+|---|---|---|
+| 工程样板 | `* text=auto eol=lf` + 逐类型固化 | 全仓 LF 契约 |
+| **Mana（本仓）** | **`* -text`**（禁一切行尾/编码自动改写） | `mana-rollout-plan.md` **为 CRLF**，检查器按 `/\r?\n/` 切分；若被 git 归一化会**污染 sha256 对账** |
+
+⇒ **决策**：Mana 仓**保留 `* -text`**（本仓内容的行尾有意义，且已有 sha256 对账）；抄样板 `.gitattributes` 时**只抄「禁二进制改写」一类**，**不要**抄 `eol=lf` 全局规则（会把本册 CRLF 改掉）。
+
+### A.7 一条命令复核（本节所有结论）
+
+```bash
+# 平台 / 工具链
+uname -r; node -v; npm -v; pnpm -v; python3 -V; sqlite3 --version | head -1; jq --version
+# Node 必须支持 .ts 直载（否则全仓测试静默归零）
+printf 'export const a: number = 1\n' > /tmp/t.ts && node -e "import('/tmp/t.ts').then(m=>console.log('TS-OK',m.a)).catch(e=>console.log('TS-FAIL',e.code))"
+# node:sqlite 导出（A0-1 判据）
+node --no-warnings -e "const s=require('node:sqlite');console.log(Object.keys(s).join(','))"
+# DSH / cordis 版本
+npm ls -g @deepseek-ai/dsh --depth=0; node -p "require('/usr/local/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/cordis/package.json').version"
+# 代理与可达性（no_proxy 覆盖 127.0.0.1 ⇒ Ollama 直连）
+env | grep -i proxy; curl -s -m 5 http://127.0.0.1:11434/api/version
+# 存储目录（G15）与文件系统
+test -e ~/.dsh/memory && echo "memory EXISTS" || echo "memory ABSENT (须自建)"; df -h /home/lk/Mana /mnt/d | tail -3
+# 样板 ext4 副本基线（A0-10 取基线值）
+cd /home/lk/dsh-src/dsh-plugin-roundtable && git status --porcelain | wc -l && git rev-parse --short HEAD
+```
