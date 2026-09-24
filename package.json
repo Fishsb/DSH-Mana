@@ -1,0 +1,23 @@
+{
+  "name": "mana",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Mana（末那识）：认知架构模拟与长期 AI 助手 —— DSH 插件集工作区",
+  "type": "module",
+  "license": "MIT",
+  "workspaces": [
+    "packages/*"
+  ],
+  "engines": {
+    "node": "^22.22.0"
+  },
+  "scripts": {
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "node --test \"packages/*/tests/*.test.mjs\"",
+    "build": "npm run build --workspaces --if-present"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.9.0"
+  }
+}

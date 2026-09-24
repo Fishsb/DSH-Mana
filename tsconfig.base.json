@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "_comment": [
+    "Mana 工作区共享 tsconfig 基线。抄自工程样板 dsh-plugin-roundtable（ext4 副本，其 typecheck 实测 exit 0）。",
+    "⚠ 只抄袭工程外形，不抄 API 用法 —— 样板自身的 src 里有已过期的宿主 API 调用（ctx.subagents→ctx.agents 等），",
+    "故新仓必须自测一次 typecheck（A0-4/A0-6），不得拿样板当绿基线。",
+    "allowImportingTsExtensions + rewriteRelativeImportExtensions：源码内以 .ts 后缀互相引用（DSH 插件生态口径），",
+    "tsc 仅做类型检查时无需 emit；需要 emit 时由 rewriteRelativeImportExtensions 改写为 .js。"
+  ],
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "lib": ["ES2022"],
+    "strict": true,
+    "noImplicitAny": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": false,
+    "declaration": true,
+    "declarationDir": "lib/types",
+    "outDir": "lib",
+    "rootDir": "src",
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "allowImportingTsExtensions": true,
+    "rewriteRelativeImportExtensions": true,
+    "types": ["node"]
+  }
+}

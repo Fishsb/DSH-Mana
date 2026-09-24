@@ -1,0 +1,5 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": { "rootDir": ".", "outDir": "/tmp/mana-a04-out", "declaration": false, "declarationDir": null },
+  "files": ["a04-negative-typecheck.ts"]
+}

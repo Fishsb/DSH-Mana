@@ -1,0 +1,8 @@
+# dsh-mana-core bundle patch：把 Mana 核心契约插件挂进 profile 组合。
+#
+# ⚠ 本插件是**契约唯一归属地**（落地册 §8 C13）：`Events` 接口与领域模型只在
+#   `src/events.ts` / `src/domain.ts` 声明，其余 Mana 插件**禁止**自建 event-types.ts。
+#   故本插件的装配位次必须**先于**其余 Mana 插件。
+- insert:
+    - id: mana-core
+      name: 'dsh-mana-core'

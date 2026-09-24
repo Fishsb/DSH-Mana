@@ -1,0 +1,5 @@
+# dsh-mana-jev bundle patch：挂进 profile 组合。
+# ⚠ 本插件**依赖** dsh-mana-core（契约唯一归属地）⇒ 装配位次必须在其后。
+- insert:
+    - id: mana-jev
+      name: 'dsh-mana-jev'
