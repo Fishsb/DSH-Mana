@@ -469,6 +469,45 @@ function runCases(file, cases) {
 }
 
 {
+  const id = 'A1-8'
+  const title = 'A1-8 门控失败可区分：jev_log 有 gate 列且取值域受限、degraded 与 gate 至少一个非空'
+  // ⚠ 本项的**机制前置**是本仓 2026-09-25 实测修出来的：判据原文要求
+  //   「Write → gate in (unavailable,budget) 且行仍写入」，而 jev_log **从未建 gate 列**
+  //   ⇒ 该判据结构上不可执行（查一列不存在的列）。已补列 + CHECK + 迁移承接。
+  const cases = ['G1 A1-8', 'G2 A1-8', 'G3 A1-8']
+  const r = runCases(P('packages/core/tests/jev-gate.test.mjs'), cases)
+  if (r.failed.length === 0 && r.passed.length === cases.length) {
+    pass(id, title, 'jev_log.gate 列存在且 CHECK 限定 unavailable/budget；失败行仍写入；degraded 与 gate 至少一非空', '判据表 docs/mana-rollout-plan.md:458；补列经 ADR-6 迁移机制对存量库同样生效')
+  } else {
+    fail(id, title, r.failed.length ? `挂的用例：${r.failed.join(' / ')}` : `本项用例未全绿（passed=${r.passed.length}/${cases.length}）`, '回 jev_log 表结构 / JEV 适配层降级链')
+  }
+}
+
+{
+  const id = 'A1-9'
+  const title = 'A1-9 审计不泄内容：inject_log 全文做 ≤32 字节 n-gram 匹配命中 0'
+  const cases = ['F4 A1-9', 'F5 A1-9']
+  const r = runCases(P('packages/core/tests/lexical-audit.test.mjs'), cases)
+  if (r.failed.length === 0 && r.passed.length === 2) {
+    pass(id, title, '审计行序列化后对记忆原文做 3-gram 匹配命中 0；但 id 必须保留（防"什么都不记"冒充合规）', '判据表 docs/mana-rollout-plan.md:459；F5 是判据自身的**有牙自证**（内容一旦进审计必须命中）')
+  } else {
+    fail(id, title, r.failed.length ? `挂的用例：${r.failed.join(' / ')}` : `本项用例未全绿（passed=${r.passed.length}/2）`, '回审计写入步骤')
+  }
+}
+
+{
+  const id = 'A1-10'
+  const title = 'A1-10 中文召回非静默归零（负向）：库非空时中文串必须命中 ≥1'
+  const cases = ['F1 A1-10', 'F2 A1-10', 'F3 A1-10']
+  const r = runCases(P('packages/core/tests/lexical-audit.test.mjs'), cases)
+  if (r.failed.length === 0 && r.passed.length === 3) {
+    pass(id, title, '中文串真召回 ≥1；0 命中的三种原因（库空/查询过短/真查不到）可分辨；FTS 同步触发器增删改均生效', '判据表 docs/mana-rollout-plan.md:460；机制根因=external content 虚表不自动跟随主表（实测静默 0 命中）')
+  } else {
+    fail(id, title, r.failed.length ? `挂的用例：${r.failed.join(' / ')}` : `本项用例未全绿（passed=${r.passed.length}/3）`, '回 FTS5 建表/触发器口径')
+  }
+}
+
+{
   const id = 'A1-14'
   const title = 'A1-14 fail-closed 不得吞掉「未判」：不注入 **且** 仍留痕（两条都要真）'
   const r = runCases(W3_TESTS.gate, ['P5 A1-14', 'P6 A1-14'])
@@ -551,7 +590,7 @@ function runCases(file, cases) {
  * ⚠ 本腿是**元判据**，不进 `results`（判定项集必须恰好是 EXPECTED_IDS 这 6 项，
  *   报告里的「共 N 项」也就是判据项数，不得被元判据灌水）。
  */
-const EXPECTED_IDS = ['A1-1', 'A1-2', 'A1-4', 'A1-5', 'A1-6', 'A1-11', 'A1-12', 'A1-13', 'A1-14', 'ARTIFACTS', 'W2-5']
+const EXPECTED_IDS = ['A1-1', 'A1-2', 'A1-4', 'A1-5', 'A1-6', 'A1-8', 'A1-9', 'A1-10', 'A1-11', 'A1-12', 'A1-13', 'A1-14', 'ARTIFACTS', 'W2-5']
 const ids = results.map((r) => r.id)
 const missingIds = EXPECTED_IDS.filter((x) => !ids.includes(x))
 const extraIds = [...new Set(ids)].filter((x) => !EXPECTED_IDS.includes(x))

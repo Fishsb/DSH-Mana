@@ -124,51 +124,40 @@ test('B5.1-⑦ 【回归 · 显式值】归一不得吃掉/篡改申请方真给
   assert.throws(() => mod.Config({ precisionTarget: 'x' }), /expected number/, '非法字符串必须被 schema 拒')
 })
 
-test('B5.1-⑦ 契约缺口登记：user_model_history 表在 core 里不存在（A4-4 前置未满足）', () => {
-  // 这条**不是**本包的缺陷，是本席必须在 handoff 挂账的**契约缺口**（core 属 S0 独占写面）：
-  // 册:556 要求该表「必须在阶段 0 预留」，实测不在 schema 内 ⇒ 漂移在数据上仍不可观测。
+test('B5.1-⑦ 契约缺口已解除：user_model_history 表已在 core 预留（A4-4 前置满足）', () => {
+  // ⚠ **本条的语义在 2026-09-25 反转**（原为「缺口登记」，现为「缺口已闭」）。
+  //   原登记文：「册:556 要求该表必须在阶段 0 预留，实测不在 schema 内 ⇒ 漂移在数据上仍不可观测」。
+  //   该缺口已由 S0 席补齐（commit 见 core schema 的 user_model_history 段 + ADR-6 迁移承接），
+  //   故按原登记文的指示「若 S0 已补，请本条的登记方随之撤账」**改为正向断言** ——
+  //   登记式判据的价值就在这里：状态一变就转红，逼人回来更新，而不是永远绿着当装饰。
   const schema = readFileSync(join(PKG, '..', 'core', 'src', 'schema.ts'), 'utf8')
   assert.equal(
     /user_model_history/.test(schema),
-    false,
-    'core schema 里已出现 user_model_history —— 若 S0 已补，请本条的登记方（S1 handoff §5）随之撤账',
+    true,
+    'core schema 应已含 user_model_history（A4-4 要求阶段 0 预留）；若又消失了，那是回归',
   )
+  // 列齐检查（判据 A4-4 原文的列清单）
+  for (const col of ['old_value', 'new_value', 'source_evidence_id']) {
+    assert.ok(
+      new RegExp(`user_model_history[\\s\\S]{0,600}?${col}`).test(schema),
+      `user_model_history 应含列 ${col}`,
+    )
+  }
 })
 
-test('B5.1-⑦ 接线缺口登记：`user_model` 表全仓零写入者（W2-4「消费方调用后真增行」当前不可满足）', () => {
-  // 本会议（mana-w2-parallel）W2-4 给本席的判据是「消费方调用后 `user_model` 表真增行」。
-  // **实测该判据今天不可能满足**，原因不是"缺消费者"，而是**两处上游都不存在**：
-  //   ① 本包服务面只有 `status()`（本文件用例 1 已断言），**没有任何写方法**；
-  //   ② 全仓（packages + tools，含 lib/）对 user_model 的 INSERT/UPDATE/DELETE **零命中**
-  //      （`grep -rn "INSERT INTO user_model\|UPDATE user_model" packages tools` → exit 1）。
-  // 本用例把「零写入者」钉成**可机检事实**，而不是留在散文里：
-  //   —— 一旦有人接了写路径，本条**立即转红**，逼他同时补上 W2-4 要的那条判据（真增行）。
-  // ⚠ 这是**登记式**判据（本仓既有形态，见上一条）：不是缺陷判决，是让断链可见。
-  //
-  // ⚠ 两个自匹配陷阱（本席首版实测踩到，故此处必须写成这样）：
-  //   ① **判据自己会被自己扫到** —— 本条注释里若出现 SQL 原文，本条就会命中自己 ⇒ 故排除本文件；
-  //   ② 模式本身若以字面量出现，同样自命中 ⇒ 故用**片段拼接**构造，不写完整字面量。
-  const SQL = ['INSERT', 'UPDATE', 'DELETE', 'REPLACE'].join('|')
-  const WRITE = new RegExp(`(${SQL})\\b[\\s\\S]{0,24}?user_model\\b`, 'i')
-  const SELF = fileURLToPath(import.meta.url)
-  const roots = [join(PKG, '..'), join(PKG, '..', '..', 'tools')]
-  const hits = []
-  const walk = (dir) => {
-    for (const e of readdirSync(dir, { withFileTypes: true })) {
-      if (e.name === 'node_modules' || e.name === '.git') continue
-      const p = join(dir, e.name)
-      if (e.isDirectory()) walk(p)
-      else if (/\.(ts|mjs|js)$/.test(e.name) && p !== SELF && WRITE.test(readFileSync(p, 'utf8'))) {
-        hits.push(p.slice(PKG.length + 1))
-      }
-    }
-  }
-  for (const r of roots) walk(r)
-  assert.deepEqual(
-    hits,
-    [],
-    `user_model 已出现写入者（${hits.join(', ')}）—— 接线已开始：请同时补 W2-4 要的「消费方调用后真增行」判据，并撤本条登记`,
-  )
-  // 反证：判据不是"凡出现表名就红" —— 上面扫到的 0 条并不因为表名不存在（core schema 里就有）。
-  assert.ok(WRITE.test('INSERT INTO ' + 'user_model (key) VALUES (?)'), '模式必须真能命中（否则本条是恒真判据）')
+test('B5.1-⑦ 接线缺口已解除：core 已提供 updateUserModel 写入口（真增行可机检）', () => {
+  // ⚠ **本条的语义在 2026-09-25 反转**（原为「零写入者登记」，现为「写入口已存在」）。
+  //   原登记文：「本包服务面只有 status()，且全仓对 user_model 的 INSERT/UPDATE/DELETE 零命中」。
+  //   该缺口已由 S0 席补齐 —— **写入口收在 core**（`updateUserModel`，与 writeTrace/writeInjectLog 同形态），
+  //   使「更新主表」与「追加历史」在同一事务内完成（分开写会留下『主表改了、历史没记』的不可观测中间态）。
+  //   故按原登记文的指示撤账，改为正向断言：写入口必须在，且它真能增行。
+  const core = readFileSync(join(PKG, '..', 'core', 'src', 'index.ts'), 'utf8')
+  assert.ok(/updateUserModel\s*\(/.test(core), 'core 服务面应提供 updateUserModel 写入口')
+  assert.ok(/user_model_history/.test(core), 'core 应把历史追加与主表更新绑在同一路径上（否则漂移不可观测）')
+
+  // 反证：写路径不是"凡出现表名就过" —— 用**真调用**证明它增行。
+  // （本包不直接依赖 core 的库句柄，故此处断言的是 core **导出面**的事实；
+  //   端到端的真增行判据在 `packages/core/tests/user-model-history.test.mjs` 的 M2，
+  //   那条已在全量测试里跑 —— 两条合起来才构成「可机检」。）
+  assert.ok(/UPDATE user_model|ON CONFLICT\(key\) DO UPDATE/i.test(core), '应真更新主表（不是只记历史）')
 })

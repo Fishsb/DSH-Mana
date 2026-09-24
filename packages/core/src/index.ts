@@ -32,7 +32,7 @@ import {
   type BackupPolicy,
   type BackupResult,
 } from './open.ts'
-import { createSchema, SCHEMA_VERSION } from './schema.ts'
+import { createSchema, SCHEMA_VERSION, checkQuery } from './schema.ts'
 // ⚠ `writeInjectLog` 的取值域校验要用 `INJECTION_GATES`（运行期）与 `InjectionGate`（类型）
 //   ⇒ 必须**真正 import 进本模块作用域**。只写 `export ... from './domain.ts'` 是**再导出**，
 //   不会把名字引入本地作用域（那是两个不同的语义，混同会得到「Cannot find name」）。
@@ -173,6 +173,79 @@ export function isInjectionGate(value: unknown): value is InjectionGate {
   return typeof value === 'string' && (INJECTION_GATES as readonly string[]).includes(value)
 }
 
+/**
+ * 一次偏好更新请求（A4-4 的落点）。
+ *
+ * ⚠ **为什么更新与历史必须在同一个函数里**（而不是让调用方写两次）：
+ *   `user_model` 是 UPDATE 覆盖。若"更新主表"与"记一行历史"是两个可选步骤，
+ *   调用方漏掉第二步时**主表照样更新成功、且不报错** ⇒ 「漂移可回溯」变成愿望，
+ *   而失败完全不可观测（本仓首位缺陷类）。故两者**绑成一次调用**。
+ */
+export interface UserModelUpdate {
+  key: string
+  value: string
+  /** 置信度；不传则沿用主表既有值（新建时用 `user_model.confidence` 缺省）。 */
+  confidence?: number
+  /** 来源证据 id；无证据时显式传 `null`（不得靠省略表示"没有"）。 */
+  sourceEvidenceId?: string | null
+  sessionId?: string
+  turnId?: number
+  at?: string
+}
+
+/** 一次偏好更新的结果（**旧值可读**：这是"漂移"能被数出来的前提）。 */
+export interface UserModelUpdateResult {
+  key: string
+  /** 更新前的值；该键此前不存在时为 `null`（与"旧值是空串"可分辨）。 */
+  previousValue: string | null
+  newValue: string
+  /** 本次是否真的改变了值（相同值重复写 = `false`，不计入漂移）。 */
+  changed: boolean
+  /** 本次是否新建了该键。 */
+  created: boolean
+  /** 历史表新增行的 id。 */
+  historyId: number
+}
+
+/** 一条读回的用户模型历史行。 */
+export interface UserModelHistoryRow {
+  id: number
+  key: string
+  old_value: string | null
+  new_value: string
+  confidence: number | null
+  at: string
+  session_id: string | null
+  turn_id: number | null
+  source_evidence_id: string | null
+}
+
+/** 词法召回的一条命中。 */
+export interface LexicalHit {
+  id: string
+  content: string
+  summary: string | null
+}
+
+/**
+ * 词法召回结果 —— **把"为什么是空"做成可分辨的事实**（A1-10 的核心）。
+ *
+ * ⚠ 判据原文要求「命中 ≥1；若为 0 且**库非空**即判红」。若只返回一个数组，
+ *   「库里没有」与「查询被 FTS 静默归零」表面完全同形 —— 那正是本仓最防的形态。
+ *   ⇒ 本结果显式带 `reason`，把三种"0 命中"分开：
+ *     `ok`（真的查了、结果就是 0）/ `too_short`（被 MIN_QUERY_CHARS 挡下）/
+ *     `empty_library`（库是空的，0 命中是正常的）。
+ */
+export interface LexicalRecallResult {
+  hits: LexicalHit[]
+  /** 0 命中的原因分类；有命中时为 `null`。 */
+  reason: 'ok' | 'too_short' | 'empty_library' | null
+  /** 库中记忆总条数（判「库非空」用，使 `reason` 可被交叉核对）。 */
+  librarySize: number
+  /** 被 `checkQuery` 归一后的查询串（**可断言**：调用方传的原串可能带空白）。 */
+  normalizedQuery: string | null
+}
+
 /** core 对外提供的服务面（其余插件只依赖它，不直接摸库）。 */
 export interface ManaCoreService {
   /** 库句柄（只读用途；写路径统一走 `writeTrace` / `withTransaction`）。 */
@@ -203,6 +276,28 @@ export interface ManaCoreService {
    * @param limit 最多返回条数（按 `id` 倒序，最新在前）。
    */
   listInjectLog(sessionId?: string, limit?: number): InjectLogRow[]
+  /**
+   * **偏好更新 + 历史追加绑成一次调用**（A4-4）。
+   *
+   * 返回旧值，使「漂移」可被数出来（`user_model` 本身是 UPDATE 覆盖、读不到历史）。
+   * 值未变时 `changed=false` 且**仍记一行**（"改过但改成一样"与"没改过"可分辨）。
+   */
+  updateUserModel(update: UserModelUpdate): UserModelUpdateResult
+  /** 读某个 key 的历史行（按 `at` 升序）。省略 key = 全部。 */
+  listUserModelHistory(key?: string, limit?: number): UserModelHistoryRow[]
+  /**
+   * **词法召回**（FTS5 trigram）—— A1-10 的生产侧落点。
+   *
+   * ⚠ 判据 A1-10 是**负向**的：「中文串查询命中 ≥1；若为 0 且库非空即判红」。
+   *   故本方法**不只返回命中**，还返回 0 命中的**原因分类**（`too_short`/`empty_library`/`ok`），
+   *   使「静默归零」在结构上不可能与「库里本来没有」混同。
+   *
+   * `checkQuery` 的长度闸在此**强制生效**（trigram 下 2 字查询恒 0 命中且不报错，
+   * 见 `schema.ts` 的 `MIN_QUERY_CHARS` 说明）。
+   */
+  recallLexical(rawQuery: string, limit?: number): LexicalRecallResult
+  /** 写一条记忆项（供词法召回有数据源；`vector` 列由向量席另行回填）。 */
+  writeMemoryItem(item: { id: string; type: string; content: string; summary?: string | null; at?: string }): void
   /** 手写 BEGIN IMMEDIATE 事务（G7）。 */
   withTransaction<T>(fn: () => Promise<T> | T): Promise<T>
   /** 记录一次「插件因依赖缺失未运行」。 */
@@ -348,6 +443,99 @@ export function apply(ctx: Context, config: Config): void {
             .all(sessionId, limit)
         : opened.db.prepare('SELECT * FROM inject_log ORDER BY id DESC LIMIT ?').all(limit)
       return rows as unknown as InjectLogRow[]
+    },
+    updateUserModel(update: UserModelUpdate): UserModelUpdateResult {
+      const at = update.at ?? new Date().toISOString()
+      // ⚠ 主表更新与历史追加在**同一事务**内：
+      //   分开写会出现「主表改了、历史没记」的中间态，而那种态**读起来像没改过**
+      //   （漂移不可观测）。同事务保证二者要么都成、要么都不成。
+      let result: UserModelUpdateResult | null = null
+      opened.db.exec('BEGIN IMMEDIATE')
+      try {
+        const prev = opened.db.prepare('SELECT value, confidence FROM user_model WHERE key = ?').get(update.key) as
+          | { value?: string; confidence?: number }
+          | undefined
+        const previousValue = prev?.value ?? null
+        const created = previousValue === null
+        const nextConfidence = update.confidence ?? prev?.confidence ?? 0.5
+        opened.db
+          .prepare(
+            `INSERT INTO user_model (key, value, confidence, updated_at) VALUES (?, ?, ?, ?)
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value,
+                                            confidence = excluded.confidence,
+                                            updated_at = excluded.updated_at`,
+          )
+          .run(update.key, update.value, nextConfidence, at)
+        const info = opened.db
+          .prepare(
+            `INSERT INTO user_model_history
+               (key, old_value, new_value, confidence, at, session_id, turn_id, source_evidence_id)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          )
+          .run(
+            update.key,
+            previousValue,
+            update.value,
+            nextConfidence,
+            at,
+            update.sessionId ?? null,
+            update.turnId ?? null,
+            update.sourceEvidenceId ?? null,
+          )
+        result = {
+          key: update.key,
+          previousValue,
+          newValue: update.value,
+          changed: previousValue !== update.value,
+          created,
+          historyId: Number(info.lastInsertRowid),
+        }
+        opened.db.exec('COMMIT')
+      } catch (error) {
+        try {
+          opened.db.exec('ROLLBACK')
+        } catch {
+          /* 回滚失败不掩盖原始错误（原始错误优先抛出） */
+        }
+        throw error
+      }
+      return result
+    },
+    listUserModelHistory(key?: string, limit = 1000): UserModelHistoryRow[] {
+      const rows = key
+        ? opened.db
+            .prepare('SELECT * FROM user_model_history WHERE key = ? ORDER BY at ASC, id ASC LIMIT ?')
+            .all(key, limit)
+        : opened.db.prepare('SELECT * FROM user_model_history ORDER BY at ASC, id ASC LIMIT ?').all(limit)
+      return rows as unknown as UserModelHistoryRow[]
+    },
+    writeMemoryItem(item): void {
+      opened.db
+        .prepare('INSERT OR REPLACE INTO memory_items (id, type, content, summary, created_at) VALUES (?, ?, ?, ?, ?)')
+        .run(item.id, item.type, item.content, item.summary ?? null, item.at ?? new Date().toISOString())
+    },
+    recallLexical(rawQuery: string, limit = 50): LexicalRecallResult {
+      const librarySize = Number(
+        (opened.db.prepare('SELECT COUNT(*) c FROM memory_items').get() as { c?: number })?.c ?? 0,
+      )
+      const checked = checkQuery(rawQuery)
+      // 长度闸先于查询：trigram 下短查询恒 0 命中且**不报错** ⇒ 必须显式分类。
+      if (!checked.ok) {
+        return { hits: [], reason: 'too_short', librarySize, normalizedQuery: null }
+      }
+      const rows = opened.db
+        .prepare(
+          `SELECT m.id AS id, m.content AS content, m.summary AS summary
+             FROM memory_items_fts f
+             JOIN memory_items m ON m.rowid = f.rowid
+            WHERE memory_items_fts MATCH ?
+            LIMIT ?`,
+        )
+        .all(checked.query, limit) as { id: string; content: string; summary: string | null }[]
+      // 0 命中的两种情形必须可分辨：① 库空（正常）② 库非空却查不到（**要判红的形态**）。
+      const reason: LexicalRecallResult['reason'] =
+        rows.length > 0 ? null : librarySize === 0 ? 'empty_library' : 'ok'
+      return { hits: rows, reason, librarySize, normalizedQuery: checked.query }
     },
     withTransaction: <T>(fn: () => Promise<T> | T) => withImmediateTransaction(opened.db, fn),
     recordInactive(id: string, missing: string[]): void {

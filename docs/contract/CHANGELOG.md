@@ -12,6 +12,25 @@
 | v0.1.2 | **命名契约补齐到 13 包**（原只列 P0 六个）：`naming.md` 增补 `scheduler`/`long-term`/`consolidation`/`forgetting`/`metacognition`/`user-model`/`ui` 七行；`A0-5` 改**扫实际 `packages/*` 目录**并逐包核 `name`/`inject`/`apply` + **patch id 与 `name` 一致** + **本表覆盖率** | I-5（三名映射表） | S0 | 2026-09-25 | 全体：新建包**必须**在 `naming.md` 登记，否则 `A0-5` 报红。`Config` 判定放宽为「三形态合法」（schemastery / 纯类型+缺省 / 无配置），但**声明 `export const Config` 就必须是 schemastery schema** |
 | v0.2 | **W3 波次：`inject_log` 生产侧写入口 + 端到端事件链**：<br>① core 服务面新增 `writeInjectLog(entry)` / `listInjectLog(sessionId?, limit?)`，新增导出类型 `InjectLogEntry` / `InjectLogRow` 与守卫 `isInjectionGate`；<br>② `perception` 新增 `perceive(input)` 服务 + `chunkText()` 纯函数（发 `mana/observation`）；<br>③ `working-memory` 新增 `push()` / `snapshot()` 服务（消费 `mana/attention`，容量闸 + `evicted` 记账）；<br>④ `attention` 新增 `buildBlock()` 服务 + **Injection Gate**（挂 `agent/pre-step`，写 `inject_log`）；<br>⑤ `attention` 的 `status()` 增加 `injections` / `lastGate` 字段 | I-3（`inject_log` 读写面）、I-7（core 服务面） | S0 | 2026-09-25 | 全体：`gate` 取值域**只能**经 `writeInjectLog` 写入（非法值抛错）；消费方读审计用 `listInjectLog` 而非直连 `db`。`ManaCoreService` 新增方法为**增量**，既有调用不受影响 |
 
+| v0.2.1 | **表结构补齐（三处「声明了却没建」）**：<br>① **新建 `user_model_history` 表**（A4-4 要求阶段 0 预留；`key`/`old_value`/`new_value`/`confidence`/`at`/`session_id`/`turn_id`/`source_evidence_id` + `(key,at)` 索引）；<br>② **`jev_log` 补 `gate` 列**（A1-8 原文要读它，而该列从未建过 ⇒ 判据结构上不可执行）+ `CHECK gate IN ('unavailable','budget')`；<br>③ **`memory_items_fts` 补三个同步触发器**（external content 虚表**不自动跟随主表** ⇒ 插入后 FTS 静默 0 命中） | I-3、I-4（表结构）、A1-8/A1-9/A1-10/A4-4 的落点 | S0 | 2026-09-25 | 全体：三条均由 ADR-6 的迁移机制承接（存量库自动补列/补表/补索引），无需手工 DDL；`splitStatements` 已支持 `CREATE TRIGGER ... BEGIN…END` 体内的分号 |
+
+## 变更背景（v0.2.1）
+
+**三处都是同一形态：声明与生效不一致**（注释/判据承诺了，DDL 没给）。
+
+| # | 声明处 | 实际 | 后果 |
+|---|---|---|---|
+| ① | `册:585/591` 明文「`user_model_history` 追加表**必须在阶段 0 预留**」 | 表不存在 | `user_model` 是 UPDATE 覆盖 ⇒ **「漂移」在数据上不存在**；到阶段 4 想数「30 天内改 ≥3 次」时**没有任何行可数** |
+| ② | `jev_log` 的 DDL **注释里写着**「A1-8 要求 degraded 与 gate 至少一个非空」 | **gate 列从未建** | A1-8 判据**结构上不可执行**（查一列不存在的列）—— 注释让阅读者以为已经有了 |
+| ③ | `memory_items_fts` 建表语句 | 无同步触发器 | external content 虚表**不自动跟随主表**：插一行后 FTS 仍返回 **0 命中且不报错** ⇒ 「中文召回恒 0」与「库里没有」**表面完全同形**（A1-10 要判红的形态） |
+
+**顺带修的两处工具缺陷**（都由本轮实测暴露）：
+- `splitStatements` 不认识 `CREATE TRIGGER ... BEGIN <stmt>; <stmt>; END;` 的体内分号 ⇒ 切出的碎片报 `incomplete input`（**指不到真因**）。已加 BEGIN/CASE…END 配平（仅对 `CREATE TRIGGER` 启用，避免误伤 `BEGIN IMMEDIATE`），且**数之前先去注释**（注释里的 "BEGIN" 字样会把深度算错）。
+- `check-comment-guard` 加**精准归因**：模板串内出现未转义反引号时，直接点名「第几行」。该坑本席已踩三次，而原报错是 `Expected a semicolon` / `Module declaration names may only use quoted strings`（看起来像类型声明坏了）。归因自身失败时**显式打印原因**，不静默吞掉（写这段时正因 `readFileSync` 未 import 而静默失效过一次）。
+
+**实测**：全量测试 225 → **251**；`a1-check` 判据项 11 → **14**（新增 A1-8 / A1-9 / A1-10）。
+变异自证：删 FTS 触发器 ⇒ 仅 A1-10 红；让审计写入内容 ⇒ A1-9 红并点名泄漏片段；删 `jev_log.gate` 列 ⇒ 仅 A1-8 红。
+
 ## 变更背景（v0.2）
 
 **根因**：`inject_log` 表在阶段 0 已建、5 类 `gate` 枚举已冻结（`docs/contract/degradation.md` §4），

@@ -23,7 +23,7 @@ import { DatabaseSync } from 'node:sqlite'
 const SCHEMA = new URL('../src/schema.ts', import.meta.url).href
 const DB = new URL('../src/db.ts', import.meta.url).href
 
-const { createSchema, parseSchema, splitStatements } = await import(SCHEMA)
+const { createSchema, parseSchema, splitStatements, SCHEMA_SQL } = await import(SCHEMA)
 const { openManaDb } = await import(DB)
 
 const cleanups = []
@@ -103,13 +103,18 @@ test('M2 幂等：对已迁移的库存再施加 createSchema 补 0 列', () => 
 })
 
 // ── M3 顺序：补列后才建索引（否则 `no such column`）────────────────────────
-test('M3 索引在补列之后建立：旧库迁移后 4 个 idx 齐备', () => {
+test('M3 索引在补列之后建立：旧库迁移后索引数与 DDL 声明一致', () => {
   const db = makeLegacyDb(join(tmp(), 'idx.db'))
   createSchema(db)
-  const idx = db
-    .prepare("SELECT COUNT(*) c FROM sqlite_master WHERE type='index' AND name LIKE 'idx_%'")
-    .get().c
-  assert.equal(Number(idx), 4, '四个索引都应建起来；顺序错会在补列前抛 no such column')
+  const idx = Number(
+    db.prepare("SELECT COUNT(*) c FROM sqlite_master WHERE type='index' AND name LIKE 'idx_%'").get().c,
+  )
+  // ⚠ 期望值**从 DDL 派生**，不写死数字：写死会在每次新增索引时假红
+  //   （本仓 2026-09-25 实测踩到：加了 user_model_history 的索引后本用例变红，
+  //     而实现完全正确 —— 那是判据过严，不是回归）。
+  const declared = (SCHEMA_SQL.match(/CREATE INDEX IF NOT EXISTS/g) ?? []).length
+  assert.equal(idx, declared, `应建起 ${declared} 个索引（DDL 声明数）；顺序错会在补列前抛 no such column`)
+  assert.ok(declared > 0, 'DDL 里应至少声明一个索引（防正则失配导致 0 == 0 平凡通过）')
   db.close()
 })
 
@@ -166,11 +171,20 @@ test('S1 splitStatements 引号与注释感知', () => {
 })
 
 // ── S2 解析器：跳过表级约束（列入会造出必然失败的 ADD COLUMN）───────────────
-test('S2 parseSchema 跳过表级约束、认全 7 张表', () => {
+test('S2 parseSchema 跳过表级约束、表数从 DDL 派生', () => {
   const p = parseSchema()
-  assert.equal(p.tables.size, 7, '应解析出 7 张普通表（虚表 FTS5 不参与）')
+  // ⚠ 期望值**从 DDL 派生**（`CREATE TABLE IF NOT EXISTS` 的出现次数），不写死 7：
+  //   写死会在每次新增表时假红（本仓 2026-09-25 实测：加 user_model_history 后变红，
+  //   而实现正确）。同时排除 `CREATE VIRTUAL TABLE`（FTS5 虚表不参与补列）。
+  const declared = (SCHEMA_SQL.match(/CREATE\s+TABLE\s+IF\s+NOT\s+EXISTS/g) ?? []).length
+  assert.ok(declared > 0, 'DDL 里应有普通表（防正则失配导致 0 == 0 平凡通过）')
+  assert.equal(p.tables.size, declared, `应解析出 ${declared} 张普通表（虚表 FTS5 不参与）`)
   const inject = p.tables.get('inject_log').map((c) => c.name)
   assert.ok(inject.includes('gate'), 'inject_log.gate 应在列清单内')
   // CHECK 约束是表级项，不得被当成列名（否则会生成 `ADD COLUMN CHECK (...)`）。
   assert.ok(!inject.some((n) => /^check$/i.test(n)), '表级 CHECK 不应被当作列')
+  // 新增表必须也被解析到（否则迁移不会给它补列）
+  for (const t of ['user_model_history', 'jev_log']) {
+    assert.ok(p.tables.has(t), `${t} 应被解析（否则迁移不覆盖它）`)
+  }
 })

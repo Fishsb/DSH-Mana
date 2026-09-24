@@ -93,6 +93,29 @@ CREATE TABLE IF NOT EXISTS user_model (
   updated_at TEXT NOT NULL
 );
 
+-- ── 用户模型历史（**A4-4 要求阶段 0 预留**；方案 §11.2 未含此表）──────────────
+-- ⚠ 为什么必须在阶段 0 就建（落地册 §B5.2 行 585/588/591 明文）：
+--   user_model 是 **UPDATE 覆盖**、无历史行 ⇒ **「漂移」在数据上根本不存在**，
+--   到阶段 4 想要「30 天内改 ≥3 次」时**没有任何行可数**，而那时改表要动已上线数据面。
+--   本表的唯一用途 = 让「偏好被改过几次」成为**可查事实**，而不是靠记忆自述。
+-- ⚠ old_value / source_evidence_id 可空：创建时无旧值与证据来源是正常态，
+--   但**列必须在**——缺列与「本次无旧值」不可分辨（与本仓「不可用落 null、
+--   不得靠缺列冒充」同一条纪律）。
+-- ⚠ 本段位于模板串内：**注释里不得出现反引号**（本仓已踩过两次：反引号会提前终止
+--   SCHEMA_SQL 模板串，报出的却是「Module declaration names may only use quoted strings」
+--   这类**指不到真因**的错）。
+CREATE TABLE IF NOT EXISTS user_model_history (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  key TEXT NOT NULL,
+  old_value TEXT,
+  new_value TEXT NOT NULL,
+  confidence REAL,
+  at TEXT NOT NULL,
+  session_id TEXT,
+  turn_id INTEGER,
+  source_evidence_id TEXT
+);
+
 -- ── 认知轨迹（方案 §11.2 + session_id/turn_id）──────────────────────────────
 -- 阶段 6 回放、A1-1 端到端可追、M2 的 seq 无空洞判据均落在此表。
 CREATE TABLE IF NOT EXISTS mana_trace (
@@ -104,8 +127,17 @@ CREATE TABLE IF NOT EXISTS mana_trace (
   timestamp TEXT NOT NULL
 );
 
--- ── JEV 判定日志（方案 §11.2 + session_id/turn_id）──────────────────────────
--- ⚠ A1-8 要求 degraded 与 gate **至少一个非空**；state_hash 是缓存键。
+-- ── JEV 判定日志（方案 §11.2 + session_id/turn_id + gate）───────────────────
+-- ⚠ A1-8 原文要求「Write → gate in (unavailable,budget) 且行仍写入」与
+--   「jev_log.degraded 与 gate **至少一个非空**」⇒ **本表必须有 gate 列**。
+--   本仓 2026-09-25 实测发现：此前 DDL 注释已写「A1-8 要求 degraded 与 gate 至少一个非空」，
+--   但**列本身从未建** —— 于是 A1-8 那条判据**结构上不可执行**（查一列不存在的列）。
+--   这正是本仓反复出现的形态：**声明与生效不一致**（注释承诺了、DDL 没给）。
+--   ⇒ 补列，并把取值域显式写出，使「判据能跑到真数据面」。
+-- ⚠ 取值域与 inject_log.gate（5 类）**不同**：这里记的是 **JEV 调用层的失败归因**
+--   （unavailable = 端点不可达/模型不可用；budget = 预算/熔断耗尽），
+--   不是注入门控的判定结果。两者同名不同域，故各自 CHECK。
+--   ⚠ probability 仍是 REAL 可空：降级时**必须为 NULL**，不得用 0 冒充「概率为零」。
 CREATE TABLE IF NOT EXISTS jev_log (
   id TEXT PRIMARY KEY,
   request_type TEXT NOT NULL,
@@ -115,6 +147,7 @@ CREATE TABLE IF NOT EXISTS jev_log (
   probability REAL,
   cached INTEGER DEFAULT 0,
   degraded INTEGER DEFAULT 0,
+  gate TEXT CHECK (gate IS NULL OR gate IN ('unavailable', 'budget')),
   latency_ms INTEGER,
   cost_usd REAL,
   session_id TEXT,
@@ -159,6 +192,31 @@ CREATE INDEX IF NOT EXISTS idx_inject_log_session_turn ON inject_log(session_id,
 CREATE INDEX IF NOT EXISTS idx_inject_log_memory ON inject_log(memory_id);
 CREATE INDEX IF NOT EXISTS idx_mana_trace_session_turn ON mana_trace(session_id, turn_id);
 CREATE INDEX IF NOT EXISTS idx_memory_items_session_turn ON memory_items(session_id, turn_id);
+-- 「30 天内改 ≥3 次」的判据按 (key, at) 扫 ⇒ 该索引是那条判据的可执行前提。
+CREATE INDEX IF NOT EXISTS idx_user_model_history_key_at ON user_model_history(key, at);
+
+-- ── FTS5 同步触发器（**external content 表不同步就是静默归零**）──────────────
+-- ⚠ 本段是本仓 2026-09-25 实测补上的（A1-10 的机制根因）：
+--   memory_items_fts 是 **external content** 虚表（content='memory_items'），
+--   它**不自动跟随主表**：往 memory_items 插一行，FTS 查询**仍返回 0 命中且不报错**
+--   （实测：插后查 3 字串得 0；执行 rebuild 之后得 1）。
+--   ⇒ 「中文召回恒 0」与「库里没有这条记忆」**表面完全同形**，正是 A1-10 要判红的形态。
+--   修法 = 三个触发器（增/删/改）把主表变更同步进索引。
+--   ⚠ 不能用「查询时 rebuild」代替：rebuild 重建**整张**索引，随数据量增长退化为全表扫描。
+--   ⚠ 本段位于模板串内，注释里**不得出现反引号**（会提前终止 SCHEMA_SQL 模板串；
+--     报出的却是 Expected a semicolon 这类指不到真因的错 —— 本仓已踩过三次）。
+CREATE TRIGGER IF NOT EXISTS trg_memory_items_fts_ai AFTER INSERT ON memory_items BEGIN
+  INSERT INTO memory_items_fts(rowid, content, summary) VALUES (new.rowid, new.content, new.summary);
+END;
+CREATE TRIGGER IF NOT EXISTS trg_memory_items_fts_ad AFTER DELETE ON memory_items BEGIN
+  INSERT INTO memory_items_fts(memory_items_fts, rowid, content, summary)
+    VALUES ('delete', old.rowid, old.content, old.summary);
+END;
+CREATE TRIGGER IF NOT EXISTS trg_memory_items_fts_au AFTER UPDATE ON memory_items BEGIN
+  INSERT INTO memory_items_fts(memory_items_fts, rowid, content, summary)
+    VALUES ('delete', old.rowid, old.content, old.summary);
+  INSERT INTO memory_items_fts(rowid, content, summary) VALUES (new.rowid, new.content, new.summary);
+END;
 `
 
 /**
@@ -282,6 +340,30 @@ export function splitStatements(sql: string): string[] {
       continue
     }
     if (c === ';') {
+      // ⚠ **`BEGIN ... END` 体内的分号不是语句边界**（本仓 2026-09-25 实测踩到）：
+      //   FTS 同步触发器写作 `CREATE TRIGGER ... BEGIN <stmt>; <stmt>; END;`
+      //   —— 体内分号若被当作边界，切出的碎片会报 `incomplete input`
+      //   （SQLite 这句报错**指不到真因**：它只说输入不完整）。
+      //   ⇒ 在 `CREATE TRIGGER` 语句内按词边界数 BEGIN/CASE 与 END，只有配平后的分号才是边界。
+      //   ⚠ 仅对 `CREATE TRIGGER` 启用：`BEGIN IMMEDIATE`（事务）也含该词，
+      //     无差别启用会把事务语句切错。
+      if (/^\s*(--[^\n]*\n\s*)*CREATE\s+TRIGGER\b/i.test(cur)) {
+        // ⚠ 数 BEGIN/END 之前**必须先去注释**：注释里出现 "BEGIN"/"END" 这类词
+        //   （本仓的触发器说明就写到了 BEGIN 字样）会把深度算错 ⇒ 语句仍被误切。
+        const code = cur.replace(/--[^\n]*/g, '').replace(/\/\*[\s\S]*?\*\//g, '')
+        const tokens = code.match(/\b(BEGIN|END|CASE)\b/gi) ?? []
+        let depth = 0
+        for (const t of tokens) {
+          const up = t.toUpperCase()
+          if (up === 'BEGIN' || up === 'CASE') depth++
+          else if (up === 'END') depth--
+        }
+        if (depth > 0) {
+          cur += c
+          i++
+          continue
+        }
+      }
       out.push(cur)
       cur = ''
       i++
@@ -415,7 +497,25 @@ export function createSchema(db: {
   }
 
   // ④ 索引与虚表：此刻列已齐，才不会报 `no such column`。
+  //
+  // ⚠ **触发器新建后必须对存量行做一次 rebuild**（本仓 2026-09-25 实测）：
+  //   触发器只对**之后的**写入生效。存量库迁移前插入的行**不在 FTS 索引里**，
+  //   迁移后依然查不到 —— 实测：老库 1 行存量中文，补完触发器后查中文串仍为 0，
+  //   而**新插**的行立刻可查（1）。⇒ 若不 rebuild，「迁移成功」与「存量记忆静默不可检索」
+  //   会同时成立，后者正是 A1-10 要判红的形态。
+  //   ⚠ 只在**本次真的新建了触发器**时才 rebuild：rebuild 重建整张索引，
+  //     不能每次开库都跑（随数据量增长退化为全表扫描）。
+  const hadFtsTriggers = (
+    db.prepare("SELECT name FROM sqlite_master WHERE type='trigger'").all() as { name?: string }[]
+  ).some((r) => String(r.name ?? '') === 'trg_memory_items_fts_ai')
   for (const s of dependents) db.exec(s)
+  if (!hadFtsTriggers) {
+    const ftsExists = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='memory_items_fts'").get()
+    if (ftsExists) {
+      // 把存量行纳入索引；失败**不静默吞掉**（抛出去，让开库的人看到）。
+      db.exec("INSERT INTO memory_items_fts(memory_items_fts) VALUES('rebuild')")
+    }
+  }
 
   for (const table of target.tables.keys()) {
     const n = actualCols(table).length
