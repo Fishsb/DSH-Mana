@@ -1,0 +1,10 @@
+{
+  "_note": "extends/include 均为相对**本文件**解析（实测：从仓根 `tsc -p packages/<pkg>/tsconfig.json --noEmit` 与从包内跑结果一致）⇒ 用仓根 cwd 调用本文件是安全的；outDir/declarationDir 亦因此落在本包内，不会外溢。",
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "lib",
+    "declarationDir": "lib/types"
+  },
+  "include": ["src"]
+}

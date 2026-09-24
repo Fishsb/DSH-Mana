@@ -1,8 +1,8 @@
 {
-  "name": "dsh-mana-vector",
+  "name": "dsh-mana-user-model",
   "version": "0.1.0",
   "private": true,
-  "description": "Mana 向量适配：嵌入、纯 JS 余弦检索、RRF 融合",
+  "description": "Mana 末那识·我执：偏好 / 习惯 / 项目（P2 骨架 · B5.1）",
   "type": "module",
   "license": "MIT",
   "main": "./lib/index.js",
@@ -21,8 +21,7 @@
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "node tests/gate.mjs",
-    "test:raw": "node --test tests/b11-vector.test.mjs",
+    "test": "node --test \"tests/*.test.mjs\"",
     "build": "tsc -p tsconfig.json"
   },
   "peerDependencies": {

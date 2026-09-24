@@ -14,7 +14,8 @@
   "scripts": {
     "typecheck": "npm run typecheck --workspaces --if-present",
     "test": "node --test \"packages/*/tests/*.test.mjs\"",
-    "build": "npm run build --workspaces --if-present"
+    "build": "npm run build --workspaces --if-present",
+    "check:a1": "node tools/a1-check.mjs"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

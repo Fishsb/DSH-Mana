@@ -1,0 +1,5 @@
+# dsh-mana-ui bundle patch：挂进 profile 组合。
+# ⚠ 本插件**依赖** dsh-mana-core（数据源与落点都在它那里）⇒ 装配位次必须在其后。
+- insert:
+    - id: mana-ui
+      name: 'dsh-mana-ui'

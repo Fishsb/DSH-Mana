@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Mana 阶段 0 验收判据机检器（A0-1 … A0-13）。
+ * Mana 阶段 0 验收判据机检器（A0-1 … A0-14 + R0 + **A1 入口**）。
  *
  * 存在的理由：落地册的判据表是**给执行者看的**，而「照着执行」与「可重复机检」
  * 是两件事。本脚本把每条判据变成**可重跑的检查**，输出 PASS/FAIL/挂账三态。
@@ -8,13 +8,15 @@
  * 用法：
  *   node tools/a0-check.mjs                  # 全量
  *   node tools/a0-check.mjs --json           # 机读输出
- *   node tools/a0-check.mjs --only A0-3,A0-8 # 只跑指定项
+ *   node tools/a0-check.mjs --only A0-3,A0-8 # 只跑指定项（也可 --only A1 / R0）
  *
  * ⚠ 纪律：
  *  · **不得用管道取退出码**（`node x.mjs | tail` 的 `$?` 是 tail 的）。要判真值须
  *    `node x.mjs >out 2>err; echo $?`。
  *  · 退出码：0 = 无 FAIL（可含挂账）；1 = 有 FAIL。
  *  · 「挂账」是**一等状态**，不等于通过（G14 挂账到阶段 1）。
+ *  · **A1 腿**（`A1`）把 `tools/a1-check.mjs` 接进本链：建了却没被任何入口跑到的判据，
+ *    等于没建（本会议实测：加 `check:a1` 之前它零调用者）。
  */
 import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
@@ -450,7 +452,43 @@ if (want('A0-14')) {
   }
 }
 
-// ══ R0 反证判据（阶段 0 专属 · 真装配链）═════════════════════════════════════
+// ══ A1 判据入口（`tools/a1-check.mjs`）接入门链 ═══════════════════════════════
+//
+// ⚠ 为什么必须进这条链（本会议 2026-09-24 判红事实）：a1-check 建好后一度**零调用者** ——
+//   `grep -rn "a1-check" tools/ package.json packages/*/package.json` 只命中它自己的注释。
+//   在根 `package.json` 加 `check:a1` 只解决「可发现」，**不解决「被自动跑到」**：
+//   跑 `a0-check` 的人不会知道还有一条 A1 门没跑。此处按 R0 腿的既有形态接入 ——
+//   跑 a0-check 即**自动跑** a1-check，且把它的项集等式腿与 FAIL 都带进本报告。
+//
+// 判据（三条腿都要真读，缺一即红）：
+//   ① 退出码 0（a1-check 自身口径：无 FAIL **且** 判据项集等式通过）；
+//   ② 输出里「门判定」段两条腿都是 ✓（`判据腿` 与 `项集腿`）；
+//   ③ 报告里「共 N 项」的 N 等于其 EXPECTED 项数 6（交叉核对，不只看它自己说通过）。
+if (want('A1')) {
+  const r = node([P('tools/a1-check.mjs')])
+  const out = r.out ?? ''
+  const gate = /✓ 判据腿：无 FAIL/.test(out) && /✓ 项集腿：期望 == 实测/.test(out)
+  const countM = /共 (\d+) 项：PASS/.exec(out)
+  const itemsOk = countM ? Number(countM[1]) === 6 : false
+  const nCount = /PASS (\d+) · FAIL (\d+) · 挂账 (\d+) · 无实现者 (\d+)/.exec(out)
+  if (r.ok && gate && itemsOk) {
+    pass(
+      'A1',
+      'A1 判据入口（a1-check 已进自动门链）',
+      `共 ${countM?.[1]} 项（= 期望 6）· PASS ${nCount?.[1]} / FAIL ${nCount?.[2]} / 挂账 ${nCount?.[3]} / 无实现者 ${nCount?.[4]} · 判据腿与项集腿皆 ✓`,
+      'A1-4/A1-5/A1-11/A1-12 + W2-5 + ARTIFACTS；⚠ 「无实现者」与「挂账」都不是 PASS，见 a1-check 输出',
+    )
+  } else {
+    const tail = out.split('\n').filter((l) => /FAIL|项集腿|不通过|缺 |多 /.test(l)).slice(0, 4).join(' / ')
+    fail(
+      'A1',
+      'A1 判据入口（a1-check 已进自动门链）',
+      `ok=${r.ok} 门判定两腿=${gate} 项数=${countM?.[1] ?? '?'}（应 6）｜${tail.slice(0, 300)}`,
+      '回 tools/a1-check.mjs；若项集腿红 ⇒ 判据块被删或期望集未同步',
+    )
+  }
+}
+
 if (want('R0')) {
   const r = node([P('tools/r0-assembly-check.mjs')])
   const out = r.out ?? ''
@@ -473,7 +511,7 @@ if (JSON_OUT) {
 } else {
   const n = { PASS: 0, FAIL: 0, HANG: 0 }
   for (const r of results) n[r.state] += 1
-  console.log('══════ Mana 阶段 0 验收判据机检（A0-1 … A0-13）══════')
+  console.log('══════ Mana 阶段验收判据机检（A0-1 … A0-14 + R0 + A1 入口）══════')
   console.log(`共 ${results.length} 项：PASS ${n.PASS} · FAIL ${n.FAIL} · 挂账 ${n.HANG}`)
   console.log('（挂账 ≠ 通过：挂账项须在原定阶段验收）\n')
   for (const r of results) {

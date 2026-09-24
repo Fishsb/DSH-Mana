@@ -1,0 +1,1635 @@
+{
+  "version": "v2.2.0",
+  "kind": "criteria-registry",
+  "note": "守藏记忆核心 v2 唯一判据数据源（ADR-122）。所有投影由 scripts/gen-criteria.mjs 生成，禁止手写；scripts/check-criteria.mjs 机检一致（纳入 npm test）。judgeText 段与 v1 现值逐字等价（M1 零行为切换）。",
+  "l0": {
+    "reuse": {
+      "values": [
+        "cross-task",
+        "cross-project",
+        "session-only"
+      ],
+      "text": "可复用性：跨任务 / 跨项目 / 仅本会话"
+    },
+    "generality": {
+      "values": [
+        "direction",
+        "contract-fact",
+        "detail"
+      ],
+      "text": "泛化度：方向指引（粗）/ 契约事实 / 细节条文"
+    },
+    "stability": {
+      "values": [
+        "once",
+        "same-day-repeat",
+        "cross-day"
+      ],
+      "text": "稳定性：单次 / 当日重现 / 跨日或多会话重现"
+    },
+    "conflict": {
+      "values": [
+        "none",
+        "coexist",
+        "supersede"
+      ],
+      "text": "冲突性：无 / 与既有并存 / 取代既有"
+    }
+  },
+  "ingest": {
+    "domain": "ingest",
+    "label": "摄取域（会话 → 库）",
+    "judgeText": [
+      "第一层归属路由（对每条候选按序判定）：",
+      "- R1 泛化方向指引？这条知识的作用=下次做类似任务给大概方向？→ route=memory（粗粒度是特性，不要把细节条文塞进记忆库）",
+      "- R2 官方规范/平台规则/工具用法等**跨项目有用**的细粒度条文 → route=memory（归 notes/tools 或 notes/lessons，教程式浓缩）",
+      "- R3 某项目专属事实（项目结构/该项目用户拍板的决策/项目契约踩坑，只在单一项目语境有用）→ route=project（宿主直写该项目工作区 docs/devref/shoucang/）",
+      "- R4 其余（一次性进度/可搜索公开知识/无实质/<relevant-memories>注入缓存/重复已有归属）→ route=discard",
+      "- 同一条既像 R1/R2 又像 R3：跨项目可复用→memory；只在单一项目成立→project。既不跨项目也不属于当前会话项目→丢弃。",
+      "- 拿不准 → route=memory 但 appends 留空记 skipped（宁缺毋滥）。",
+      "route=memory 时续走四问（**降级为归属子判据组**，不再是全局判据抬头）：Q0 已有归属？Q1 下周用得上？Q2 归谁（notes 记忆 / USER 用户画像 / AGENT 自我画像）？Q3 能合并？",
+      "Q2 画像判定：**用户的稳定偏好/背景/禁忌**（非一次性需求）→ profiles target=USER.md；**agent 自身的稳定做法/能力边界/常犯错误教训/表达风格（`[性格]`）/思维模式（`[认知]`）**（可跨任务复用的自我认知）→ profiles target=AGENT.md；一般知识→appends。",
+      "规则/纪律/程序类：**不入库**（SKILL 与 skill 协议文档是随插件发布的只读文档，无写入通道；v2 删除原「规则→SOUL.md」死支）。",
+      "- **经历四通道（2026-09-14 · P4 新增）：与 route 无关，任何路由下都可填**——它们是「经历」而非「知识」，故不受 R1–R4 归属路由约束：`decisions`（裁决：拍了什么板 + **当时预测** `predicted`，那是日后后果回收的对照项）/ `commitments`（承诺：`who` + `what` + `direction`[owed-by-me=我欠|owed-to-me=欠我] + `due`，**形成时就要落库**——意图事后无从恢复）/ `relations`（关系事实：`who` + `note`[在意什么/忌讳什么]）/ `valences`（价态：`trigger`[在什么情境下] + `valence`[+1 好 / -1 坏]）。",
+      "- 四通道每条**必带 `cues`**（情境键数组，形如 `[\"scope=workspace:<路径>\",\"task=build\"]`）——它是日后「在什么情境下该想起它」的**唯一线索**；写不出情境就留**空数组**（读侧有兜底序，不会因缺 cues 而丢失，只是优先级降低）。**没有实质经历就留空数组**，不要为凑数编造；这四类与 appends/newIndex 互不替代（经历进环、知识进 notes）。"
+    ],
+    "criteria": [
+      {
+        "id": "ingest.route.r1",
+        "kind": "soft",
+        "judgeKind": "llm",
+        "params": {
+          "route": "memory"
+        },
+        "text": "R1 泛化方向指引 → memory"
+      },
+      {
+        "id": "ingest.route.r2",
+        "kind": "soft",
+        "judgeKind": "llm",
+        "params": {
+          "route": "memory"
+        },
+        "text": "R2 跨项目细粒度条文 → memory(notes/tools|lessons)"
+      },
+      {
+        "id": "ingest.route.r3",
+        "kind": "soft",
+        "judgeKind": "llm",
+        "params": {
+          "route": "project",
+          "target": "<workspace>/docs/devref/shoucang/"
+        },
+        "text": "R3 项目专属事实 → project（直写工作区）"
+      },
+      {
+        "id": "ingest.route.r4",
+        "kind": "soft",
+        "judgeKind": "llm",
+        "params": {
+          "route": "discard"
+        },
+        "text": "R4 其余 → discard"
+      },
+      {
+        "id": "ingest.route.q0",
+        "kind": "soft",
+        "judgeKind": "vector",
+        "params": {},
+        "text": "Q0 已有归属 → 不存"
+      },
+      {
+        "id": "ingest.route.q1",
+        "kind": "soft",
+        "judgeKind": "llm",
+        "params": {},
+        "text": "Q1 下周用不上 → 不存"
+      },
+      {
+        "id": "ingest.route.q2",
+        "kind": "soft",
+        "judgeKind": "llm",
+        "params": {
+          "targets": [
+            "notes",
+            "USER.md",
+            "AGENT.md"
+          ]
+        },
+        "text": "Q2 归谁（用户/agent/环境）"
+      },
+      {
+        "id": "ingest.route.q3",
+        "kind": "soft",
+        "judgeKind": "vector",
+        "params": {},
+        "text": "Q3 能合并 → replace 否则 add"
+      },
+      {
+        "id": "ingest.route.rules-not-stored",
+        "kind": "soft",
+        "judgeKind": "deterministic",
+        "params": {
+          "reason": "rules-not-stored"
+        },
+        "text": "规则类不入库（SOUL 死支已删）"
+      },
+      {
+        "id": "ingest.placement.notes-kind",
+        "kind": "hard",
+        "judgeKind": "deterministic",
+        "params": {
+          "notes": [
+            "env",
+            "tools",
+            "flows",
+            "lessons",
+            "release",
+            "user",
+            "agent"
+          ]
+        },
+        "text": "落点须在 notes 白名单内"
+      },
+      {
+        "id": "ingest.placement.main-index",
+        "kind": "hard",
+        "judgeKind": "deterministic",
+        "params": {
+          "indexTargets": [
+            "MEMORY.md",
+            "USER.md",
+            "AGENT.md"
+          ]
+        },
+        "text": "主索引写入仅三主档"
+      },
+      {
+        "id": "ingest.granularity.split-law",
+        "kind": "hard",
+        "judgeKind": "deterministic",
+        "params": {
+          "R": 1000,
+          "K": 6
+        },
+        "text": "子树正文 > R 或同级条目 > K → 裂 ###（§8.1 分裂律）"
+      },
+      {
+        "id": "ingest.dedup.exact",
+        "kind": "hard",
+        "judgeKind": "deterministic",
+        "params": {
+          "enabled": true
+        },
+        "text": "同 标签+主题 精确重复 → 拒收"
+      },
+      {
+        "id": "ingest.dedup.bigram",
+        "kind": "hard",
+        "judgeKind": "deterministic",
+        "params": {
+          "threshold": 0.66,
+          "minTokens": 2
+        },
+        "text": "主题 bigram 重叠 ≥ 阈值 → 近似重复拒收"
+      },
+      {
+        "id": "ingest.format.index-line",
+        "kind": "hard",
+        "judgeKind": "deterministic",
+        "params": {
+          "topicMax": 12,
+          "summaryMax": 30,
+          "pathSummaryMax": 40,
+          "banDate": true,
+          "requirePointer": true,
+          "requireMiddleDot": true,
+          "forbidArrowInPath": true,
+          "note": "**实测根因（2026-09-11）**：写门曾硬编码 30/40 而 prompt 未携带该约束 ⇒ 深睡产出普遍超标被逐条拦掉（attempted=3 → all-rejected，概况 31/38/36 字）。现：门读投影 + 生成器把约束派生进两个判据段。",
+          "lineTags": [
+            "env",
+            "tool",
+            "flow",
+            "lesson",
+            "身份",
+            "环境",
+            "硬件",
+            "偏好",
+            "习惯",
+            "使命",
+            "边界",
+            "经验",
+            "演化",
+            "教训"
+          ],
+          "lineTagsNote": "**验收门（写门）实际接受的索引行行首标签集** —— 唯一强制点在 `scripts/memory-append.mjs`（孪生 `skill/scripts/memory-append.mjs`）的 `--new` 正则；本字段是该正则的**登记副本**，两侧一致由 `scripts/check-index-tag-reach.mjs` 差分锁守（不一致即红）。**为什么登记（2026-09-20 · 真机取证）**：跨档 915 轮蒸馏里 `新索引行标签非法` **131 条**（占同期 rejected 725 的 **18%**；09-20 单日 added 92 / rejected 106，其中标签非法 **27 = 25%**），非法标签集中在 `[路径]` **75** · `[原则]` **40**（其余 `工具/方法/机制/参考/流程/纪律` 为同族自造）。**根因与 `formatConstraintLine()` 完全同族**：判据（合法标签集）只在代码里，而**两处 prompt 从未携带它**（实测两处 prompt 内标签集命中 0）⇒ 模型只能自造；被拒行走 `rejected` ⇒ **推水位、不再重试** ⇒ 知识**静默流失**。**⚠ `[原则]`/`[路径]` 为何不在表内**：二者属 AGENT.md（P/R 层画像行），唯一写入通道 = 深度睡眠 principles/pointerOps，**不走 `newIndex`** ⇒ 写进 newIndex 必被拒（115/131 条流失即此形态）。**本字段只登记、不驱动写门**：让 `memory-append.mjs` 读注册表会给这个**零依赖子进程活件**加运行时依赖，故取「登记 + 差分锁」而非「共用实现」；prompt 侧则由生成器**派生**（`indexTagLine()`）⇒ 模型手里终于有了这份判据。"
+        },
+        "text": "索引行四要素格式（spec §8）"
+      }
+    ]
+  },
+  "consolidate": {
+    "domain": "consolidate",
+    "label": "巩固域（库 → 库）",
+    "judgeText": [
+      "- **原则判据**：同主题 ≥3 条痕迹，或单主题当日反复命中 → 提炼 1 条原则；支撑不足的一律不提炼（路径判据见下，二者区分勿混）。",
+      "- 原则=一句方向指引（泛化度=方向指引，目标形态/步骤轮廓/关键注意点），不搬细节条文。",
+      "- **路径判据**：同一任务类型在窗口内出现 ≥2 次（痕迹/运行统计可见重复模式）→ 归纳 1 条路径；候选区若含「成功次数 ≥2 且跨会话 ≥2」的任务候选 = 已达转正门槛（memory-core-model §4），直接归纳为 [路径]；**只归纳成功走通的任务**，失败任务只进原则教训（AWM：只从成功学）。",
+      "- **跨工作区红线**：记忆库是全局单库，痕迹可能来自多个工作区，而原则会常驻注入到**所有**工作区会话。含项目专名/具体路径/版本号/一次性事实的经验一律不提炼（skipped 注明「项目专属」）；只在单一项目语境成立的结论同样不提炼——宁缺毋滥，误注入比漏提炼危害大。",
+      "- **前提识别（premise awareness，v2 新增判据）**：提炼出的原则/路径若依赖某个**未写出的隐含前提**（特定工具链/特定环境/特定阶段），必须在概况或小节正文里写出该前提；写不出就降级为 notes 事实，不升格。",
+      "- **v19 跨日二次激活**：材料「近 7 日再现」给出被**再次命中**的已有条目——同一条目在多个日窗重现 = 该主题稳固，可经 pointerOps 扩容概况或提纯为更高层原则；只在单日出现的不要当稳固信号。",
+      "- **后果回收（`outcomes`，P5 新增 · 决策环的核心）**：材料若含「待回收的裁决」（带 `decisionId` 与**当时预测**），且你从痕迹/运行统计里看得出**实际结果**，就填：`{\"decisionId\":\"decision:xxxx\",\"observed\":\"实际发生了什么\",\"hit\":true|false,\"evidence\":\"来源\"}`。**没有后果回收，经历永远只是日志**（无法校准判断力）；看不出来就留空数组，**不要猜**。重复回收会被宿主丢弃（幂等）。",
+      "- **经历叙事（`narratives`，P5 新增 · author 层）**：把窗口内「决定过什么 → 后来怎样」串成 **1–3 段带时间的因果短叙事**（**不是流水账、不是原则**）：`{\"title\":\"≤40字\",\"text\":\"≤400字，写清前因—决断—后果\",\"cues\":[\"scope=workspace:<路径>\"],\"evidence\":\"来源\"}`。正文落 `notes/agent.md §经历/<title>`，宿主另生 `episode` 记录（指针指回该小节）。**宁少勿编**：没有真正连成故事的经历就留空数组。"
+    ],
+    "criteria": [
+      {
+        "id": "consolidate.support.principle",
+        "kind": "soft",
+        "judgeKind": "vector",
+        "params": {
+          "minTraces": 3
+        },
+        "text": "原则：同主题 ≥3 条痕迹（或当日反复命中）"
+      },
+      {
+        "id": "consolidate.support.path",
+        "kind": "soft",
+        "judgeKind": "vector",
+        "params": {
+          "minOccur": 2,
+          "crossSessionMin": 2,
+          "successOnly": true
+        },
+        "text": "路径：同型 ≥2 次且只从成功任务归纳"
+      },
+      {
+        "id": "consolidate.promote.premise",
+        "kind": "soft",
+        "judgeKind": "llm",
+        "params": {
+          "requirePremiseWhenDependent": true
+        },
+        "text": "涉及隐含前提 → 必须写出，否则降级 notes"
+      },
+      {
+        "id": "consolidate.cross-workspace-redline",
+        "kind": "soft",
+        "judgeKind": "deterministic",
+        "params": {
+          "forbidProjectNames": true
+        },
+        "text": "跨工作区红线：项目专名/路径/版本号不提炼"
+      },
+      {
+        "id": "consolidate.reshape.split-law",
+        "kind": "hard",
+        "judgeKind": "llm",
+        "params": {
+          "R": 1000,
+          "K": 6,
+          "partsMax": 6,
+          "minParts": 2
+        },
+        "text": "treeOps split：正文 > R 且 ≥2 语义正交子面"
+      },
+      {
+        "id": "consolidate.demote.archive",
+        "kind": "hard",
+        "judgeKind": "deterministic",
+        "params": {
+          "coldDays": 90,
+          "guards": [
+            "leaf",
+            "cold-or-retired",
+            "not-stub"
+          ],
+          "profileFilesForbidden": true,
+          "maxPerRun": 3,
+          "allowDelete": false
+        },
+        "text": "遗忘：cold 且 ≥90 天 + 三守卫；禁直删；画像节禁归档"
+      },
+      {
+        "id": "consolidate.cross.crossTopic",
+        "kind": "hard",
+        "judgeKind": "deterministic",
+        "params": {
+          "minSections": 2
+        },
+        "text": "REM 相：crossTopic 源指针须覆盖 ≥2 个不同 §"
+      },
+      {
+        "id": "consolidate.replay.cross-day",
+        "kind": "soft",
+        "judgeKind": "vector",
+        "params": {
+          "windowDays": 7
+        },
+        "text": "跨日二次激活：近 7 日再现 → 可扩容/提纯"
+      },
+      {
+        "id": "consolidate.pointer.update-only",
+        "kind": "hard",
+        "judgeKind": "deterministic",
+        "params": {
+          "allow": [
+            "update"
+          ],
+          "forbid": [
+            "add",
+            "delete"
+          ]
+        },
+        "text": "pointerOps 只允许原地 update（禁增删索引行）"
+      }
+    ]
+  },
+  "gate": {
+    "caps": {
+      "MEMORY.md": 5000,
+      "USER.md": 3000,
+      "AGENT.md": 3000
+    },
+    "notesWarn": 8000,
+    "budgetFormula": {
+      "lineChars": 100,
+      "fixed": 56,
+      "pointer": 44
+    },
+    "exit": {
+      "capacity": 1,
+      "pointer": 2,
+      "format": 4
+    },
+    "envOverride": {
+      "MEMORY.md": "SHOUCANG_CAP_MEMORY",
+      "USER.md": "SHOUCANG_CAP_USER",
+      "AGENT.md": "SHOUCANG_CAP_AGENT"
+    }
+  },
+  "health": {
+    "R": 1000,
+    "K": 6,
+    "notesWarn": 8000,
+    "checks": [
+      "capacity",
+      "duplicates",
+      "tags",
+      "pointers",
+      "section-existence",
+      "index-ledger-coverage",
+      "inject-token-account",
+      "placement-audit"
+    ]
+  },
+  "carriers": {
+    "note": "载体契约（v2.2 · ADR-130）：每个标签声明 layer（生效层）+ form（存在形式）+ inject（可注入性）。P 层 always（恒常、不参与相关性竞争）；R/E 层 gated（按任务型/相关性调用）；notes/audit 为 none。读取面必须实现每种 injectable 载体的渲染器（机检 scripts/check-carriers.mjs）。",
+    "tags": {
+      "身份": {
+        "layer": "P",
+        "form": "index",
+        "inject": "always"
+      },
+      "使命": {
+        "layer": "P",
+        "form": "index",
+        "inject": "always"
+      },
+      "边界": {
+        "layer": "P",
+        "form": "profile",
+        "inject": "always"
+      },
+      "性格": {
+        "layer": "P",
+        "form": "profile",
+        "inject": "always",
+        "new": true
+      },
+      "认知": {
+        "layer": "P",
+        "form": "profile",
+        "inject": "always",
+        "new": true
+      },
+      "演化": {
+        "layer": "P",
+        "form": "index",
+        "inject": "always"
+      },
+      "偏好": {
+        "layer": "P",
+        "form": "index",
+        "inject": "always"
+      },
+      "习惯": {
+        "layer": "P",
+        "form": "index",
+        "inject": "always"
+      },
+      "原则": {
+        "layer": "P",
+        "form": "index",
+        "inject": "always",
+        "mclGate": true,
+        "note": "仅跨环境稳定者；带情境前提者交深睡按 A≥gate 决定是否升 P。mclGate=true：命中即计 MCL 快通道「高置信」（2026-09-11 自 mcl.ts 硬编码正则归还注册表）"
+      },
+      "经验": {
+        "layer": "E",
+        "form": "index",
+        "inject": "gated",
+        "note": "v2.2 D7 修正：情境经验属经验层，不再当 always-on"
+      },
+      "教训": {
+        "layer": "E",
+        "form": "index",
+        "inject": "gated",
+        "note": "体检脚本 AGENT 侧既有标签（agent 教训≈lesson），一并登记"
+      },
+      "路径": {
+        "layer": "R",
+        "form": "index",
+        "inject": "gated",
+        "mclGate": true,
+        "note": "任务型门控（复用 ACT-029 MCL 快通道熟悉度分流）。mclGate=true：命中即计 MCL 快通道「高置信」（2026-09-11 自 mcl.ts 硬编码正则归还注册表）"
+      },
+      "env": {
+        "layer": "E",
+        "form": "index",
+        "inject": "gated"
+      },
+      "tool": {
+        "layer": "E",
+        "form": "index",
+        "inject": "gated"
+      },
+      "flow": {
+        "layer": "E",
+        "form": "index",
+        "inject": "gated"
+      },
+      "lesson": {
+        "layer": "E",
+        "form": "index",
+        "inject": "gated"
+      },
+      "环境": {
+        "layer": "E",
+        "form": "index",
+        "inject": "gated",
+        "note": "2026-09-18 标签漂移归一（原 layer:P + inject:always）。判因（实测）：原 note 称「USER 侧：用户环境构成」，但 MEMORY.md 有 64 条挂此标签、其中约 8 成与 `[env]` 同指 notes/env.md ⇒ 同一信息源两种待遇；且 P⇒always 使这 64 条挤占恒定预算（实测恒定面需求 6263 字符 vs budgetOf 分配 3200）⇒ 归一为 E/gated，与 `[env]` 同待遇。USER.md 侧仅 1 条 `[环境] Win11+git-bash` 随之转为按需召回；如需恢复常驻，应另立 P 层标签（如 `[设备]`）而非复用本标签。"
+      },
+      "硬件": {
+        "layer": "P",
+        "form": "index",
+        "inject": "always"
+      }
+    },
+    "renderers": {
+      "always:index": "src/panel.ts#readCarrier（索引行 always 全量按档位 cap）",
+      "always:profile": "src/panel.ts#readCarrier（画像行 `- … ← 源:` ≤ injection.carriers.profile 条/档；P 层 profile 标签由注册表驱动）",
+      "gated:index": "src/targets.ts#recallIndex + src/vec.ts#recallRanked（相关性/任务型门控）",
+      "none:notes": "src/panel.ts#/memory/sections（按需读取，不注入）",
+      "none:audit": "scripts/criteria-audit.mjs（只读审计，不注入）"
+    }
+  },
+  "surface": {
+    "injection": {
+      "budgetChars": 4000,
+      "budgetNote": "热记忆注入**恒定面安全带**（字符）。语义（2026-09-13 v2 修正）：恒定面（双画像索引行 + P 层画像行）**必在、不按比例裁**，本值只防库无界膨胀；变动面（知识索引）≤600、一次性面（成长 delta）≤200 各有硬顶，超预算的行被裁且**留痕提示**（不静默）。测算：AGENT 索引 1,138 + USER 索引 430 + 画像行 ≈630 + 标题 ≈1,990 ⇒ 实际每步 ≈2,800 上限。原 1800（三层按比例分档）会把 AGENT 侧 `[原则]`/`[路径]` 裁掉一半以上、损伤人格一致性，已回退该口径。**⚠ 2026-09-14（P8 收口 · 实测否决）**：P8 原计划「恒定面**框架化**」（把清单降为「框架 + 可展开指针」）**经实测否决，不再重议**——测得每步真实 **2391–2977 字符**（Q1），其中 P 层 **1756 字符**，而 **`[原则]`+`[路径]` = 1532 字符（87%）且 18 条互不重复**（画像行与索引行**同名重复 = 0**）；**可压面只剩指针尾巴 302 字符（≈总 10%）**，而压缩会把 `notes/lessons.md §X` 变成缩写 ⇒ **引入新的指针解析失败模式**（与「模型须能按指针取详情」及 L2「误注入代价 > 漏注入」冲突）。⇒ 结论：**无既定的可收益压缩面**；恒定面之所以大，是因为它**几乎全是承载人格的习得原则**，而不是「灌」。要再压须先改变「原则不得裁」这条口径本身（那是一条已拍板的价值选择，不在本方案范围内）。",
+      "order": 88,
+      "relevance": true,
+      "freshSlots": 2,
+      "levelCaps": {
+        "low": 2,
+        "medium": 4,
+        "high": 8,
+        "smart": 10
+      },
+      "carriers": {
+        "profile": 6,
+        "note": "P 层画像行注入上限（0=关闭 → 回滚到「画像行不注入」的旧行为）。沿革：2026-09-13（P0）3→4（配额改「按标签各留最近 1 条」）；同日 4→6（质量评估 R3）：实测被挡下的画像行 agent 3 条 / user 13–14 条，其中有「架构议题要抛开历史决策约束…」「UI 判定须视觉实证」等高价值偏好——提到 6（zod 上限）以减少「最有用的那几条恰好被挡」的概率；仍受稳定面安全带与块内配额约束，被挡者留痕可见。上限可配 injectProfileRows（0–6）"
+      },
+      "situation": {
+        "enabled": true,
+        "budgetChars": 1200,
+        "cueDims": [
+          "scope",
+          "task"
+        ],
+        "cueDimRules": {
+          "scope": "路径归一：`\\`→`/` · 去尾斜杠 · 折叠重复斜杠 · **不改大小写**（POSIX 敏感）",
+          "task": "kebab：小写 · 空白/下划线→`-` · 折叠 `-` · 去首尾 `-`（CJK 原样保留）"
+        },
+        "cueDimNote": "★IR1 册二（2026-09-18）**契约描述现状**：声明维 = **读侧真会产出**的维（`panel-shared#sitCtx` 只填 `scope` + `task`）。原声明的 `subject`/`event` **已删** —— 实测**两侧皆不产**（写侧存量 0 条、读侧无产出点），留着就是「声明了却永不匹配」的假契约（与「契约须描述现状」同族）。值规则**单一实现**在 `src/cue-space.ts#CUE_VALUE_RULES`（本表只声明文案，防两处漂移）。**收编路径**：若模型反复写某未声明维（`cue.rejected` 审计会带键名），把它**显式登记**进本表 + 在 `cue-space` 加值规则 + 在读侧补产出点，再由 `check-cue-space`（B5 双向）守。",
+        "ringOrder": [
+          "relation",
+          "decision",
+          "association",
+          "fact",
+          "value"
+        ],
+        "topN": 3,
+        "note": "**情境层（第三槽）**：环记录（`file=''`，无 md 投影）不进内容相关性面，而由**情境键匹配**（cue-driven）供给——依据是编码特异性（提取取决于「编码情境↔提取线索」匹配，非内容相似度）与前瞻记忆多进程框架（承诺/意图须线索驱动，纯战略监控在高负荷下系统性失败）。enabled=false 且 budgetChars=0 ⇒ **缺省零行为变化**（照抄 serendipity 槽先例）。cueDims 是**唯一维度声明处**（situation-key.ts 按它迭代，不另立名单）；ringOrder 按**环**排序（commitment 与 relation 同属 relation 环；episode 属 fact 环——故不按 kind 排，避免把两个语义层混进一张表）。**2026-09-14 P7 订正**：原先把 `value` 环排除在外，理由是「走图式层」——但图式层走的是 **md 投影行**，而 `valence` 记录是 `file=''` 的**环记录** ⇒ 实测它**两条路都不可达**（既不在恒定面、也不在 ringOrder）。现把 `value` 补进 ringOrder **末位**：只有 `file=''` 的 value 环记录（即 valence；`persona`/`principle`/`preference` 皆带 md 投影或不产出）能进，故不会挤占。**同时放弃原计划的 `alphaVal` 打分项**：`layeredScore` 的打分对象是**索引行**，索引行**没有 valence 信号**（valence 只存在于环记录 meta）⇒ 加它只能是恒 0 的**假旋钮**（仓内警示的「假可控」）。valence 的正确定位是**情境召回**，不是相关性权重。",
+        "adaptive": true,
+        "adaptiveNote": "S4-5（2026-09-14）：`true` ⇒ 情境槽 `topN` 由**活体环记录数**派生（clamp(ceil(√N),3,12)，实测 N=105 ⇒ 11）；`false` ⇒ 回退固定 `topN`。判因：固定 3 而库内环记录 105 条 ⇒ 命中率天花板 ≈3%，\"库越大经历面越稀释\"。"
+      },
+      "process": {
+        "enabled": true,
+        "carrierTag": [
+          "路径"
+        ],
+        "topN": 3,
+        "gate": "tag",
+        "budgetChars": 300,
+        "note": "S4-3（2026-09-14）**中层 process 槽**：任务级供给 —— 按标签取 `[路径]` 行（**不走内容相关性竞争**）。判因：人类三层结构里**中层是唯一没有专用通路的层**（`[路径]` 现经 R 层 gated 相关性召回，与其它内容争同一预算；且实测库内 `[路径]` 仅 5 条）。★2026-09-18 **启用**（原 enabled:false）：按域路由方案 P0-b —— task 路由 = 打开本槽（零新代码）。⚠ 原 note 称「运行时实现被前置重构阻塞（panel-shared 大模块冻结棘轮）」**该判断已过期**：实测 `src/dynamic-select.ts` 已有 `selectProcessLines`(:80-95) 且 `panel-shared.ts:551-553` 已有 `process`/`processRows` 消费点（S4-3 的动态面选行领域拆分已完成）⇒ 启用即生效，无需前置。额度语义：本槽行 **不吃 dynamic cap**（`dynamic-select.ts:145-154` 额外占位）⇒ 总额不再无界的前提是封顶只在 `budgetOf`（见 surface.injection.note）。★**Q4（2026-09-20）新增 `gate`**：`tag`（缺省）⇒ 旧行为（按标签取前 topN 条，**零行为变化**）；`task` ⇒ 按**离散任务键**（`situation-key#taskCueOf` 读侧产出）过滤行。**判因**：真机实测三个语义无关 query（三种长期记忆梳理／深睡蒸馏怎么触发／发布插件到 github release）得到**同一组 3 条** `[路径]` ⇒ 原注自称「任务型门控」与运行态不符（那是**位置门控**）。**当前只落结构、gate 保持 tag 不启用 task**——未决项：`[路径]` 行是 md 索引行**不带 cues**（cues 只在环记录 meta），任务键与行的对齐口径（借指针 § 对齐 / 退回 `recallIndex` 词法打分）属结构选择，未裁前启用即造第二个假旋钮。**硬约束**：本槽门控**不得复用** `surface.mcl.familiarThreshold`（0.55）——那是 dense 相似度量纲，与任务键的**有/无离散命中**不是同一件事（复用即量纲误用）。"
+      }
+    },
+    "score": {
+      "mode": "v2",
+      "alphaRel": 1,
+      "alphaImp": 0.25,
+      "alphaRec": 0.1,
+      "note": "v2.2 统一打分：score = α_rel·relevance(RRF) + α_imp·importance + α_rec·recency。**α_imp=0.25 由模拟证据选定**（scripts/shadow-sim.mjs 扫描：α=0.35→top-3 Jaccard 0.56 扰动过大；α=0.25→0.68 满足预注册判据 Jaccard≥0.6，且 corr(imp,rel)=−0.293 证明分量不冗余、扰动方向为『换进更重要条目』）。**mode=v2 已于 2026-09-11 翻转**（运行时开关 scheduler.scoreWeights=v2 同步）；回滚 = 两处同时回 legacy"
+    },
+    "recall": {
+      "topK": 3,
+      "topKMax": 5,
+      "scope": "all",
+      "coldFactorPercent": 35
+    },
+    "fusion": {
+      "kind": "rrf",
+      "k": 60,
+      "fallback": "weighted",
+      "weights": {
+        "dense": 0.7,
+        "lexical": 0.3
+      },
+      "dedupBySection": true
+    },
+    "threshold": {
+      "metric": "abs-cosine",
+      "tOn": 0.65,
+      "tOff": 0.6,
+      "note": "ACT-024 校准：绝对余弦；归一化融合分只能排序不可做阈值"
+    },
+    "rerank": {
+      "enabled": false,
+      "gate": {
+        "indexRows": 200,
+        "followRateDropRuns": 2
+      },
+      "note": "触发门未达前不引入 reranker（避免堆叠）"
+    },
+    "mcl": {
+      "familiarThreshold": 0.58,
+      "maxNudges": 1,
+      "budgetChars": 600,
+      "topK": 3,
+      "note": "2026-09-11 阈值重校准（缺陷2）：旧值 0.65 在实测样本上**结构性不可达**——193 条 mcl-step 审计 sim 分布 max=0.634 / mean=0.5658 / p75=0.609 / p90=0.624，≥0.65 命中 **0 行** ⇒ 快通道恒为 0（快/慢分流退化为单一慢通道）。**2026-09-14 P7 二次重校准（D3）**：在 **936 条** sim 样本上按**预注册判据**（目标覆盖率 = 注册表原始意图 27.5%）取分位——实测 p50=0.513 / p60=0.529 / p70=0.548 / p72.5=0.548 / **p75=0.561** / p90=0.575 / max=0.662；扫阈值得 0.54→38.9% · **0.55→25.4%** · 0.56→25.1% · 0.57→11.9% · 0.58→**9.3%**（= 上轮值，实测远低于其自述的 27.5%）。取 **0.55**（最接近 27.5% 且落在拐点上）。回滚：**/set mclFamiliarThreshold 0.58**（全局 scheduler.json，热生效，无需重启）。**另一道门 hasHighConf 未放宽**（仍要求 mclGate 标签），故实际快通道触发率显著低于 25.4%。 **2026-09-15 复验（OPEN-1 · 判据未变）**：样本累积至 **2154 条** sim，按同一预注册判据（目标覆盖率 27.5%）重扫——p50=0.521 / p75=0.559 / p90=0.593；扫阈值得 0.54→39.1% · **0.55→27.5%**（距目标 **0.0pp**）· 0.56→24.9% · 0.57→17.0% ⇒ **0.55 仍是最优，维持不改**。工具：复用既有 **`scripts/mcl-calibrate.mjs`**（已扩展：含**预注册目标判据**与**真实可救回集**，报告态不入 CHECKS；⚠ 未另建新器 —— 规则 5 不从零造轮子）；**复检触发 = 近期带 `missReason` 样本 N≥300（现 120）**。⚠ 同期 `recall-diagnose` 的 **coarse** `advice` 给出 `lower-threshold`，与本**细校准相反** ⇒ **以本校准为准**（降 0.54 会**过冲注册意图 11.6pp**）。且降阈值**只能救 `below-threshold`**（`no-highconf` 在阈值判定**之前**已出局）⇒ 若要继续改善，须另立**召回层**项。<br>**★ 2026-09-20 round 10 第三次重校准 ⇒ 改为 0.58（本值生效）**：复检触发早已满足（带 `missReason` 行 **4217 条**，远超 N≥300 门槛）；同判据、同工具、**只换样本量 ⇒ 结论翻转**：120 条时 `T=0.55` 过线 **27.3%**（距目标 0.2pp ⇒ 判维持），**4217 条**时同一 `T=0.55` 过线 **42.1%（过冲 14.6pp）**，`T=0.58` 过线 **27.7%**（距目标 0.2pp）⇒ 取 **0.58**。扫描表：`0.50→79.8%` · `0.55→42.1%（旧值）` · **`0.58→27.7%（现值）`** · `0.60→22.3%` · `0.65→6.0%`。⚠ **同时印证两条仓内原则**：① coarse `advice`（给 `lower-threshold`）与细校准方向相反 ⇒ 代理指标非判据；② **低样本下的「最优」不可信** —— 120 条的「恰好命中 27.3%」是巧合级贴合，与 `S-P1b′` 的「纪元 3/10」（真值 46）**同类**。回滚：`/set mclFamiliarThreshold 0.55`（热生效）。"
+    }
+  },
+  "maturation": {
+    "A0": 0.3,
+    "step": 0.2,
+    "gate": 0.5,
+    "enforce": false,
+    "note": "成熟度（v2.2 E6）：A(0)=A0；每次跨日再现 +step（上限 1.0）；只有 A≥gate 才允许升格为 [原则]/[路径]；A<gate 不注入但参与打分（implicit priming）。enforce=false 时只记录不强制（M4 影子期）。**2026-09-14（P7 · D11）决策：保持 false，并把依据写在这里**——`maturation-scan` 实测**拦阻率 57.4% > 50%**，扫描器自己的判据是「翻 enforce 会**冻结升格**」⇒ 当前不可翻。**记录该决策的目的**：把 `false` 从「疑似遗漏的开关」变成「**有实测依据的选择**」，后来人不必重查。要翻转须先让拦阻率降到 50% 以下（信号源=activity.days30 / access.log 的观测窗口仍在积累）",
+    "ledger": "audit/maturation.jsonl"
+  },
+  "trigger": {
+    "idleMs": 2700000,
+    "probeAfterMs": 2700000,
+    "probeWindowMs": 60000,
+    "newTracesMin": 1,
+    "contentMinChars": null,
+    "materialChunkChars": 52232,
+    "manual": true,
+    "note": "触发数据化（v2.1 §2.4 · B 档接线后为 runtime）：idleMs=全部根会话停滞阈值；probeAfterMs/probeWindowMs=卡住探测；**newTracesMin=窗口材料下限（⚠ 2026-09-20 round 9 名实订正：原写「窗口内最少新痕迹数」，而消费点比的其实是 `gatherDeepSleepTraces(...).length`，即**材料段字符数**；真机影响面：49 纪元中 46 个 `materialBytes=0`、其中 25 个仍入睡 ⇒ 若真按「痕迹文件数」判，这 25 轮**全不该入睡** ⇒ 名实差距是**行为级**的。见下「S-P1b″ 口径定案」）**；manual=面板「立即归纳一次」。**改这里即改行为**（scheduler zod 缺省直接读本块）。⚠ **2026-09-15 P0.1 实证订正**：本块原注释称「缺省 3h」，但**实际生效值是本块的 2700000ms（45min）**——`scheduler.ts` 的 zod `.default(TRIGGER.idleMs)` 取本块值，而**全仓 8 处** `|| 10800000`（3h）兜底因 zod 有 default 而是**死代码**（⚠ 首轮只报 4 处：检索用了大小写敏感的 `idleMs`，漏掉 `deepSleepIdleMs` 那 4 处 —— `deepsleep.ts` ×2 / `distill-hooks.ts` ×2 ⇒ 「模式派生集合先核对」的典型踩坑）。已修：**8 处全部**统一改引本块（**单一来源已下沉 `deepsleep-core#idleMsOf`**）+ 注释订正 + 护栏 `test-deepsleep-wiring` ⑦（可执行代码不得再出现该字面量），**数值未动**（P0 不改行为）。**数值本身待 P1 双维水位按预注册判据校准**。 **S-P2b（2026-09-20）**：deepSleepProbeConflictMax=证据冲突（agent 状态活跃但连续零输出）连续多少轮即按卡住处理——补 conflict 分支**无界**致活锁（真机 28f9f094 连续 23 次 / 跨 11 小时零触发）。 **S-P1b″ 口径定案（2026-09-20 round 9）**：内容水位的**正确轴**已定位并落地 —— 不用字节量（`windowMaterialBytes` 与真实材料非同源，实测 0 vs 46692），也不用 `materialChars`（有**地板效应**：min 已达中位 43%），而用 **`countWindowTraces`（窗口内痕迹文件数）**——它与「新增材料」同源、零额外 IO（复用 `enumerateWindowTraces` 同一遍枚举）、且已落审计 `traceFiles`。⚠ **改判定为文件数是行为变更**（会砍掉 51% 入睡纪元的输入面）⇒ 属 R3 须用户拍板；本轮只把它**变成可判定的事**（有轴、有读数、有判据），**未擅自改判定**。",
+    "reviewIdleMs": 1800000,
+    "reviewMinNewEntries": 3,
+    "reviewMinNewEvents": 600,
+    "reviewNote": "L2 会话级复盘的**触发阈值**（S2S3 册一触发面 · 册四 U4 裁定 2026-09-19）：reviewIdleMs=空闲阈值；reviewMinNewEntries/reviewMinNewEvents=内容维下限。**实测依据**：蒸馏段中位仅 **4**（口径 = `kind=distill-run` 且 `stop` 存在，档 L 352 行 / 1108 段 ⇒ 段中位 4）⇒ 原 8/1200 会大面积漏触发，故内容维下调为 3/600（静默维保留 30min）。改这里即改行为（scheduler zod 缺省直接读本块；`session-review.ts` 只留注册表缺席时的兜底）。",
+    "deepSleepProbeConflictMax": 3
+  },
+  "thresholds": {
+    "note": "阈值登记制（J0 · 2026-09-15 · 依据 docs/judge-layering-plan-2026-09-15.md §4.2）。**规则**：任何影响「接受/拒绝/归类/取舍」判断的数值阈值都必须登记在此，且登记项必须含 `preregisteredCriterion` + `samples` + `conclusion` + `recheck`。机检 scripts/check-threshold-registry.mjs（未登记 ⇒ 红；登记了但缺预注册或样本数 ⇒ 红）。**范围界定**：不含格式门（归 ingest.format.index-line 的 params）、容量/预算（归 gate.caps / surface.*）、工程常量（超时/重试/熔断）。**样板**：mcl.familiarThreshold 是全仓**唯一**有完整预注册校准记录的阈值。⚠ **暴露出的真问题**：多数条目 **samples=0 / 未预注册**。⚠⚠ **不写死条数（2026-09-23 · ACT-355）**：此处原写「13 项里 12 项」，实测**已陈旧**（真值 **21 条 / 13 条未预注册**，`preregistered=true` 8 条）——「文档里的数字必须复验」的又一例。⇒ **权威读数一律以 `node scripts/check-threshold-registry.mjs` 的输出为准**，本句不再承载易腐数字。其中 activity.statusDays 已**实证失真**（假冷 26 条，见 skill/scripts/harvest-access.mjs:6）。⚠ **2026-09-20 加检「消费侧」**（`scripts/check-threshold-control.mjs`，**取代**已删除的 `check-threshold-consumed.mjs`——后者判「键名有没有在 src 里出现」，实测得到的是**命名巧合表**而非断链表，已删；详见 `unconsumedNote`）：登记了**不等于被实现读** —— 实测抓到 **1 项真死配置 + 3 项命名不符 + 1 项键名写错**，逐条见 `unconsumed`。",
+    "unconsumed": [],
+    "valueHardcoded": [],
+    "readPort": "src/criteria.ts#thresholdValue",
+    "readPortNote": "**登记阈值的唯一运行时读口**（2026-09-20 round 8 立）。凡 `probe` 为**代码字面量形态**（`file` + `contains`）的登记项，都必须带 `read` 字段声明其读口，且该读口须在 `src/` 内**真实存在**（`thresholdValue('<id>'` 命中 ≥1）—— 由 `scripts/check-threshold-control.mjs` 机检，零命中 ⇒ 红。这是上一轮 `check-threshold-consumed.mjs` 的**替代品**：后者判「键名有没有在 src 里出现」，实测得到的是**命名巧合表**而非断链表（详见 `thresholds.note` 与 `docs/OPEN-ITEMS.md §0g`），已删。",
+    "unconsumedNote": "**（2026-09-20 round 8 · 表已清空；以下为上一轮原文，保留供对照 —— 勿当现行结论）** 本表上一轮登记了 5 项「零消费」+ 3 项「硬编码字面量」，并分成「真死配置/命名不符/键名写错/消费点是字面量」四类。**本轮实测推翻了那个分类本身**，三处订正见 `docs/OPEN-ITEMS.md §0g`：① 分类是**「键名是否在 src 里出现」这个代理的产物** —— 它同时被注释/生成物/同名局部变量左右 ⇒ 得到「命名巧合表」而非「断链表」；② `mcl.fastGate` **不是真死配置，是登记项贴错名字**（其 `probe.contains` 对应的 `mcl.ts` 那处是 `judge()` 的**词元覆盖率门**，不是快通道门）⇒ 已改名 `mcl.topicEchoGate` 并接线；③ `activity.statusDays` **不是键名写错**，值是活的（zod 缺省硬编码 ⇒ 属双源）。**上一轮整轮漏掉的机制级事实**：`THRESHOLDS` 投影在 `src/` 内**零消费者** ⇒ 治本是**给投影一个读口**，非逐项改字面量。11 项消费点已全部改读 `criteria.ts#thresholdValue` / `#thresholdParam`。<br>**—— 上一轮原文 ——**<br>**已核「在非生成物 src 里零消费点」的阈值项**（`check-threshold-consumed` ① 的事实源；逐项实查结论**分三类**，2026-09-20）。**登记不是豁免，是让断链可见**；每项须给处置与 `until`：<br>① **真死配置（改它零效果）** —— `mcl.fastGate`（`{minHits:2, ratio:0.6}`）：实测 `grep -w minHits src/*.ts` **只命中 `criteria.generated.ts`（生成物）**，而 `mcl.ts:501` 的快通道判据实际是 `sim >= familiarThreshold && hasHighConf` —— **根本不读这两个参数**。⇒ 属**假旋钮**（改注册表 + `gen:criteria` + 门禁全绿，而行为零变化）。**until**：要么在 `mcl.ts` 真的用上（并给判据），要么**删该登记项**。 <br>② **命名不符（常量在、不走注册表）** —— `inject.crossFormDedupSim`（实现是 `crossform-dedup.ts:23` 的**硬编码常量** `CROSS_FORM_DEDUP_SIM = 0.8`，**不读注册表**）· `tree.sectionMergeSim`（零命中）· `write.semanticDupSim`（零命中）。⇒ 属**双源**（注册表象牙 + 代码常量真牙）。**until**：实现改为读注册表，或把常量删掉只留注册表。<br>③ **键名写错（注册表键与实现不符）** —— `activity.statusDays`：`activity.ts:83-85` 实际用的是 **`warmDays`(14) / `coldDays`(44) / `archiveDays`(90)**，**没有 `statusDays` 这个键**。**until**：改登记为三个真实键，或把实现改成读 `statusDays`。<br>④ **同族第四类：消费点存在但是硬编码字面量** —— `ingest.dedup.bigram.threshold`（`0.66`）· `tree.indexSemanticSim`（`0.90`）· `activity.interferenceBand`（`[0.5, 0.66]`）。⇒ **改注册表这三项同样零效果**。**until**：实现改为读注册表。",
+    "entries": [
+      {
+        "id": "trigger.materialChunkChars",
+        "probe": {
+          "registryPath": [
+            "trigger",
+            "materialChunkChars"
+          ]
+        },
+        "value": 52232,
+        "owner": "skill/engine/criteria.json#trigger.materialChunkChars",
+        "preregistered": true,
+        "preregisteredCriterion": "取 cap 使**最大片数 ≤ 3**（单轮预算内可完成）且**永不切开单段**；在满足该约束的候选里取**最大** cap（片数最少 ⇒ LLM 调用最少）",
+        "samples": 44,
+        "conclusion": "**已校准（2026-09-20）· cap = 52232（= 单纪元 materialChars 的 p90）** —— 实测 **44 个不同纪元**（按纪元汇总，同纪元多片求和）。分布：min **35459** · p50 **42737** · p75 **46052** · p90 **52232** · max **108271**。按预注册判据（最大片数 ≤3）扫候选：cap=p50(42737) ⇒ 片数均值 1.50/**最大 3** · cap=p75(46052) ⇒ 1.25/**3** · **cap=p90(52232) ⇒ 1.11/最大 3** ⇒ 三者**均满足** ≤3 约束，按「取最大 cap（片数最少）」取 **p90 = 52232**。⚠ 依据前置：该结论**此前不可得**——校准器原只读主档 ⇒ 报「纪元 0」，真值 46（已随 G13 修复，`OPEN-ITEMS §0f`）。⚠ **水位口径不变**：「**全片落地才推进**」——单一时间戳水位表达不了片级进度，片级推进会永久排除失败片的材料（G-16/G-19 两次修掉的静默丢料）；片级进度由 ledger 留痕可见，失败即整纪元回滚重试（写侧去重保证幂等）",
+        "recheck": "**已校准（2026-09-20）**。复检触发：纪元数再增 **≥20**（现 44）⇒ 重取分位；或单纪元材料量分布 p90 变动 >15% ⇒ 复核",
+        "calibrator": "scripts/epoch-calibrate.mjs（**跨档读**，2026-09-20 修 G13 后可用）",
+        "rollback": "置 `null`/`0` ⇒ 单片段（改造前行为，逐字等价）"
+      },
+      {
+        "id": "trigger.contentMinChars",
+        "probe": {
+          "registryPath": [
+            "trigger",
+            "contentMinChars"
+          ]
+        },
+        "value": null,
+        "owner": "skill/engine/criteria.json#trigger.contentMinChars",
+        "preregistered": false,
+        "preregisteredCriterion": null,
+        "samples": 0,
+        "conclusion": "🚫 **已停用（维持关闭 = null）· 口径经真机证伪** —— S-P1b 机制（第二触发维）代码仍在，但**度量口径不成立**：真机实测审计行 `materialBytes=0` 而 `materialChars=46692`（**差 4.6 万字符**）⇒ `windowMaterialBytes`（数 pending/+candidates/ 里 mtime>since 的 .md 字节）**不是深睡材料的来源**（材料由 `gatherDeepSleepTraces` 按 `since` 从 notes 命中/运行统计/待回收裁决等处**聚合**）。**根因是架构性的**：本系统材料模型是**窗口式**的 ⇒ 「材料量」与「窗口长度」**单调同源** ⇒ 内容维**不是独立轴**；按旧口径取阈会得到**永不触发的假阈值**。⇒ 代码已加**守卫**：`contentMinChars > 0` 时**告警并按关闭处理**（`contentMinEffective = 0`），宁可功能关着也不给假旋钮；`test-epoch-watermark` ④ 守该接线（变异绕过守卫 ⇒ 15/1 红）。⚠ 要真正启用，须先把度量换成**与材料同源**的口径（候选：触发层复用 `gatherDeepSleepTraces` 取 trace 字符数；或改用「上一纪元实测 `materialChars`」作前瞻代理），再解除守卫",
+        "recheck": "**口径定案后**才谈校准；纪元累计 ≥10 个（校准器已就位）。**⚠ 2026-09-20 复检：纪元门槛已满足（46 个）** —— 校准器修掉「G13 轮转失明」后首次可读；**但口径问题仍未定案**（材料量实测与窗口长度 Pearson r=**0.845**、极短窗材料量已达 36.3k 字符地板 ⇒ 非独立轴）⇒ **维持关闭**，先定口径再谈阈值",
+        "calibrator": null,
+        "rollback": "置 `0`（或删键）⇒ 回纯时间维；scheduler.json `deepSleepContentMinChars` 热生效"
+      },
+      {
+        "id": "mcl.familiarThreshold",
+        "probe": {
+          "registryPath": [
+            "surface",
+            "mcl",
+            "familiarThreshold"
+          ]
+        },
+        "value": 0.58,
+        "owner": "skill/engine/criteria.json#surface.mcl.familiarThreshold",
+        "preregistered": true,
+        "preregisteredCriterion": "目标覆盖率 = 注册表原始意图 27.5%（分位扫描取最接近者）",
+        "samples": 4217,
+        "conclusion": "**已上调为 0.58**（4217 条样本实测覆盖率 27.7%，距目标 0.2pp）—— 旧值 0.55 在同一批样本上过冲 14.6pp（42.1%）；120 条时的「维持 0.55」是低样本巧合，已被推翻",
+        "recheck": "近期带 missReason 样本 N≥8000 时重跑（现 4217）；或快通道触发率长期偏离 27.5% 时",
+        "calibrator": "scripts/mcl-calibrate.mjs",
+        "rollback": "面板 /set mclFamiliarThreshold 0.55（热生效）"
+      },
+      {
+        "id": "trigger.idleMs",
+        "probe": {
+          "registryPath": [
+            "trigger",
+            "idleMs"
+          ]
+        },
+        "value": 2700000,
+        "owner": "skill/engine/criteria.json#trigger.idleMs",
+        "preregistered": false,
+        "preregisteredCriterion": null,
+        "samples": 0,
+        "conclusion": "insufficient-data —— 值已生效（2026-09-15 P0.1 实证：运行态探针 idleMs=2700000）但**从未校准**；原注释误称 3h 已订正",
+        "recheck": "P1 双维水位落地时按预注册判据校准（需真实纪元材料量/触发间隔分布）",
+        "calibrator": null,
+        "rollback": "scheduler.json deepSleepIdleMs（热生效）"
+      },
+      {
+        "id": "ingest.dedup.bigram.threshold",
+        "probe": {
+          "registryPath": [
+            "ingest",
+            "criteria",
+            "ingest.dedup.bigram",
+            "params",
+            "threshold"
+          ]
+        },
+        "value": 0.66,
+        "owner": "skill/engine/criteria.json#ingest.criteria[ingest.dedup.bigram].params.threshold",
+        "preregistered": false,
+        "preregisteredCriterion": null,
+        "samples": 0,
+        "conclusion": "insufficient-data（未校准）",
+        "recheck": "J2",
+        "calibrator": null,
+        "rollback": "改注册表 → 重跑 gen-criteria"
+      },
+      {
+        "id": "tree.indexSemanticSim",
+        "probe": {
+          "file": "src/deepsleep-tree.ts",
+          "contains": "thresholdValue<number>('tree.indexSemanticSim'"
+        },
+        "read": "src/deepsleep-tree.ts#thresholdValue('tree.indexSemanticSim')",
+        "value": 0.9,
+        "owner": "src/deepsleep-tree.ts:132",
+        "preregistered": false,
+        "preregisteredCriterion": null,
+        "samples": 0,
+        "conclusion": "insufficient-data（未校准）",
+        "recheck": "J2",
+        "calibrator": null,
+        "rollback": "改注册表 → 重跑 gen-criteria（消费点读 thresholdValue ⇒ **改注册表即生效**）"
+      },
+      {
+        "id": "tree.sectionMergeSim",
+        "probe": {
+          "file": "src/deepsleep-tree.ts",
+          "contains": "thresholdValue<number>('tree.sectionMergeSim'"
+        },
+        "read": "src/deepsleep-tree.ts#thresholdValue('tree.sectionMergeSim')",
+        "value": 0.95,
+        "owner": "src/deepsleep-tree.ts:271",
+        "preregistered": false,
+        "preregisteredCriterion": null,
+        "samples": 0,
+        "conclusion": "insufficient-data（未校准）",
+        "recheck": "J2",
+        "calibrator": null,
+        "rollback": "改注册表 → 重跑 gen-criteria（消费点读 thresholdValue ⇒ **改注册表即生效**）"
+      },
+      {
+        "id": "inject.crossFormDedupSim",
+        "probe": {
+          "file": "src/crossform-dedup.ts",
+          "contains": "thresholdValue<number>('inject.crossFormDedupSim'"
+        },
+        "read": "src/crossform-dedup.ts#CROSS_FORM_DEDUP_SIM = thresholdValue('inject.crossFormDedupSim')",
+        "value": 0.8,
+        "owner": "src/crossform-dedup.ts",
+        "preregistered": false,
+        "preregisteredCriterion": null,
+        "samples": 0,
+        "conclusion": "S-P4e（2026-09-16）**注入侧跨形态消重**：细粒度叙事行若与某粗粒度行语义相似 ≥ 此值，则**注入时不再重复注入**该细行（粗行已涵盖其教训面）。**为何不做物理收敛**：两轮真机实测表明「让模型判同一性」在本模型上不可行（含语义 0.809 的候选，**0 提案**，且 out 顶层键里无 convergeOps）⇒ 改在**消费侧**用确定性向量阈值消重：**收益相同**（省注入预算），但**误判代价从「丢库内容」降为「少注入一行」**（库文件零改动 ⇒ 无需回滚）。口径与 write.semanticDupSim **同值但不同位**：那条管写侧「是否算重复写」，本条管消费侧「是否已被粗行涵盖」——**用途不同故各自登记，不共享魔数**。**失败开放**：向量不可用 ⇒ 空集 ⇒ 注入面逐字节回基线",
+        "recheck": "注入面观测 N≥10 轮后复核；若被消重行在某轮被真实消费（access-real 命中）⇒ 说明误消，须上调",
+        "calibrator": null,
+        "rollback": "置 0（或关掉预热调用）⇒ filterInjectedText 空集 ⇒ 注入面逐字节回基线"
+      },
+      {
+        "id": "write.semanticDupSim",
+        "probe": {
+          "file": "src/distill-write.ts",
+          "contains": "thresholdValue<number>('write.semanticDupSim'"
+        },
+        "read": "src/distill-write.ts#thresholdValue('write.semanticDupSim')",
+        "value": 0.8,
+        "owner": "src/distill-write.ts:263",
+        "preregistered": false,
+        "preregisteredCriterion": null,
+        "samples": 0,
+        "conclusion": "insufficient-data（未校准）",
+        "recheck": "J2",
+        "calibrator": null,
+        "rollback": "改注册表 → 重跑 gen-criteria（消费点读 thresholdValue ⇒ **改注册表即生效**）"
+      },
+      {
+        "id": "write.cardSimilar",
+        "probe": {
+          "file": "src/distill-write.ts",
+          "contains": "thresholdValue<number>('write.cardSimilar'"
+        },
+        "read": "src/distill-write.ts#thresholdValue('write.cardSimilar')",
+        "value": 0.42,
+        "owner": "src/distill-write.ts:343,401",
+        "preregistered": false,
+        "preregisteredCriterion": null,
+        "samples": 0,
+        "conclusion": "insufficient-data（未校准）",
+        "recheck": "J2",
+        "calibrator": null,
+        "rollback": "改注册表 → 重跑 gen-criteria（消费点读 thresholdValue ⇒ **改注册表即生效**）"
+      },
+      {
+        "id": "activity.interferenceBand",
+        "probe": {
+          "file": "src/activity.ts",
+          "contains": "thresholdValue<number[]>('activity.interferenceBand'"
+        },
+        "read": "src/activity.ts#thresholdValue('activity.interferenceBand')",
+        "value": [
+          0.5,
+          0.66
+        ],
+        "owner": "src/activity.ts:245",
+        "preregistered": false,
+        "preregisteredCriterion": null,
+        "samples": 0,
+        "conclusion": "insufficient-data（未校准；且为**双阈值**，无任何来源说明）",
+        "recheck": "J2",
+        "calibrator": null,
+        "rollback": "改注册表 → 重跑 gen-criteria（消费点读 thresholdValue ⇒ **改注册表即生效**）"
+      },
+      {
+        "id": "mcl.topicEchoGate",
+        "probe": {
+          "file": "src/mcl.ts",
+          "contains": "thresholdValue<{ minHits?: number; ratio?: number }>('mcl.topicEchoGate'"
+        },
+        "read": "src/mcl.ts#thresholdValue('mcl.topicEchoGate')",
+        "value": {
+          "minHits": 2,
+          "ratio": 0.6
+        },
+        "owner": "src/mcl.ts:364-386（judge 的词元覆盖率门）",
+        "preregistered": false,
+        "preregisteredCriterion": null,
+        "samples": 0,
+        "conclusion": "**2026-09-20 round 8 改名**（原名 `mcl.fastGate`，**名实不符**）：原 id 会让人以为它管**快通道门**（真实快通道门 = `sim >= familiarThreshold && hasHighConf`，见 `mcl.ts:501`，**另由 `mcl.familiarThreshold` 登记**），而它的 `probe.contains` 对应的是本判据 —— `judge()` 里「**上一步是否回引材料主题词**」的信号词元覆盖率门（`hit >= minHits && hit / sigLen >= ratio`）。⇒ 上一轮我据「`minHits`/`ratio` 只在生成物里出现」判它「真死配置」，是**误判**：判据真实存在且可调，只是**名字骗人**（代理指标 = 键名匹配）。`insufficient-data`：本值**未校准**，但**非阻塞** —— `judge()` 的产出（`topicEcho`）**只进审计、不反馈选行**（见 OPEN-ITEMS §0e 门3），故它当前是**可观测面**而非行为面；接进选行前须先看真实回引率。",
+        "recheck": "门3 接线前（新 compliance 行 ≥30 且 `topicEcho=true` 占比落在 (0%, 95%)）",
+        "calibrator": null,
+        "rollback": "改注册表 → 重跑 gen-criteria（消费点读 thresholdValue ⇒ **改注册表即生效**）"
+      },
+      {
+        "id": "activity.statusDays",
+        "probe": {
+          "file": "src/activity.ts",
+          "contains": "thresholdParam<number>('activity.statusDays', 'warm'"
+        },
+        "read": "src/activity.ts#thresholdParam('activity.statusDays','warm'|'cold'|'archive')",
+        "value": {
+          "warm": 14,
+          "cold": 44,
+          "archive": 90
+        },
+        "owner": "src/activity.ts:83-85,184-196",
+        "preregistered": true,
+        "preregisteredCriterion": "天距分位：warm=p50 · cold=p75 · archive=p90（从**真实**命中天距分布取，不拍脑袋）",
+        "samples": 46,
+        "conclusion": "**insufficient-data（维持现值）** —— 2026-09-15 J2 实测（scripts/activity-calibrate.mjs）：真实天距 p50=2.1 / p75=2.4 / p90=5.0 / p95=5.3 / **max=6.2 天** ⇒ 分布**完全未覆盖** 14/44/90 任一阈值区间 ⇒ **不可校准**（按仓内纪律写 insufficient-data，**不猜方向**）。另：**假冷率复测 = 1/9 = 11.1%**，而历史登记为 **26/49 = 53%** ⇒ harvest-access 接线已消除大部分失真，J4（U2）的紧迫性**显著下降**（须以复测值为准）",
+        "recheck": "样本翻倍 或 库龄 ≥90 天（届时分布才可能覆盖 warm 区间）",
+        "calibrator": "scripts/activity-calibrate.mjs",
+        "rollback": "scheduler.json activityWarmDays/ColdDays/ArchiveDays（热生效）"
+      },
+      {
+        "id": "activity.hotHits",
+        "probe": {
+          "file": "src/activity.ts",
+          "contains": "thresholdValue<number>('activity.hotHits'"
+        },
+        "read": "src/activity.ts#thresholdValue('activity.hotHits')",
+        "value": 23,
+        "owner": "src/activity.ts:87,archive",
+        "preregistered": true,
+        "preregisteredCriterion": "hot = 分布**上四分位**（p75）（设计原则：hot 的定义就是「高频尾部」，非对样本拟合）",
+        "samples": 46,
+        "conclusion": "**已调整：5 → 23**。2026-09-15 J2 实测：真实 hits30 p50=**9** / p75=23 / p90=34 / max=58 ⇒ 原阈值 5 **低于 p50** ⇒ 「hot 候选」含半数以上条目，判据意图（识别**高频**小节）**已失去区分度**。按预注册判据取 p75=23。**2026-09-20 round 8**：消费点由裸字面量 `?? 23` 改为 `thresholdValue('activity.hotHits')` ⇒ 改注册表**真的生效**（此前四处默认位点各自硬编码，只有 zod 那一处可经 UI 调）。",
+        "recheck": "样本翻倍时重跑 scripts/activity-calibrate.mjs",
+        "calibrator": "scripts/activity-calibrate.mjs",
+        "rollback": "面板 `/set activityHotHits 5`（热生效）"
+      },
+      {
+        "id": "consolidate.demote.coldDays",
+        "probe": {
+          "registryPath": [
+            "consolidate",
+            "criteria",
+            "consolidate.demote.archive",
+            "params",
+            "coldDays"
+          ]
+        },
+        "value": 90,
+        "owner": "skill/engine/criteria.json#consolidate.criteria[consolidate.demote.archive].params.coldDays",
+        "preregistered": true,
+        "preregisteredCriterion": "同 activity.statusDays 族（archive 分位）；其输入「冷」的质量取决于该族",
+        "samples": 46,
+        "conclusion": "**insufficient-data（维持现值）** —— 依赖 activity.statusDays，而该族分布未覆盖阈值区间（真实天距 max=6.2 天 ≪ 90）⇒ 本轮不可校准。附带实证：判冷的上游已由 harvest 接线修正到假冷 11.1%（原 53%）",
+        "recheck": "与 activity.statusDays 同步（样本翻倍 或 库龄 ≥90 天）",
+        "calibrator": "scripts/activity-calibrate.mjs",
+        "rollback": "改注册表 → 重跑 gen-criteria"
+      },
+      {
+        "id": "ingest.granularity.splitLaw",
+        "probe": {
+          "registryPath": [
+            "ingest",
+            "criteria",
+            "ingest.granularity.split-law",
+            "params"
+          ]
+        },
+        "value": {
+          "R": 1000,
+          "K": 6
+        },
+        "owner": "skill/engine/criteria.json#ingest.criteria[ingest.granularity.split-law].params",
+        "preregistered": false,
+        "preregisteredCriterion": null,
+        "samples": 0,
+        "conclusion": "**2026-09-20 round 9 接线订正 —— 本项此前是「假旋钮」**：登记值 {R:1000,K:6} 在**所有实现面都零消费者** —— `panel-observe.ts` 写死 `const R = 1000`；`distill.ts` 的 DEFAULT_DISTILL_PROMPT 与 `deepsleep-core.ts` 的 DEEP_SLEEP_PROMPT 把 `> 1000 字 / > 6 条 / R=1000` **写死在模板串里** ⇒ 改注册表 + gen:criteria + 门禁全绿，而**提示词与面板判据零变化**。⚠ **为什么长期没被发现**：它的投影支 `criteria-gate.json#granularity` 明明在（gen-criteria 生成），而旧门禁判据是「键名是否在 gate JSON 里出现过」⇒ 顶层 `R`/`K`（= health 口径，**同名同值**）把它冒充掉了 —— 实测**把整个 granularity 支删掉仍判\"有\"** ⇒ 该判据**结构性恒真**（同族第 5 例：代理指标非判据）。**已修**：① 三个消费点全部改读 `criteria.ts#splitLawOf()`（注册表真源）；② `check-threshold-control` ③ 改为「按**生成器给出的归属支**验：支下有此键 + 值等于登记值 + 读者按该支路径取值」三条合取，反例自证 7 条含「同名键冒充」「读了别的支」「该行未投影」；③ 新增 ④ **运行期抵达**（`await import()` 编译产物，断言提示词含注册表值 —— 因为 tsc 不内联模板表达式，只 grep 源码会漏）。**先红→后绿**：门 ③ 接线前红（悬空：投影支 granularity · 键在但无人按该支路径读），接线后绿；**变异实证**：把注册表 R 改 1234 → build → 两处提示词运行期真含 1234（还原后字节级一致）。",
+        "recheck": "已接线并机检（本轮）；数值 R/K 校准仍属 J2（无分布依据前不动值）",
+        "calibrator": null,
+        "rollback": "改注册表 → 重跑 gen-criteria（消费点已全接读口，改值即改行为；三处消费点见 read）",
+        "read": "src/criteria.ts#splitLawOf() → paramOf('ingest.granularity.split-law','R'|'K')；消费点三处：src/panel-observe.ts（超限节统计）· src/distill.ts#DEFAULT_DISTILL_PROMPT（裂 ### 判据）· src/deepsleep-core.ts#DEEP_SLEEP_PROMPT（split 判据）"
+      },
+      {
+        "id": "trigger.reviewIdleMs",
+        "probe": {
+          "registryPath": [
+            "trigger",
+            "reviewIdleMs"
+          ]
+        },
+        "value": 1800000,
+        "owner": "skill/engine/criteria.json#trigger.reviewIdleMs",
+        "preregistered": true,
+        "samples": 352,
+        "preregisteredCriterion": "U4 裁定（2026-09-19 · 用户授权代理自行裁定）：静默维保留 30min；依据 = 蒸馏段中位 4（口径串：`kind=distill-run` 且 `stop` 存在 · 档 L 352 行 / 1108 段 / 段中位 4）",
+        "conclusion": "保留 30min（无实测冲突）",
+        "recheck": "node -e \"…档 L 口径复算段中位…\"（见 S2S3-book4-record §5 U4 行）"
+      },
+      {
+        "id": "trigger.reviewMinNewEntries",
+        "probe": {
+          "registryPath": [
+            "trigger",
+            "reviewMinNewEntries"
+          ]
+        },
+        "value": 3,
+        "owner": "skill/engine/criteria.json#trigger.reviewMinNewEntries",
+        "preregistered": true,
+        "samples": 352,
+        "preregisteredCriterion": "U4 裁定（2026-09-19）：内容维按实测段中位 4 下调 ⇒ ≥3 条（原 8 条会漏掉大多数段）",
+        "conclusion": "3 条（略低于段中位 4 ⇒ 保证多数段可触发）",
+        "recheck": "对齐 `test-session-review` 的三态断言（not-triggered / skipped-by-threshold / reviewed）"
+      },
+      {
+        "id": "trigger.reviewMinNewEvents",
+        "probe": {
+          "registryPath": [
+            "trigger",
+            "reviewMinNewEvents"
+          ]
+        },
+        "value": 600,
+        "owner": "skill/engine/criteria.json#trigger.reviewMinNewEvents",
+        "preregistered": true,
+        "samples": 352,
+        "preregisteredCriterion": "U4 裁定（2026-09-19）：内容维事件数下限由 1200 下调至 600（同上依据）",
+        "conclusion": "600 事件（与 3 条并列成对，任一满足即触发）",
+        "recheck": "同上"
+      },
+      {
+        "id": "trigger.deepSleepProbeConflictMax",
+        "probe": {
+          "registryPath": [
+            "trigger",
+            "deepSleepProbeConflictMax"
+          ]
+        },
+        "value": 3,
+        "owner": "skill/engine/criteria.json#trigger.deepSleepProbeConflictMax",
+        "preregistered": false,
+        "preregisteredCriterion": null,
+        "samples": 0,
+        "conclusion": "初值 3（与 deepSleepProbeConfirm 同量级，取「连续」语义）；**未校准** —— 但「有界」本身是正确性要求（无界 = 活锁），故先给上界、数值待样本",
+        "recheck": "conflict 事件累计 ≥10 次 ⇒ 按「误判长任务」与「活锁时长」双向代价定值",
+        "calibrator": null,
+        "rollback": "scheduler.json deepSleepProbeConflictMax（热生效；置大值≈退回无界）"
+      },
+      {
+        "id": "trigger.newTracesMin",
+        "probe": {
+          "registryPath": [
+            "trigger",
+            "newTracesMin"
+          ]
+        },
+        "read": "src/deepsleep-run.ts（`TRIGGER.newTracesMin` 与 `countWindowTraces(...)` 即**痕迹文件数**比较 · round 10 起）",
+        "value": 1,
+        "owner": "skill/engine/criteria.json#trigger.newTracesMin",
+        "preregistered": false,
+        "preregisteredCriterion": null,
+        "samples": 0,
+        "conclusion": "**2026-09-20 round 9 新登记 → round 10 判定落地（S-P1b″ 行为变更已授权）** —— 本项此前**根本没进登记表**，而它是「睡不睡」的判据 ⇒ 属漏登记（`thresholds.note` 的范围界定明确含「影响接受/拒绝判断的数值阈值」）。**名实订正**：注册名与 note 原写「窗口内最少新痕迹**数**」，而消费点比的是 `gatherDeepSleepTraces(...).length` —— **材料段字符数**；值 `1` 时两者恰好同效（非空 ⇔ 至少一条痕迹）⇒ 长期未暴露，但是**潜伏的假旋钮**（调到 3 则名字说「3 个文件」、行为是「3 个字符」，几乎必然通过）。**round 9 已做**：新增真轴 `deepsleep-traces#countWindowTraces`（痕迹文件数，与 `gatherDeepSleepTraces` **同一遍枚举**，非第二份实现）并落审计 `traceFiles` ⇒ 该轴**从此可测量**。**round 10 已做（本轮）**：**判定改为按文件数**（`traceFiles < minTraces`）—— 经用户具名授权（「继续全部收尾」）。**授权时已具名陈述的代价**：真机 49 纪元中 **46** 个 `materialBytes=0`，其中 **25** 个此前靠「窗口内任务运行统计/access 命中」撑出非空材料而仍入睡 ⇒ 改后这 25 轮**不再入睡**（**砍掉约 51% 入睡纪元的输入面**）；可接受的理由 = 那些是**背景上下文**而非**新增知识**，而 S-P1b″ 定案的轴正是「与新增材料同源」；**不丢数据**（跳过即滑窗，未来文件 mtime 必晚于水位 ⇒ 后续纪元仍捕获）。判据 `test-epoch-watermark` **⑥**（3 断言：右值取文件数 / 反向锁**不得**再用字符数 / 阈值仍读注册表；**剥注释后判定**，防假修）。",
+        "recheck": "新审计行积累 `traceFiles` 分布后（≥30 条）⇒ 复核 `newTracesMin=1` 是否仍合适（现值为「至少 1 个文件」）；同时观察 `no-traces` 占比是否如预期上升（≈51%）",
+        "calibrator": null,
+        "rollback": "改回 `traces.length < minTraces`（旧语义：材料非空）；或置 `newTracesMin=0` 使门恒开"
+      }
+    ]
+  },
+  "fieldRoles": {
+    "note": "字段角色契约（审查 F1 · B 档接线后的真实状态）：runtime = 代码真的消费（**改注册表即生效**）；doc = 仅文档/机检参考（运行时真源仍在代码常量）。机检 scripts/check-field-usage.mjs：**runtime 必须被消费（硬红灯）**；doc 若疑似被消费仅告警（token 级分析有假阳性如 `process.exit` 撞 `GATE.exit`）。消费者定义=src/*.ts（import 判据）+ 把字段当**参数**用的脚本（**排除 gen- 与 check- 前缀的元操作**，否则判据自我满足）。B 档已接线：TRIGGER→scheduler zod 缺省与 distill 痕迹门槛；SURFACE.fusion.k→vec RRF；SURFACE.recall/threshold/mcl→scheduler 缺省；SURFACE.injection→scheduler 画像行上限 + panel 档位 caps；SCORE.mode/MATURATION.enforce→scheduler 缺省；TRIGGER.manual→panel 触发守卫；L0.*.values→criteria.ts 的 L0 字面量（缺失即抛错）；GATE/HEALTH→写门与体检脚本读投影。",
+    "SCORE.alphaRel": "runtime",
+    "SCORE.alphaImp": "runtime",
+    "SCORE.alphaRec": "runtime",
+    "SCORE.mode": "runtime",
+    "SURFACE.injection": "runtime",
+    "SURFACE.recall": "runtime",
+    "SURFACE.fusion": "runtime",
+    "SURFACE.threshold": "runtime",
+    "SURFACE.mcl": "runtime",
+    "SURFACE.rerank": "doc",
+    "TRIGGER.idleMs": "runtime",
+    "TRIGGER.probeAfterMs": "runtime",
+    "TRIGGER.probeWindowMs": "runtime",
+    "TRIGGER.newTracesMin": "runtime",
+    "TRIGGER.contentMinChars": "runtime",
+    "TRIGGER.materialChunkChars": "runtime",
+    "TRIGGER.manual": "runtime",
+    "MATURATION.A0": "runtime",
+    "MATURATION.step": "runtime",
+    "MATURATION.gate": "runtime",
+    "MATURATION.enforce": "runtime",
+    "CARRIERS.tags": "runtime",
+    "CARRIERS.renderers": "doc",
+    "GATE.caps": "runtime",
+    "GATE.notesWarn": "runtime",
+    "GATE.exit": "doc",
+    "HEALTH.R": "runtime",
+    "HEALTH.K": "runtime",
+    "HEALTH.notesWarn": "runtime",
+    "L0.reuse": "runtime",
+    "L0.generality": "runtime",
+    "L0.stability": "runtime",
+    "L0.conflict": "runtime"
+  },
+  "judgement": {
+    "fields": {
+      "ingest": [
+        "reuse",
+        "generality",
+        "stability",
+        "conflict",
+        "dup"
+      ],
+      "consolidate": [
+        "evidence",
+        "stability",
+        "conflict",
+        "cost"
+      ]
+    },
+    "hint": "judgement：可选对象，把本次判据取值写进输出（reuse/generality/stability/conflict/dup 或 evidence/stability/conflict/cost；取值见 criteria 注册表），宿主据此写统一台账 audit/ledger.jsonl（type=decision.*）供对账。",
+    "ledger": "audit/ledger.jsonl",
+    "legacyLedger": "audit/judgement-ledger.jsonl"
+  },
+  "wiring": {
+    "note": "接线申报（2026-09-14 · 治「结构合法但运行时缺席」）。判据：`src/` 内扇入 0 的模块 = 没有运行时消费者，必须显式申报；落地后不删即 FAIL（棘轮）。判定实现在 scripts/audit-architecture.mjs（`--gate` 时生效，check-runner 已在跑该模式）。**只看 src/ 运行时消费者**：scripts/ 下的离线工具与单测一律不算（否则离线工具会让门白立）。",
+    "why": "本仓 7 件架构机检全是负面约束（无环/无桥/行数/依赖宽度/符号漂移），没有一道问「这个模块有没有人在用」。实测后果：supply-assembly 与 record-address 功能完整、结构合法、单测全绿，但 src/ 内零消费者 —— 唯一消费者是离线 CLI 与单测。审计脚本**早已算出扇入**，只是只打印不判定。**2026-09-14 两件均已结清**：`supply-assembly` 已接线（P0a）；`record-address` **判定为死件并删除** —— 它服务的 `storeMode='record'` 档被 schema **明确拒收**（`z.union([const('md'), const('dual')])`，其注释原文：「'record' 档（md 降为纯投影）**尚未实现** ⇒ 本键不接受该值（防死开关）」），且两条配置通道（Config schema · `applySuiteConfigFile` 的派生白名单 + 逐键过 schema）都挡住它 ⇒ 该件**永无运行时接线的可能**，保留即纯堆叠。",
+    "entryOk": [
+      "index",
+      "panel"
+    ],
+    "typeOnlyOk": [
+      "deepsleep-contract"
+    ],
+    "pending": [],
+    "pendingNote": "**零豁免（2026-09-14 起）**：本表为空 ⇒ 任何模块只要 `src/` 扇入为 0 且不在 entryOk / typeOnlyOk，接线门**当场 FAIL**。这是接线门的**最紧状态**，也是本表存在的意义（棘轮只许收紧）；将来若确需豁免，必须在此显式加回并写明 `until`。",
+    "unreachableValues": [
+      "days30",
+      "sessions",
+      "cross-task",
+      "session-only",
+      "contract-fact",
+      "detail",
+      "same-day-repeat"
+    ],
+    "unreachableValuesNote": "**`evaluateL0` 不可达面**（`check-l0-conflict-wiring` ② 的事实源）——两类，**均属「声明了但无人产生」**：<br>【一类·入参不可达（2026-09-20）】判定口径：入参若**在所有调用点都不被传**，则它产生的取值（`days30>=2 ⇒ stability='cross-day'` · `sessions>=2 ⇒ reuse='cross-project'`）**结构性不可达**。实测：全仓 `evaluateL0` **只 1 处调用**（`distill-agent.ts`），从不传 `days30` / `sessions`；两者数据源**现成存在**（`activity.ts:29/174`），但**蒸馏调用点未接入活性表**（改动面大于本轮）⇒ 如实登记。**until**：接入后**须删除本表对应项**。<br>【二类·取值无产生式（**2026-09-21 新增** · `OPEN-ITEMS §0p`）】**6 个取值在可执行代码里零产生路径**：`reuse` 的 `cross-task`/`session-only` · `generality` 的 `contract-fact`/`detail` · `stability` 的 `same-day-repeat` · `conflict` 的 `coexist`。⚠ **这不是「有意不可达」，而是断链被显式登记** —— 门此前一直**假绿**：`produces()` 的正则含「冒号后跟空白」那一路匹配，会命中 **`CONF` 常量表**（`coexist: l0Pick('conflict','coexist')`）与**类型声明行**，于是「声明了但无人产生」照样判绿（`distill-agent.ts:435` 的注释**早已写着**「`coexist`/`supersede` 永不产生」）。**2026-09-21 已修门**（三类声明态中和：类型/接口行 · `l0Pick(...)` 调用 · `new Set([...])` 白名单），修后**门如实报出这 6 项** ⇒ 据「登记非豁免，是让断链可见」登记于此。<br>⚠ **残留语义问题（未决 · 属 L0 语义变更，须拍板）**：`JUDGEMENT_VALUES` 的 prompt **要求模型分清 `coexist`（与既有并存）与 `supersede`（取代既有）**，而 `evaluateL0` **只能算出 `none`/`supersede`** ⇒ **模型判了 `coexist` 也无处落**（§0p 原话：「判了也不落库」）。修它=**给 L0 冲突语义补一条产生路径**（行为变更）⇒ 不在本轮范围。<br>**until**：本表任一项取得产生路径后**须删除该项**（棘轮只许收紧）。\n\n【✅ **2026-09-21 D2 收口：`coexist` 已取得产生路径，已从本表删除**（此行留痕以示棘轮确实只许收紧）】判因（真机 + 读码双证）：`coexist` 无产生路径，且**更坏的是模型判了也会被抹掉** —— 调用点（`distill-agent.ts`）已把模型输出**按三义校验**（`CONFLICT_VALUES` 含 `coexist`），随后却只传 `supersedes: conflictNorm === 'supersede'` ⇒ **`coexist` 被静默压成 `none`**（声明三义、实现两义、第三义静默降级）。修法：`L0Input` 增可选 `conflict`（**原始三义**），`evaluateL0` 按「显式优先、布尔兜底」取值 ⇒ `coexist` 可达 · 旧调用方（只传 `supersedes`）**零迁移、取值逐字不变**（实测：`supersedes=true/false` ⇒ `supersede/none`；`conflict=coexist` ⇒ `coexist` + basis `l0.conflict.coexist`）。⚠ 真机 `coexist` 产量现为 **0**（历史从未产生）⇒ 这是「**通路已建、样本未到**」，与「断链」已可分辨（前者 basis 会出现 `l0.conflict.coexist`）。"
+  },
+  "antiScope": [
+    "实体图/图数据库（用 INDEX 元数据表「关联主题」列弱关联替代）",
+    "无条件 reranker",
+    "深睡二次 LLM 复核档",
+    "记忆库对外 MCP 暴露",
+    "多租户 / RBAC",
+    "动态运行态入库"
+  ],
+  "contentTypes": {
+    "note": "内容类型契约（S0 · 2026-09-14）：把「信息类型 ↔ 生产/载体/消费」的映射收敛到唯一一处，补齐此前裂成三份且互不引用的定义（carriers.tags 管注入面 / record-store.kindOfLine 管 Record kind / targets 管 md 行形态）。reachable 是**可机检字段**：reachable=true ⇒ 消费侧必须存在对应通路（按 consumer.criterion 反查），由 scripts/check-content-types.mjs 守。producers 记录当前实际写入者；layer 采用人类三层（outer 任务级 / middle 行动级 / inner 认知级）。 结构性记录（不属信息类型、不注入）：不属「信息类型」，不注入（consumer.layer = none）。保留于此以便 check-content-types 的枚举完备性断言可覆盖 RecordKind 全集。",
+    "vocab": {
+      "note": "值域声明（Q1 · 2026-09-20）。**由来**：此前 layer/timing/criterion/budget 四列的取值域**只活在 `scripts/check-content-types.mjs` 的 `new Set` 里** —— 真源写错一个取值，门禁不动（实测 `due` 合法却 0 使用、`oneshot` 从未有类型挂载）。本段把值域搬回真源，门禁改读此处（唯一事实源原则）。**reserved 语义**：值合法但当前 0 使用 —— 标注而非删除，因为它们是**真实存在的槽或已声明目标**（`oneshot` = 真实注入槽；`mcl` 与 `situation.mcl` 既有消费相冲突故保留；`process` 随 Q4 门控改造在途；`due` 通路已接线 `ring-supply#dueSoon` 但暂无类型挂载）。**memClass**：认知类型轴（语义/情景/程序性），三类对位由此从文档句变成可执行断言；`none` 只给 `noteBody`（notes 正文本体是**载体形态**，不是第四类记忆，不进三类计数）。",
+      "layer": [
+        "outer",
+        "middle",
+        "inner",
+        "none"
+      ],
+      "timing": [
+        "session-start",
+        "task-start",
+        "per-step",
+        "on-demand",
+        "none"
+      ],
+      "criterion": [
+        "always",
+        "relevance",
+        "situation-key",
+        "none"
+      ],
+      "budget": [
+        "stable",
+        "dynamic",
+        "situation",
+        "none"
+      ],
+      "memClass": [
+        "semantic",
+        "episodic",
+        "procedural",
+        "none"
+      ],
+      "reserved": {
+        "criterion": [
+          "due"
+        ],
+        "budget": [
+          "oneshot",
+          "mcl",
+          "process"
+        ]
+      }
+    },
+    "types": {
+      "principle": {
+        "memClass": "semantic",
+        "recordKind": [
+          "persona"
+        ],
+        "carrier": [
+          "原则"
+        ],
+        "form": "profile",
+        "projection": "md",
+        "consumer": {
+          "layer": "outer",
+          "criterion": "always"
+        },
+        "budget": "stable",
+        "reachable": true
+      },
+      "cognition": {
+        "memClass": "semantic",
+        "recordKind": [
+          "persona"
+        ],
+        "carrier": [
+          "认知"
+        ],
+        "form": "profile",
+        "projection": "md",
+        "consumer": {
+          "layer": "outer",
+          "criterion": "always"
+        },
+        "budget": "stable",
+        "reachable": true
+      },
+      "boundary": {
+        "memClass": "semantic",
+        "recordKind": [
+          "persona"
+        ],
+        "carrier": [
+          "边界"
+        ],
+        "form": "profile",
+        "projection": "md",
+        "consumer": {
+          "layer": "outer",
+          "criterion": "always"
+        },
+        "budget": "stable",
+        "reachable": true
+      },
+      "evolution": {
+        "memClass": "semantic",
+        "recordKind": [
+          "persona"
+        ],
+        "carrier": [
+          "演化"
+        ],
+        "form": "index",
+        "projection": "md",
+        "consumer": {
+          "layer": "outer",
+          "criterion": "always"
+        },
+        "budget": "stable",
+        "reachable": true
+      },
+      "identity": {
+        "memClass": "semantic",
+        "recordKind": [
+          "persona"
+        ],
+        "carrier": [
+          "身份"
+        ],
+        "form": "index",
+        "projection": "md",
+        "consumer": {
+          "layer": "outer",
+          "criterion": "always"
+        },
+        "budget": "stable",
+        "reachable": true
+      },
+      "mission": {
+        "memClass": "semantic",
+        "recordKind": [
+          "persona"
+        ],
+        "carrier": [
+          "使命"
+        ],
+        "form": "index",
+        "projection": "md",
+        "consumer": {
+          "layer": "outer",
+          "criterion": "always"
+        },
+        "budget": "stable",
+        "reachable": true
+      },
+      "character": {
+        "memClass": "semantic",
+        "recordKind": [
+          "persona"
+        ],
+        "carrier": [
+          "性格"
+        ],
+        "form": "profile",
+        "projection": "md",
+        "consumer": {
+          "layer": "outer",
+          "criterion": "always"
+        },
+        "budget": "stable",
+        "reachable": true
+      },
+      "preference": {
+        "memClass": "semantic",
+        "recordKind": [
+          "persona"
+        ],
+        "carrier": [
+          "偏好"
+        ],
+        "form": "index",
+        "projection": "md",
+        "consumer": {
+          "layer": "outer",
+          "criterion": "always"
+        },
+        "budget": "stable",
+        "reachable": true
+      },
+      "habit": {
+        "memClass": "semantic",
+        "recordKind": [
+          "persona"
+        ],
+        "carrier": [
+          "习惯"
+        ],
+        "form": "index",
+        "projection": "md",
+        "consumer": {
+          "layer": "outer",
+          "criterion": "always"
+        },
+        "budget": "stable",
+        "reachable": true
+      },
+      "environment": {
+        "memClass": "semantic",
+        "recordKind": [
+          "persona"
+        ],
+        "carrier": [
+          "环境"
+        ],
+        "form": "index",
+        "projection": "md",
+        "consumer": {
+          "layer": "outer",
+          "criterion": "always"
+        },
+        "budget": "stable",
+        "reachable": true
+      },
+      "hardware": {
+        "memClass": "semantic",
+        "recordKind": [
+          "persona"
+        ],
+        "carrier": [
+          "硬件"
+        ],
+        "form": "index",
+        "projection": "md",
+        "consumer": {
+          "layer": "outer",
+          "criterion": "always"
+        },
+        "budget": "stable",
+        "reachable": true
+      },
+      "path": {
+        "memClass": "procedural",
+        "recordKind": [
+          "procedure"
+        ],
+        "carrier": [
+          "路径"
+        ],
+        "form": "index",
+        "projection": "md",
+        "consumer": {
+          "layer": "middle",
+          "criterion": "relevance"
+        },
+        "budget": "dynamic",
+        "reachable": true,
+        "why": "中层独立 process 槽为 S4-3 目标；当前实际经相关性召回（R 层 gated，不进恒常面）"
+      },
+      "experience": {
+        "memClass": "episodic",
+        "recordKind": [
+          "fact"
+        ],
+        "carrier": [
+          "经验"
+        ],
+        "form": "index",
+        "projection": "md",
+        "consumer": {
+          "layer": "inner",
+          "criterion": "relevance"
+        },
+        "budget": "dynamic",
+        "reachable": true
+      },
+      "lessonTag": {
+        "memClass": "semantic",
+        "recordKind": [
+          "fact"
+        ],
+        "carrier": [
+          "教训"
+        ],
+        "form": "index",
+        "projection": "md",
+        "consumer": {
+          "layer": "inner",
+          "criterion": "relevance"
+        },
+        "budget": "dynamic",
+        "reachable": true
+      },
+      "env": {
+        "memClass": "semantic",
+        "recordKind": [
+          "fact"
+        ],
+        "carrier": [
+          "env"
+        ],
+        "form": "index",
+        "projection": "md",
+        "consumer": {
+          "layer": "inner",
+          "criterion": "relevance"
+        },
+        "budget": "dynamic",
+        "reachable": true
+      },
+      "tool": {
+        "memClass": "semantic",
+        "recordKind": [
+          "fact"
+        ],
+        "carrier": [
+          "tool"
+        ],
+        "form": "index",
+        "projection": "md",
+        "consumer": {
+          "layer": "inner",
+          "criterion": "relevance"
+        },
+        "budget": "dynamic",
+        "reachable": true
+      },
+      "flow": {
+        "memClass": "semantic",
+        "recordKind": [
+          "fact"
+        ],
+        "carrier": [
+          "flow"
+        ],
+        "form": "index",
+        "projection": "md",
+        "consumer": {
+          "layer": "inner",
+          "criterion": "relevance"
+        },
+        "budget": "dynamic",
+        "reachable": true
+      },
+      "lesson": {
+        "memClass": "semantic",
+        "recordKind": [
+          "fact"
+        ],
+        "carrier": [
+          "lesson"
+        ],
+        "form": "index",
+        "projection": "md",
+        "consumer": {
+          "layer": "inner",
+          "criterion": "relevance"
+        },
+        "budget": "dynamic",
+        "reachable": true
+      },
+      "episode": {
+        "memClass": "episodic",
+        "recordKind": [
+          "episode"
+        ],
+        "carrier": [],
+        "form": "ring",
+        "projection": "none",
+        "consumer": {
+          "layer": "inner",
+          "criterion": "situation-key"
+        },
+        "budget": "situation",
+        "reachable": true
+      },
+      "decision": {
+        "memClass": "episodic",
+        "recordKind": [
+          "decision"
+        ],
+        "carrier": [],
+        "form": "ring",
+        "projection": "none",
+        "consumer": {
+          "layer": "inner",
+          "criterion": "situation-key"
+        },
+        "budget": "situation",
+        "reachable": true
+      },
+      "outcome": {
+        "memClass": "episodic",
+        "recordKind": [
+          "outcome"
+        ],
+        "carrier": [],
+        "form": "ring",
+        "projection": "none",
+        "consumer": {
+          "layer": "inner",
+          "criterion": "situation-key"
+        },
+        "budget": "situation",
+        "reachable": true
+      },
+      "valence": {
+        "memClass": "semantic",
+        "recordKind": [
+          "valence"
+        ],
+        "carrier": [],
+        "form": "ring",
+        "projection": "none",
+        "consumer": {
+          "layer": "inner",
+          "criterion": "situation-key"
+        },
+        "budget": "situation",
+        "reachable": true
+      },
+      "relation": {
+        "memClass": "episodic",
+        "recordKind": [
+          "relation"
+        ],
+        "carrier": [],
+        "form": "ring",
+        "projection": "none",
+        "consumer": {
+          "layer": "inner",
+          "criterion": "situation-key"
+        },
+        "budget": "situation",
+        "reachable": true
+      },
+      "commitment": {
+        "memClass": "episodic",
+        "recordKind": [
+          "commitment"
+        ],
+        "carrier": [],
+        "form": "ring",
+        "projection": "none",
+        "consumer": {
+          "layer": "middle",
+          "criterion": "situation-key"
+        },
+        "budget": "situation",
+        "reachable": true,
+        "why": "到期前瞻（due 主动提）为 S4-4 目标；当前实际经情境槽进入（commitment 属 relation 环）"
+      },
+      "association": {
+        "memClass": "episodic",
+        "recordKind": [
+          "association"
+        ],
+        "carrier": [],
+        "form": "ring",
+        "projection": "none",
+        "consumer": {
+          "layer": "inner",
+          "criterion": "situation-key"
+        },
+        "budget": "situation",
+        "reachable": true
+      },
+      "noteBody": {
+        "memClass": "none",
+        "recordKind": [
+          "prose"
+        ],
+        "carrier": [],
+        "form": "notes",
+        "projection": "md",
+        "consumer": {
+          "layer": "inner",
+          "criterion": "none"
+        },
+        "budget": "none",
+        "reachable": true,
+        "why": "详情层正文（notes/*.md）：**不直接注入**，经索引行指针按需 read_section 取 ⇒ criterion=none（无自动注入通路，故无通道即正确）。S2-2 补：writeDispatch 的 appends 路径输出它，此前契约无 form=notes 的 typeId 承载"
+      }
+    },
+    "structural": {
+      "blank": {
+        "projection": "none",
+        "consumer": {
+          "layer": "none",
+          "criterion": "none"
+        },
+        "budget": "none",
+        "reachable": false,
+        "why": "空行，无信息内容"
+      },
+      "structure": {
+        "projection": "none",
+        "consumer": {
+          "layer": "none",
+          "criterion": "none"
+        },
+        "budget": "none",
+        "reachable": false,
+        "why": "标题/引用等结构行，不注入"
+      },
+      "prose": {
+        "projection": "md",
+        "consumer": {
+          "layer": "inner",
+          "criterion": "relevance"
+        },
+        "budget": "dynamic",
+        "reachable": true
+      }
+    }
+  },
+  "roots": {
+    "note": "数据面三处根的**主从声明**（S1-2 · 2026-09-14）。此前只在 targets.ts 头注里 —— 非读码者无从判断\"哪份是活体\"，实测因此出现过把仓内私有副本误当主库的分析。authority=活体 表示该处的变更会被运行时消费。",
+    "items": {
+      "memoryLib": {
+        "path": "<DSH_HOME>/skills/managing-memory",
+        "role": "唯一记忆库",
+        "authority": "活体",
+        "fn": "memoryLibRoot()",
+        "note": "数据 + 脚本 + 审计同根；注入/蒸馏/深睡一律读它"
+      },
+      "knowledge": {
+        "path": "<DSH_HOME>/suite/knowledge",
+        "role": "运行状态区",
+        "authority": "活体（非记忆库）",
+        "fn": "knowledgeRoot()",
+        "note": "蒸馏/深睡审计、水位、pending 输入队列、warm-recall；**不是库**"
+      },
+      "repoPrivate": {
+        "path": "<repo>/_memory",
+        "role": "仓内私有副本",
+        "authority": "非活体",
+        "fn": "(无运行时函数)",
+        "note": "gitignore 不进公开树；实测标签分布与主库不同（非镜像）"
+      }
+    }
+  }
+}
