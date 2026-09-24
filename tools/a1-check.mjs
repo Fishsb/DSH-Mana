@@ -425,6 +425,11 @@ const fixed = (x, n = 6) => Number(x).toFixed(n)
 const W3_TESTS = {
   chain: P('packages/core/tests/chain-e2e.test.mjs'),
   gate: P('packages/core/tests/injection-gate.test.mjs'),
+  // P5（S4 席交付，装配证据面）：ui 的**装配**与**产物侧落点**两份判据。
+  // ⚠ 这两份此前**没有任何机检入口**（只在本席口头汇报里）——「建了判据却没人跑」
+  //   等于没建（本仓既有教训：`check:a1` 之前 a1-check 零调用者）。此处接进 A1 门链。
+  uiAssembly: P('packages/ui/tests/assembly.test.mjs'),
+  uiRender: P('packages/ui/tests/ui.test.mjs'),
 }
 
 /**
@@ -542,6 +547,25 @@ function runCases(file, cases) {
 }
 
 {
+  const id = 'P5-UI'
+  const title = 'P5 UI 装配证据：装配三态（未装不可读/按包名装上/卸载即净）+ 产物侧落点随渲染增长'
+  // ⚠ 本项的两份判据此前**不在任何机检入口**里 —— 只在本席的汇报口述中。
+  //   「建了判据却没人跑」等于没建（本仓既有的 `check:a1` 教训）。此处接进门链。
+  const aCases = ['装配①', '装配②', '装配③']
+  const rCases = ['R5 落点', 'R5 反证判据']
+  const a = runCases(W3_TESTS.uiAssembly, aCases)
+  const r = runCases(W3_TESTS.uiRender, rCases)
+  const bad = []
+  if (a.failed.length) bad.push(`装配：${a.failed.join(' / ')}`)
+  if (r.failed.length) bad.push(`落点：${r.failed.join(' / ')}`)
+  if (bad.length === 0 && a.passed.length === aCases.length && r.passed.length === rCases.length) {
+    pass(id, title, `装配三态 3/3 + 落点 2/2 全绿：未装配时服务不可读（防平凡通过）→ 经 Loader 按包名真装上 → 卸载即净；渲染一次即写一行 ui/render，卸载后不再新增`, '判据见 packages/ui/tests/assembly.test.mjs 与 ui.test.mjs；装配面另有 R0 三源互证（13/13 含 ui）')
+  } else {
+    fail(id, title, bad.join('；') || `用例未全绿（装配 ${a.passed.length}/${aCases.length}、落点 ${r.passed.length}/${rCases.length}）`, '回 packages/ui 装配/落点实现或启用步骤')
+  }
+}
+
+{
   const id = 'A1-14'
   const title = 'A1-14 fail-closed 不得吞掉「未判」：不注入 **且** 仍留痕（两条都要真）'
   const r = runCases(W3_TESTS.gate, ['P5 A1-14', 'P6 A1-14'])
@@ -624,7 +648,7 @@ function runCases(file, cases) {
  * ⚠ 本腿是**元判据**，不进 `results`（判定项集必须恰好是 EXPECTED_IDS 这 6 项，
  *   报告里的「共 N 项」也就是判据项数，不得被元判据灌水）。
  */
-const EXPECTED_IDS = ['A1-1', 'A1-2', 'A1-4', 'A1-5', 'A1-6', 'A1-8', 'A1-9', 'A1-10', 'A1-11', 'A1-12', 'A1-13', 'A1-14', 'ARTIFACTS', 'W2-5', 'W-1..3']
+const EXPECTED_IDS = ['A1-1', 'A1-2', 'A1-4', 'A1-5', 'A1-6', 'A1-8', 'A1-9', 'A1-10', 'A1-11', 'A1-12', 'A1-13', 'A1-14', 'ARTIFACTS', 'W2-5', 'W-1..3', 'P5-UI']
 const ids = results.map((r) => r.id)
 const missingIds = EXPECTED_IDS.filter((x) => !ids.includes(x))
 const extraIds = [...new Set(ids)].filter((x) => !EXPECTED_IDS.includes(x))
