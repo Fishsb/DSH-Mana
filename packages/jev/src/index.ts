@@ -269,6 +269,46 @@ export function apply(ctx: Context, config: Config): void {
   // 阶段 1 的判定链将挂在此扩展点之后；现在只做直通（必须调 next()，G9）。
   registerPassThroughPreStep(ctx, name)
 
+  /**
+   * **判定链监听器**（B1.2 的接入口 · `mana/jev/judge`）。
+   *
+   * ⚠ 两条硬纪律（`docs/contract/event-types.ts` 明文）：
+   *   ① 本事件是 **waterfall** 型 ⇒ 分发方必须 `ctx.waterfall(...)`；用 `emit` 会同步抛
+   *      `TypeError: next is not a function`（G6）。
+   *   ② 监听器**必须调 `next()`** —— 漏调会**无声**吞掉下游默认行为（本仓实测全程无异常）。
+   *      本监听器是"最外层判定者"：自己判得出就直接返回；判不出就把 `next()` 的结果透传。
+   *
+   * ⚠ **降级必须显式**（G8）：失败时返回 `degraded:true` + 非空 `reason` + `value:'unknown'`
+   *   + `probability:null`（**不得用 0 冒充「概率为零」**），绝不 `catch { return null }`。
+   */
+  ctx.on('mana/jev/judge', async (req, next) => {
+    const outcome = await service.judgeGuarded({
+      state: req.state,
+      question: req.question,
+      idFactory: () => req.requestId,
+    })
+    if (!outcome.degraded && typeof outcome.probability === 'number') {
+      return {
+        requestId: req.requestId,
+        source: name,
+        value: outcome.value === 'yes' || outcome.value === 'no' ? outcome.value : 'unknown',
+        probability: outcome.probability,
+        degraded: false,
+        reason: null,
+      }
+    }
+    // 降级：**仍要调 next()**（尊重下游），但把降级事实带回去（不静默）。
+    const downstream = await next()
+    return {
+      ...downstream,
+      requestId: req.requestId,
+      degraded: true,
+      reason: outcome.reason ?? downstream.reason ?? 'jev-degraded',
+      // 降级时概率为 null；若下游给了可用概率则保留（下游才是"真判到了"的那一方）。
+      probability: typeof downstream.probability === 'number' ? downstream.probability : null,
+    }
+  })
+
   // ⚠ 此处**没有** `void config`：B1.3 起六项配置全部被上面的 `JevGuard` 与判定链路消费，
   //   配置项关掉/打开会产生可观测差异（见 tests/framework.test.mjs 的 F8 判据）。
 }

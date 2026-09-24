@@ -508,6 +508,35 @@ function runCases(file, cases) {
 }
 
 {
+  const id = 'W-1..3'
+  const title = 'vec0 三语义负例（W-1 度量 / W-2 rowid BigInt / W-3 KNN LIMIT）'
+  // ⚠ 本项**允许 HANG**：§8 C4 把 vec0 定为规模化升级项（>10 万条才启用），
+  //   故"扩展未安装"是**合规现状**。但「未装」与「装了且语义对」绝不可同形
+  //   ⇒ 探针在未装时报 HANG 并给出安装命令，而不是 PASS/skip。
+  const r = node([P('tools/probes/vec0-semantics.mjs'), '--json'])
+  let parsed = null
+  try {
+    parsed = JSON.parse((r.out ?? '').trim())
+  } catch {
+    parsed = null
+  }
+  const states = (parsed?.results ?? []).map((x) => x.state)
+  const fails = (parsed?.results ?? []).filter((x) => x.state === 'FAIL')
+  if (!parsed) {
+    fail(id, title, `探针输出不可解析（exit=${r.ok ? 0 : 1}）`, '回 tools/probes/vec0-semantics.mjs')
+  } else if (fails.length === 0 && states.length === 3) {
+    const hangs = states.filter((x) => x === 'HANG').length
+    if (hangs === 3) {
+      hang(id, title, '扩展未安装（候选路径均不存在）⇒ 三语义**未验证**；装 sqlite-vec-linux-x64@0.1.9 后自动转 PASS/FAIL', '§8 C4：vec0 为规模化升级项（>10 万条启用），当前不装合规；但"未装"报 HANG 而非 PASS')
+    } else {
+      pass(id, title, `三条负例全部实测复现（vec_version=${parsed.vecVersion}）：W-1 缺省=L2、W-2 rowid 须 BigInt、W-3 KNN 须带 LIMIT`, `扩展=${parsed.extension}`)
+    }
+  } else {
+    fail(id, title, fails.map((x) => `${x.id}: ${x.detail.slice(0, 60)}`).join(' / '), '回 vec0 适配层')
+  }
+}
+
+{
   const id = 'A1-14'
   const title = 'A1-14 fail-closed 不得吞掉「未判」：不注入 **且** 仍留痕（两条都要真）'
   const r = runCases(W3_TESTS.gate, ['P5 A1-14', 'P6 A1-14'])
@@ -590,7 +619,7 @@ function runCases(file, cases) {
  * ⚠ 本腿是**元判据**，不进 `results`（判定项集必须恰好是 EXPECTED_IDS 这 6 项，
  *   报告里的「共 N 项」也就是判据项数，不得被元判据灌水）。
  */
-const EXPECTED_IDS = ['A1-1', 'A1-2', 'A1-4', 'A1-5', 'A1-6', 'A1-8', 'A1-9', 'A1-10', 'A1-11', 'A1-12', 'A1-13', 'A1-14', 'ARTIFACTS', 'W2-5']
+const EXPECTED_IDS = ['A1-1', 'A1-2', 'A1-4', 'A1-5', 'A1-6', 'A1-8', 'A1-9', 'A1-10', 'A1-11', 'A1-12', 'A1-13', 'A1-14', 'ARTIFACTS', 'W2-5', 'W-1..3']
 const ids = results.map((r) => r.id)
 const missingIds = EXPECTED_IDS.filter((x) => !ids.includes(x))
 const extraIds = [...new Set(ids)].filter((x) => !EXPECTED_IDS.includes(x))

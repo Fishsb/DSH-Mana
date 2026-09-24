@@ -20,6 +20,22 @@
  *
  * ⇒ 启用 vec0 的那一席（规模化升级时）**必须**把 `VEC0_SEMANTICS` 三条各造一次负例
  *   （报错或取值正确），并把 `route='vec0'` 从 `vec0UnavailableReason()` 里放出来。
+ *
+ * ⚠ **三条语义已于 2026-09-25 用真扩展逐条实测复现**（`tools/probes/vec0-semantics.mjs`，
+ *   `sqlite-vec-linux-x64@0.1.9`、`vec0.so` = **159,816 B**，与落地册 §2 条 3 记录**逐字节一致**）：
+ *
+ *   | 语义 | 实测证据 |
+ *   |---|---|
+ *   | W-1 | `distance_metric` 缺省 **确实是 L2**：正交向量距离实测 **1.4142**（= √2）；余弦应为 1.0 ⇒ 不写就静默偏离 |
+ *   | W-2 | 传 number `1` 报 **`Only integers are allows for primary key values on w2`**（原文逐字一致）；传 `1n` 通过 |
+ *   | W-3 | 不带限报 **`A LIMIT or 'k = ?' constraint is required on vec0 knn queries.`**（原文逐字一致）；带 `k = 1` 通过 |
+ *
+ *   ⚠ 实测**新增**一条落地册未记的约束：vec0 **只支持 `ORDER BY distance` 升序** ——
+ *     用 `DESC` 报 `Only ascending in ORDER BY distance clause is supported`。
+ *     要取"最远"只能查全量再自行取尾（本探针首版正是踩此坑而误判）。
+ *
+ *   ⚠ 本机当前**未装**扩展（§8 C4：vec0 是 >10 万条才启用的升级项）⇒ 探针报 **HANG**
+ *     **而非 PASS**：「未装」与「装了且语义对」必须可分辨。
  */
 
 /** 三条语义的机检锚点（写死于此处，测试逐条读它，不靠文档描述）。 */
