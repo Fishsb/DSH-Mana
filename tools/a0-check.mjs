@@ -310,6 +310,20 @@ if (want('A0-13')) {
   }
 }
 
+// ══ R0 反证判据（阶段 0 专属 · 真装配链）═════════════════════════════════════
+if (want('R0')) {
+  const r = node([P('tools/r0-assembly-check.mjs')])
+  const out = r.out ?? ''
+  const zero = /装配计数归零（N=\d+ → 0）：✓ 通过/.test(out)
+  const noNew = /卸载后不再产生新行\s*：✓ 通过/.test(out)
+  const m = /装配计数 N = (\d+)/.exec(out)
+  if (r.ok && zero && noNew) {
+    pass('R0', '反证判据（卸载即净 · 真装配链）', `注入 ${m?.[1] ?? '?'} 个 → 装配归零 → 卸载后同一触发无新增行`, '走真 cordis Loader 按包名解析；装配计数以「服务可读」为判据，不以调用成功为判据')
+  } else {
+    fail('R0', '反证判据（卸载即净 · 真装配链）', `zero=${zero} noNew=${noNew}｜${out.split('\n').slice(-6).join(' / ').slice(0, 300)}`, '回阶段 0 骨架 / 装配步骤')
+  }
+}
+
 // ── 输出 ────────────────────────────────────────────────────────────────────
 const order = { FAIL: 0, HANG: 1, PASS: 2 }
 results.sort((a, b) => order[a.state] - order[b.state] || a.id.localeCompare(b.id))

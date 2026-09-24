@@ -30,6 +30,18 @@ import { createSchema, SCHEMA_VERSION } from './schema.ts'
 import './event-types.ts'
 
 /** 本插件的服务名（其余插件 `inject` 用的名字）。 */
+/**
+ * ⚠ **入口必须是编译产物 `lib/index.js`，不能指向 `src/index.ts`**（装配实测，2026-09-24）。
+ *
+ * 本仓源码以 `.ts` 直跑测试没问题（Node 22 的类型剥离对**工作区软链**放行，因为
+ * realpath 落在 `node_modules` 之外）。但**宿主 DSH 以 `node /usr/local/bin/dsh web` 启动、
+ * 不带任何类型剥离开关** ⇒ 指向 `.ts` 的入口在宿主里装不上。
+ * 而入口指向 `lib/` 后，宿主对 `node_modules` 内路径一律拒绝剥离 ⇒ **必须预编译**。
+ *
+ * ⇒ 约定：`main`/`exports` 指向 `lib/`；改完源码必须 `npm run build` 再注入。
+ *   （生态既有插件 shoucang / roundtable / motion / super-injector **全部**是 `lib/index.js`，
+ *     这不是偏好，是装载面的硬约束。）
+ */
 export const SERVICE_NAME = 'mana-core' as const
 
 /** Cordis 插件名（与包 id `dsh-mana-core` 区分）。 */

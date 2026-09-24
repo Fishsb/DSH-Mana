@@ -13,6 +13,10 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { Context } from '@deepseek-ai/cordis'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { after, beforeEach } from 'node:test'
 
 const ROOT = new URL('../../', import.meta.url) // packages/
 // 目录名（写面所有权单位，与 docs/session-allocation.md §三 对齐）
@@ -29,11 +33,32 @@ const PKGS = [
 
 const load = (dir) => import(new URL(`${dir}/src/index.ts`, ROOT).href)
 
-/** 装载一个包到真 Context，返回 fiber。 */
-function mount(ctx, mod) {
-  const fork = ctx.plugin(mod, {})
-  return fork
+/** 每个测试用独立临时库，避免污染真实数据面（`$DSH_HOME/memory/mana.db`）。 */
+function tempStore() {
+  const dir = mkdtempSync(join(tmpdir(), 'mana-skel-'))
+  return { path: join(dir, 'mana.db'), dir }
 }
+const cleanups = []
+after(() => {
+  for (const d of cleanups) rmSync(d, { recursive: true, force: true })
+})
+
+/**
+ * 装载一个包到真 Context，返回 fiber。
+ *
+ * ⚠ **core 必须显式传 `storePath`**：其配置缺省指向 `$DSH_HOME/memory/mana.db`（真实库）。
+ *   早前用 `ctx.plugin(mod, {})` 挂了 core ⇒ 测试直接写进生产库（实测留下 12 行 `mana_trace`）。
+ *   这是「夹具绿 ≠ 真数据绿」的反面：**夹具不该动真数据**。
+ */
+function mount(ctx, mod) {
+  const cfg = mod.name === 'mana-core' ? { storePath: currentStore.path } : {}
+  return ctx.plugin(mod, cfg)
+}
+let currentStore = tempStore()
+beforeEach(() => {
+  currentStore = tempStore()
+  cleanups.push(currentStore.dir)
+})
 
 /** 等到所有 fiber 进入 active（cordis 装载是异步的）。 */
 async function settle(ctx, ms = 200) {

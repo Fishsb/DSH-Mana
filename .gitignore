@@ -2,5 +2,7 @@
 .roundtable/*/transcript.jsonl
 .roundtable/_extract/
 node_modules/
+# 构建产物：由 tsc 生成，不入版本（源码是真源）
+packages/*/lib/
 # 运行态：心跳与本地判据基线（可由工具重生成）
 tools/.a0-10-baseline.json

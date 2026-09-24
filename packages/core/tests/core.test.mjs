@@ -4,9 +4,15 @@
  * 本文件用一个**假 ctx**（只实现 core 实际用到的 `on` / `provide` / `effect`）
  * 直跑插件 `apply`，因此测的是**真行为**而不是"文件在、函数在"。
  *
- * 运行：node --test "tests/*.test.mjs"
- * ⚠ 禁用 `node --test tests/`（A0-7：该写法在本机报 `# tests 1 / # fail 1`，
- *   形似"测试失败"实为命令写错）。
+ * 运行：见根 package.json 的 test 脚本（glob 形式；**不要**写成目录形式 ——
+ *   A0-7：目录形式在本机报 `# tests 1 / # fail 1`，形似"测试失败"实为命令写错）。
+ * ⚠ 测试走源码 .ts（Node 22 类型剥离），因此**不需要先 build**；
+ *   但**宿主装载**要求 lib 产物（见 src/index.ts 头部注释）⇒ 改了源码要跑 `npm run build`。
+ *
+ * ⚠ 本注释块内**不得出现**星号加斜杠的字符组合（glob 路径里很容易带上），
+ *   否则块注释会被**提前终止**，残留文本变成代码 ⇒ 报 `X is not defined`。
+ *   这是本仓实测踩到的一次：注释里写了 `packages` + 通配 + `/tests/...`，
+ *   结果整份测试文件变成语法错误，而报错信息完全指不到真因。
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'

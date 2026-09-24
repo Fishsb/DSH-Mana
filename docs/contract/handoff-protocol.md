@@ -40,3 +40,25 @@ git rev-parse HEAD > docs/contract/_freeze.head
 → **重取三件套，旧值存档不覆盖** → 各席跑 `npm run typecheck`（**编译期报错即适配清单**）。
 > **为什么靠编译器而不是靠通知**：`core` 独占契约后，改一个事件签名**必然**产生全量编译错误
 > —— 编译器就是最可靠的「通知各组」，别自建通知机制。
+
+
+---
+
+## 装配面实测约定（2026-09-24 补 · S0 席踩坑记录）
+
+> 以下四条都是**本仓实测踩出来的**，写在这里以免每席各踩一次。
+
+| # | 现象 | 真因 | 约定 |
+|---|---|---|---|
+| 1 | 注入后 `host ✗` | 入口指向 `src/index.ts`；宿主以 `node /usr/local/bin/dsh web` 启动，**不带类型剥离开关** | `main`/`exports` 指向 `lib/`；**改完源码必须 `npm run build` 再注入**。生态既有插件全部如此（shoucang / roundtable / motion / super-injector） |
+| 2 | `dev_uninject_plugin` 后重新注入失败 | 卸载时写入 `- id: <pkg> / disabled: true`（防 refresh 加回的阻断项），它**同时挡住重新注入** | 重装前先删该条；v0.3.3 的注入器**不**自动移除 |
+| 3 | `loader.create(...)` 看起来成功但插件没起来 | 它**立即返回字符串 id**，真正的模块加载与 fiber 激活是**异步**的 | **装配判据 = 服务是否可读**（`ctx.get(name)`），**不是调用是否抛错** |
+| 4 | 判据脚本在卸载后崩 `database is not open` | **卸载即净生效了** —— core 关闭了自己的库句柄 | 判据读行数一律用**独立只读连接**，不要复用插件句柄 |
+
+**另一条**：`ctx.loader.entries` 是**方法**（`entries()`）不是数组；`group.remove(id)` 收的是 **entry id**。
+
+### 判据必须自足
+
+`tools/r0-assembly-check.mjs` 的 baseUrl 指向**本仓**（`npm workspaces` 已建好 `node_modules/dsh-mana-* → packages/*` 链接），
+**不依赖 profile 里的 junction**。早前指向 profile 时，一旦有别的步骤清掉 junction，R0 会以「装配 0/6」失败 ——
+那是**判据自身的环境依赖**，不是被测对象的缺陷。

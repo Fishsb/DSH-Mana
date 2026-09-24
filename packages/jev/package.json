@@ -5,9 +5,12 @@
   "description": "Mana JEV 适配层：判定、缓存、熔断、三级降级（本机 Ollama logprob 承载）",
   "type": "module",
   "license": "MIT",
-  "main": "./src/index.ts",
+  "main": "./lib/index.js",
   "exports": {
-    ".": "./src/index.ts",
+    ".": {
+      "types": "./lib/types/index.d.ts",
+      "default": "./lib/index.js"
+    },
     "./cordis.patch.yml": "./cordis.patch.yml",
     "./package.json": "./package.json"
   },
@@ -18,7 +21,8 @@
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "node --test \"tests/*.test.mjs\""
+    "test": "node --test \"tests/*.test.mjs\"",
+    "build": "tsc -p tsconfig.json"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "^4.0.4",
@@ -31,5 +35,11 @@
     "@deepseek-ai/dsh-agent": "0.1.7-rc.1",
     "@deepseek-ai/schemastery": "3.18.4",
     "dsh-mana-core": "file:../core"
-  }
+  },
+  "types": "./lib/types/index.d.ts",
+  "files": [
+    "lib",
+    "cordis.patch.yml",
+    "README.md"
+  ]
 }
