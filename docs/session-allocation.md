@@ -96,11 +96,14 @@ W5 ── 并行: B4.1 / B4.2（依赖 B3.1）· B5.2（依赖 B5.1）· 阶段 
 ```bash
 # 契约快照三件套，落 docs/contract/
 sha256sum packages/core/src/event-types.ts > docs/contract/_freeze.sha256
-find packages -name '*.ts' -not -path '*/node_modules/*' | sort > docs/contract/_freeze.files.txt
+# ⚠ 必须排 lib/（tsc 产物 + .gitignore 忽略项）：纳入则清单随「跑没跑过 build」漂移
+find packages -name '*.ts' -not -path '*/node_modules/*' -not -path '*/lib/*' | sort > docs/contract/_freeze.files.txt
 git rev-parse HEAD > docs/contract/_freeze.head
 ```
 
-**全员在开工前核一遍这个三元组**（哈希 + 文件清单 + HEAD）。哈希变了清单没变 ⇒ 先查 git 索引与暂存区，**别先怀疑对方**（既有教训）。
+**全员在开工前核一遍这个三元组**（哈希 + 文件清单 + HEAD）。三条腿都由 `A0-12` 机检
+**真正读取**（只存不验 = 漂移不可见）：哈希腿逐字比对、清单腿与实际 `find` 结果 diff、
+HEAD 腿比对 `git rev-parse HEAD`。哈希变了清单没变 ⇒ 先查 git 索引与暂存区，**别先怀疑对方**（既有教训）。
 
 ---
 

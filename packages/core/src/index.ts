@@ -23,6 +23,15 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 import Schema from '@deepseek-ai/schemastery'
 import { openManaDb, probeVecVersion, withImmediateTransaction, type ManaDb } from './db.ts'
+import {
+  backupNow,
+  pruneBackups,
+  resolveBackupDir,
+  startBackupTimer,
+  DEFAULT_BACKUP_POLICY,
+  type BackupPolicy,
+  type BackupResult,
+} from './open.ts'
 import { createSchema, SCHEMA_VERSION } from './schema.ts'
 // ⚠ 这行是**契约生效的唯一开关**：`declare module` 只有在该模块被加载时才参与类型合并。
 //   当初用裸 import（无 from）写，被一次路径改名脚本漏掉 ⇒ 契约静默失效、
@@ -64,12 +73,26 @@ export interface Config {
   busyTimeoutMs: number
   /** 是否在建库时自动建表。 */
   autoMigrate: boolean
+  /** B1.0 · 是否启用定期备份。 */
+  backupEnabled: boolean
+  /** B1.0 · 备份间隔毫秒数（默认 6 小时）。 */
+  backupIntervalMs: number
+  /** B1.0 · 保留最近几个备份。 */
+  backupKeep: number
+  /** B1.0 · 备份目录；留空 = 与库同级的 `backups/`。 */
+  backupDir: string
 }
 
 export const Config: Schema<Config> = Schema.object({
   storePath: Schema.string().default(''),
   busyTimeoutMs: Schema.number().default(5000),
   autoMigrate: Schema.boolean().default(true),
+  // ⚠ 缺省**关闭**：开启定时器是本批（B1.0）新引入的**行为**，缺省打开会让
+  //   任何一次插件装载都开始写磁盘。要开须显式置 true（并受 backupKeep 约束）。
+  backupEnabled: Schema.boolean().default(false),
+  backupIntervalMs: Schema.number().default(6 * 60 * 60 * 1000),
+  backupKeep: Schema.number().default(7),
+  backupDir: Schema.string().default(''),
 })
 
 /** 认知轨迹的一次写入请求。 */
@@ -104,6 +127,12 @@ export interface ManaCoreService {
   withTransaction<T>(fn: () => Promise<T> | T): Promise<T>
   /** 记录一次「插件因依赖缺失未运行」。 */
   recordInactive(id: string, missing: string[]): void
+  /** B1.0 · 立即备份一次（返回实测读数，非"应该成功"）。 */
+  backupNow(): Promise<BackupResult>
+  /** B1.0 · 轮转：只保留最近 keep 个，返回被删文件名。 */
+  pruneBackups(keep?: number): string[]
+  /** B1.0 · 备份目录（解析后的绝对路径）。 */
+  backupDir(): string
 }
 
 declare module '@deepseek-ai/cordis' {
@@ -171,8 +200,13 @@ export function apply(ctx: Context, config: Config): void {
     migrate: config.autoMigrate,
   })
 
-  // 建表幂等：autoMigrate=false 时仍保证有建表入口可调（判据脚本用）。
-  if (!config.autoMigrate) createSchema(opened.db)
+  // 建表 / 补列**只由 `autoMigrate` 决定**，且已在 `openManaDb` 内施加，此处不重复调用。
+  //
+  // ⚠ 旧写法 `if (!config.autoMigrate) createSchema(opened.db)` 是**反的**：
+  //   它在 `autoMigrate=false` 时**仍然建表**，于是 true/false 两条路径产出同一结果，
+  //   配置项沦为**死开关**（本仓 2026-09-24 实测：两者都建出 13 张表）。
+  //   声明了却不起作用的开关与「静默失效」同类 —— 用户以为关掉了迁移，其实没关。
+  //   ⇒ 判据：`autoMigrate` 必须产生**可观测差异**（见 `tests/schema-migration.test.mjs` 的 M6）。
 
   const service: ManaCoreService = {
     db: opened.db,
@@ -202,21 +236,57 @@ export function apply(ctx: Context, config: Config): void {
         payload: { id, missing, at: new Date().toISOString() },
       })
     },
+    backupNow: () => backupNow(opened.db, opened.path),
+    pruneBackups: (keep) => pruneBackups(resolveBackupDir(opened.path, config.backupDir), keep ?? config.backupKeep),
+    backupDir: () => resolveBackupDir(opened.path, config.backupDir),
   }
 
   // 资源挂 ctx.effect：插件卸载时自动释放（「卸载即净」）。
   ctx.effect(() => {
     const dispose = ctx.provide(SERVICE_NAME, service)
+    const policy: BackupPolicy = {
+      ...DEFAULT_BACKUP_POLICY,
+      enabled: config.backupEnabled,
+      intervalMs: config.backupIntervalMs,
+      keep: config.backupKeep,
+      dir: config.backupDir,
+    }
+    // 备份失败必须显式落痕（G8），不得静默 —— 落一条 mana_trace 而不是只 console
+    const stopTimer = startBackupTimer(opened.db, opened.path, policy, (error) => {
+      try {
+        service.writeTrace({
+          eventType: 'mana/plugin/inactive',
+          sessionId: '',
+          turnId: 0,
+          payload: { id: 'mana-core/backup', missing: [], at: new Date().toISOString(),
+                     error: error instanceof Error ? error.message : String(error) },
+        })
+      } catch {
+        // 连落痕都失败时不再递归：此处静默是**有意的最后兜底**，
+        // 但上面的 writeTrace 已是主通道（正常路径必有痕）。
+      }
+    })
     return () => {
+      stopTimer()
       dispose()
       opened.close()
     }
-  }, 'dsh-mana-core: service + db')
+  }, 'dsh-mana-core: service + db + backup timer')
 
   registerPassThroughPreStep(ctx, name)
 }
 
 export { openManaDb, probeVecVersion, walApplied, withImmediateTransaction } from './db.ts'
+export {
+  backupNow,
+  backupFileName,
+  pruneBackups,
+  resolveBackupDir,
+  restoreBackup,
+  startBackupTimer,
+  DEFAULT_BACKUP_POLICY,
+} from './open.ts'
+export type { BackupPolicy, BackupResult } from './open.ts'
 export {
   createSchema,
   SCHEMA_SQL,

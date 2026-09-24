@@ -48,6 +48,13 @@ export interface ManaDb {
   /** 扩展加载窗口是否在开库时开启（恒 true，除非有人改了本文件）。 */
   extensionWindowOpen: boolean
   schemaVersion: string
+  /**
+   * 本次开库**实际补上的列**（正常态 = 空数组）。
+   *
+   * ⚠ 存在的理由：`createSchema` 对存量库补列如果失败/漏做，旧实现**不报错也不返回**
+   *   ⇒ 「无需补列」与「补列没生效」表面同形。把这个值暴露出来，判据才可断言。
+   */
+  appliedColumns: { table: string; column: string }[]
   close(): void
 }
 
@@ -70,7 +77,7 @@ export function openManaDb(options: OpenManaDbOptions): ManaDb {
   db.exec(`PRAGMA busy_timeout=${Number(busyTimeoutMs)}`)
   const bt = db.prepare('PRAGMA busy_timeout').get() as { timeout?: number } | undefined
 
-  if (migrate) createSchema(db)
+  const schema = migrate ? createSchema(db) : null
 
   return {
     db,
@@ -79,6 +86,7 @@ export function openManaDb(options: OpenManaDbOptions): ManaDb {
     busyTimeoutMs: Number(bt?.timeout ?? -1),
     extensionWindowOpen: true,
     schemaVersion: SCHEMA_VERSION,
+    appliedColumns: (schema?.applied ?? []).map((a) => ({ table: a.table, column: a.column })),
     close: () => db.close(),
   }
 }

@@ -162,11 +162,273 @@ CREATE INDEX IF NOT EXISTS idx_memory_items_session_turn ON memory_items(session
 `
 
 /**
- * 建表。幂等；不负责开库（开库口径见 `db.ts` —— 两者分离是为了让「扩展窗口只在开库瞬间」
- * 这条不可后补的约束只有一个写点）。
+ * 从 `SCHEMA_SQL` 解析出的目标列清单（表名 → 列定义数组）。
+ *
+ * ⚠ **为什么要解析而不是再写一份列清单**：再写一份就是**两个真源**，改 DDL 忘改清单
+ *   就会漂移，而漂移本身又不可观测 —— 这与本仓「派生量唯一写者」（§8 C14）同一条纪律。
+ *   `SCHEMA_SQL` 是唯一真源，本解析器只是它的读侧投影。
  */
-export function createSchema(db: { exec(sql: string): unknown }): void {
-  db.exec(SCHEMA_SQL)
+export interface ParsedSchema {
+  /** 表名 → 列定义（`{ name, def }`，`def` 是可直接进 `ALTER TABLE ... ADD COLUMN` 的片段）。 */
+  tables: Map<string, { name: string; def: string }[]>
+}
+
+/**
+ * 解析 `CREATE TABLE` 语句的列定义。
+ *
+ * 只认列定义，跳过表级约束（`PRIMARY KEY(...)` / `CHECK` / `UNIQUE` / `FOREIGN KEY` /
+ * `CONSTRAINT`）—— 这些无法用 `ADD COLUMN` 施加，列入会造出必然失败的语句。
+ * `CREATE VIRTUAL TABLE`（FTS5）**不解析**：虚表列由 fts5 自身管理，不参与补列。
+ */
+export function parseSchema(sql: string = SCHEMA_SQL): ParsedSchema {
+  const tables = new Map<string, { name: string; def: string }[]>()
+  const re = /CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?["`]?(\w+)["`]?\s*\(/gi
+  let m: RegExpExecArray | null
+  while ((m = re.exec(sql))) {
+    const table = m[1]!
+    // 取括号内全部内容（按括号配对，容忍列定义里的括号，如 CHECK (gate IN (...))）。
+    let i = re.lastIndex
+    let depth = 1
+    let buf = ''
+    while (i < sql.length && depth > 0) {
+      const c = sql[i]!
+      if (c === '(') depth++
+      else if (c === ')') {
+        depth--
+        if (depth === 0) break
+      }
+      buf += c
+      i++
+    }
+    re.lastIndex = i
+    // 去行注释后按顶层逗号切分（同上，括号内的逗号不算分隔符）。
+    const body = buf.replace(/--[^\n]*/g, '')
+    const raw: string[] = []
+    let d = 0
+    let cur = ''
+    for (const ch of body) {
+      if (ch === '(') d++
+      else if (ch === ')') d--
+      if (ch === ',' && d === 0) {
+        raw.push(cur)
+        cur = ''
+      } else cur += ch
+    }
+    if (cur.trim()) raw.push(cur)
+    const cols = raw
+      .map((c) => c.trim())
+      .filter(Boolean)
+      .filter((c) => !/^(PRIMARY|CHECK|UNIQUE|FOREIGN|CONSTRAINT)\b/i.test(c))
+      .map((def) => {
+        const name = (def.match(/^["`]?(\w+)["`]?/) ?? [])[1]
+        return name ? { name, def } : null
+      })
+      .filter((c): c is { name: string; def: string } => c !== null)
+    tables.set(table, cols)
+  }
+  return { tables }
+}
+
+/**
+ * 按 `;` 切分 SQL 脚本 —— **引号/注释感知**。
+ *
+ * ⚠ 不能直接 `sql.split(';')`：`tokenize='trigram'` 这类字符串里的分号、行注释里的
+ *   分号都会造成误切。本仓 DDL 现有注释用的是全角 `；`，但**不能依赖这个巧合** ——
+ *   一旦有人写了个半角分号在注释里，切分就会静默错位。
+ */
+export function splitStatements(sql: string): string[] {
+  const out: string[] = []
+  let cur = ''
+  let i = 0
+  while (i < sql.length) {
+    const c = sql[i]!
+    // 行注释：跳到行尾（注释内容保留在语句里，SQLite 自己会忽略）。
+    if (c === '-' && sql[i + 1] === '-') {
+      const nl = sql.indexOf('\n', i)
+      const end = nl === -1 ? sql.length : nl
+      cur += sql.slice(i, end)
+      i = end
+      continue
+    }
+    // 块注释。
+    if (c === '/' && sql[i + 1] === '*') {
+      const close = sql.indexOf('*/', i + 2)
+      const end = close === -1 ? sql.length : close + 2
+      cur += sql.slice(i, end)
+      i = end
+      continue
+    }
+    // 单引号字符串（`''` 是转义）。
+    if (c === "'" || c === '"') {
+      const quote = c
+      let j = i + 1
+      let lit = c
+      while (j < sql.length) {
+        if (sql[j] === quote) {
+          if (sql[j + 1] === quote) {
+            lit += quote + quote
+            j += 2
+            continue
+          }
+          lit += quote
+          j++
+          break
+        }
+        lit += sql[j]
+        j++
+      }
+      cur += lit
+      i = j
+      continue
+    }
+    if (c === ';') {
+      out.push(cur)
+      cur = ''
+      i++
+      continue
+    }
+    cur += c
+    i++
+  }
+  if (cur.trim()) out.push(cur)
+  return out.map((s) => s.trim()).filter((s) => s.length > 0)
+}
+
+/** 一条语句是否为 `CREATE TABLE`（**排除** `CREATE VIRTUAL TABLE`）。 */
+function isPlainCreateTable(stmt: string): boolean {
+  const head = stmt.replace(/^[\s;]+/, '').replace(/(--[^\n]*\n?|\/\*[\s\S]*?\*\/)/g, '').trim()
+  return /^CREATE\s+TABLE\b/i.test(head) && !/^CREATE\s+VIRTUAL\s+TABLE\b/i.test(head)
+}
+export interface AppliedColumnMigration {
+  table: string
+  column: string
+  /** 施加的 `ADD COLUMN` 片段。 */
+  ddl: string
+}
+
+/** 一条**无法**自动补的列（SQLite `ADD COLUMN` 的硬限制），必须显式暴露而非静默跳过。 */
+export interface BlockedColumnMigration {
+  table: string
+  column: string
+  def: string
+  /** 无法施加的原因（人类可读）。 */
+  reason: string
+}
+
+/** createSchema 的结果 —— **把"做了什么"变成可断言的值**，而不是只返回 void。 */
+export interface SchemaResult {
+  /** 本次实际补上的列（空数组 = 无补列，是合法且常见的正常态）。 */
+  applied: AppliedColumnMigration[]
+  /** 无法自动补的列 —— **结构上不可能是空数组之外的静默态**：非空即须上层处理。 */
+  blocked: BlockedColumnMigration[]
+  /** 施加后的 `PRAGMA user_version`。 */
+  userVersion: number
+  /** 施加后各表的实际列数（表名 → 列数），供判据对照。 */
+  columnCounts: Record<string, number>
+}
+
+/**
+ * 建表 + **对存量库补列**。幂等。
+ *
+ * ⚠ **为什么必须有补列迁移**（本仓 2026-09-24 实测）：
+ *   `SCHEMA_SQL` 全是 `IF NOT EXISTS`，它对**已存在的表**是**静默空操作** ——
+ *   实测：存量库 `jev_log` 13 列，补上四列的 DDL 后重跑 `createSchema`，仍是 13 列、
+ *   **不报错**。而落地册明文要求阶段 1 补 `input_chars`/`trimmed`、阶段 3 补
+ *   `verdict`/`verify_state`（§1 条 6/8）⇒ 照原实现，**存量库永远得不到这些列，
+ *   且失败完全不可观测**（这正是本仓最在意的缺陷类型：让失败不可见）。
+ *
+ * ⚠ **必须先全量预检、再动手**（本仓 2026-09-24 实测踩到）：
+ *   SQLite 有一条硬限制 —— `ALTER TABLE ADD COLUMN` **不能加 `NOT NULL` 且无 `DEFAULT`**
+ *   的列（报 `Cannot add a NOT NULL column with default value NULL`）。若边查边加，
+ *   中途撞上这条就会**留下半迁移的库**（前面几列已加、后面的没加，且不自动回滚）。
+ *   ⇒ 本函数先算出全部待补列、逐条判定可行性，**有任何一条不可行就整体拒绝并抛错**，
+ *     不留下部分迁移状态。
+ *
+ * 边界（暂不做的事，明确写出而不是留空）：
+ *   - **不删列**：`DROP COLUMN` 会毁数据；本仓尚无此需求。
+ *   - **不改列类型 / 不给已有列加约束**：SQLite `ALTER TABLE` 不支持，须重建表 + 迁数据，
+ *     属独立决策；此类需求会被 `blocked` 显式顶出来，而不是静默失败。
+ *   - **索引不在此处补**：索引在 `SCHEMA_SQL` 里用 `IF NOT EXISTS` 表达，对新旧库都生效。
+ */
+export function createSchema(db: {
+  exec(sql: string): unknown
+  prepare(sql: string): { all(): unknown[]; get(): unknown }
+}): SchemaResult {
+  const applied: AppliedColumnMigration[] = []
+  const columnCounts: Record<string, number> = {}
+  const target = parseSchema()
+
+  const actualCols = (table: string): string[] => {
+    const rows = db.prepare(`PRAGMA table_info(${table})`).all() as { name?: string }[]
+    return rows.map((r) => String(r.name ?? ''))
+  }
+
+  // ⚠ **施加顺序是正确性的一部分**（本仓 2026-09-24 实测踩到）：
+  //   索引 `CREATE INDEX ... ON mana_trace(session_id, turn_id)` 在列缺失时**立即报错**
+  //   （`no such column: turn_id`），而索引语句排在 DDL 末尾 ⇒ 若先整体 `exec(SCHEMA_SQL)`，
+  //   存量库会在补列**之前**就抛错，补列根本轮不到执行。
+  //   正确顺序 = ① 建表 → ② 补列 → ③ 索引/虚表等依赖列的语句。
+  const statements = splitStatements(SCHEMA_SQL)
+  const createTables = statements.filter(isPlainCreateTable)
+  const dependents = statements.filter((s) => !isPlainCreateTable(s))
+
+  // ① 建表：`IF NOT EXISTS` ⇒ 新库建成、存量库空操作。
+  for (const s of createTables) db.exec(s)
+
+  // ② 预检：算出全部待补列，并逐条判定 SQLite 能否施加。**动手前一并判定**。
+  const pending: { table: string; name: string; def: string }[] = []
+  for (const [table, cols] of target.tables) {
+    const have = actualCols(table)
+    if (have.length === 0) continue
+    for (const col of cols) {
+      if (!have.includes(col.name)) pending.push({ table, name: col.name, def: col.def })
+    }
+  }
+
+  const blocked: BlockedColumnMigration[] = []
+  for (const p of pending) {
+    // SQLite `ALTER TABLE ADD COLUMN` 的硬限制（本仓实测）：
+    //   · `NOT NULL` **且**无 `DEFAULT` ⇒ `Cannot add a NOT NULL column with default value NULL`
+    //   · 带 `PRIMARY KEY` / `UNIQUE` ⇒ 同样不可施加
+    const notNull = /\bNOT\s+NULL\b/i.test(p.def)
+    const hasDefault = /\bDEFAULT\b/i.test(p.def)
+    const pkOrUnique = /\b(PRIMARY\s+KEY|UNIQUE)\b/i.test(p.def)
+    const reasons: string[] = []
+    if (notNull && !hasDefault) reasons.push('NOT NULL 且无 DEFAULT（SQLite 不允许补此类列，须重建表迁数据）')
+    if (pkOrUnique) reasons.push('含 PRIMARY KEY/UNIQUE（SQLite 不允许补此类列）')
+    if (reasons.length) blocked.push({ table: p.table, column: p.name, def: p.def, reason: reasons.join('；') })
+  }
+
+  if (blocked.length) {
+    // **整体拒绝**：宁可一列都不补，也不留下半迁移的库。
+    throw new Error(
+      'schema 迁移被拒绝：以下列无法用 ALTER TABLE 补（SQLite 硬限制），' +
+        '须人工重建表并迁数据后再启动。未施加任何变更：\n' +
+        blocked.map((b) => `  · ${b.table}.${b.column} —— ${b.reason}`).join('\n'),
+    )
+  }
+
+  // ③ 补列（此刻已确认全部可施加）。
+  for (const p of pending) {
+    db.exec(`ALTER TABLE ${p.table} ADD COLUMN ${p.def}`)
+    applied.push({ table: p.table, column: p.name, ddl: p.def })
+  }
+
+  // ④ 索引与虚表：此刻列已齐，才不会报 `no such column`。
+  for (const s of dependents) db.exec(s)
+
+  for (const table of target.tables.keys()) {
+    const n = actualCols(table).length
+    if (n > 0) columnCounts[table] = n
+  }
+
+  // user_version 只是**记账**：迁移逻辑由列 diff 驱动（幂等、不依赖版本号）。
+  // 不把版本号当判据 —— 版本号可以撒谎，列的实际存在不会。
+  const uv = db.prepare('PRAGMA user_version').get() as { user_version?: number } | undefined
+  const next = Math.max(Number(uv?.user_version ?? 0), 1)
+  db.exec(`PRAGMA user_version=${next}`)
+
+  return { applied, blocked: [], userVersion: next, columnCounts }
 }
 
 /** 关键词查询长度校验结果。 */

@@ -186,15 +186,46 @@ if (want('A0-7')) {
   }
 }
 
-// ══ A0-8 session_id/turn_id 列已补 + inject_log 表已建 ══════════════════════
+// ══ A0-8 session_id/turn_id 列已补 + inject_log 表已建 + 存量库迁移真生效 ═══════
 if (want('A0-8')) {
   const r = evalJson(P('tools/probes/a08-schema.mjs'))
   const v = r.value ?? {}
-  const ok =
+  // ⚠ 判据分三层，**缺一不可**：
+  //   ① 列已补 / inject_log 已建 / gate 枚举被拒 / FTS 虚表在（原有的「静态面」）；
+  //   ② **存量库补列真生效**（差分判据：迁移后的旧库列集合 == 全新库列集合）。
+  //   只判 ① 曾经放过一个真缺陷：`createSchema` 对存量库是静默空操作（`IF NOT EXISTS`
+  //   对已存在的表不施加任何变更），而落地册明文要求阶段 1/3 给 `jev_log` 补列 ⇒
+  //   那些列**永远不会出现在存量库且不报错**。② 让这件事可机检。
+  //   ③ 迁移**原子性**：不可补的列（SQLite 不许 ADD NOT NULL 无 DEFAULT）必须整体拒绝，
+  //   不得留下「前几列已加、后面没加」的半迁移库。
+  const staticOk =
     r.ok && v.missing?.length === 0 && v.hasTraceST && v.hasMemST && v.hasJevST && v.badGateRejected && v.fts
-  const detail = `inject_log 缺列=${JSON.stringify(v.missing)}；mana_trace/jev_log/memory_items 含 session_id+turn_id=${v.hasTraceST}/${v.hasJevST}/${v.hasMemST}；非法 gate 被拒=${v.badGateRejected}；FTS5 虚表=${v.fts}；journal_mode=${v.journalMode}`
-  if (ok) pass('A0-8', '补列 + inject_log 表已建', detail, '')
-  else fail('A0-8', '补列 + inject_log 表已建', detail + (r.ok ? '' : ` 错误:${r.error}`), '未补前 I1/I2（A1-2/A1-3）不得放行')
+  const migrationOk =
+    Array.isArray(v.migrationMismatches) &&
+    v.migrationMismatches.length === 0 &&
+    Number(v.migrationApplied) > 0 &&
+    Number(v.migrationIndexes) >= 4 &&
+    v.migrationSentinelKept === true
+  const atomicOk = v.blockedThrew === true && v.blockedLeftPartial === false
+  const ok = staticOk && migrationOk && atomicOk
+  const detail =
+    `inject_log 缺列=${JSON.stringify(v.missing)}；` +
+    `mana_trace/jev_log/memory_items 含 session_id+turn_id=${v.hasTraceST}/${v.hasJevST}/${v.hasMemST}；` +
+    `非法 gate 被拒=${v.badGateRejected}；FTS5 虚表=${v.fts}；journal_mode=${v.journalMode}；` +
+    `存量库补列=${v.migrationApplied} 且与全新库差异=${JSON.stringify(v.migrationMismatches)}；` +
+    `索引重建=${v.migrationIndexes}；旧行保留=${v.migrationSentinelKept}；` +
+    `不可补列整体拒绝=${v.blockedThrew}/留半迁移态=${v.blockedLeftPartial}`
+  const TITLE = '补列 + inject_log 表已建 + 存量库迁移生效'
+  if (ok) {
+    pass('A0-8', TITLE, detail, '')
+  } else {
+    const why = !staticOk
+      ? '静态面不合格'
+      : !migrationOk
+        ? '存量库补列未生效（旧实现会静默放过此类失败）'
+        : '迁移原子性不合格（拒绝时留下半迁移态）'
+    fail('A0-8', TITLE, `${why}；${detail}${r.ok ? '' : ` 错误:${r.error}`}`, '未补前 I1/I2（A1-2/A1-3）不得放行')
+  }
 }
 
 // ══ A0-9 方案 §14 落点齐备 ═══════════════════════════════════════════════════
@@ -269,25 +300,80 @@ if (want('A0-11')) {
   }
 }
 
-// ══ A0-12 契约快照哈希已存 ══════════════════════════════════════════════════
+// ══ A0-12 契约快照三件套（哈希 + 清单 + HEAD）**三条腿都必须被真读** ═══════════
+//
+// ⚠ 历史缺陷（本仓 2026-09-24 实测）：旧判据只哈希 2 个**硬编码**文件，
+//   `_freeze.files.txt` 与 `_freeze.head` **全仓无人读取** —— 于是清单腿漂了 25 行
+//   （10 → 35 件）**没有任何判据报警**，而是 7 个会话各自在交接单里手写「清单腿已漂」。
+//   教训：**只存不验 = 漂移不可见**。存下来的快照必须由机检真正比对。
 if (want('A0-12')) {
   const contractDir = P('docs/contract')
   const snap = join(contractDir, '_freeze.sha256')
+  const listFile = join(contractDir, '_freeze.files.txt')
+  const headFile = join(contractDir, '_freeze.head')
   const srcFiles = ['event-types.ts', 'domain.ts'].map((f) => P('packages/core/src', f))
   const { createHash } = await import('node:crypto')
-  // 格式 = sha256sum 标准输出（hash + 两空格 + 相对路径），与 `_freeze.*` 三件套同源
+  const { execFileSync } = await import('node:child_process')
   const rel = (f) => f.slice(ROOT.length + 1)
   const now = srcFiles
     .map((f) => `${createHash('sha256').update(readFileSync(f)).digest('hex')}  ${rel(f)}`)
     .join('\n')
-  if (!existsSync(snap)) {
-    fail('A0-12', '契约快照哈希已存', `缺快照 ${snap}；当前值=\n${now}`, '跑 tools/a0-check.mjs --record-baseline 生成')
+
+  // 清单腿：与权威 walk 逐行 diff（**排除 lib/**：构建产物会让清单随 build 漂移）。
+  const CANON_WALK = "find packages -name '*.ts' -not -path '*/node_modules/*' -not -path '*/lib/*'"
+  const canonList = execFileSync('bash', ['-lc', `${CANON_WALK} | sort`], { cwd: ROOT, encoding: 'utf8' })
+    .split('\n')
+    .map((l) => l.trim())
+    .filter(Boolean)
+  const storedList = existsSync(listFile)
+    ? readFileSync(listFile, 'utf8')
+        .split('\n')
+        .map((l) => l.trim())
+        .filter(Boolean)
+    : null
+  // HEAD 腿：判「快照锚点仍在历史里」而**不是**「等于当前 HEAD」。
+  //
+  // ⚠ 这里踩过一次「坏判据」（本席 2026-09-24 自纠）：最初写成 `storedHead === actualHead`，
+  //   但**每次提交 HEAD 都会前进** ⇒ 该判据会在每次提交后变红，成为「一会儿过一会儿不过」
+  //   的判据（`threshold-discipline.md` 明令禁止：最终会被当成噪声忽略）。
+  //   正确语义 = **锚点单调性**：存下的 HEAD 必须仍是当前 HEAD 的祖先（快照可回滚到它）。
+  //   这样提交不会误红，而「快照指向一个不存在/已被抛弃的提交」仍会被抓住。
+  const actualHead = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: ROOT, encoding: 'utf8' }).trim()
+  const storedHead = existsSync(headFile) ? readFileSync(headFile, 'utf8').trim() : null
+  const headIsAncestor =
+    storedHead !== null &&
+    storedHead.length > 0 &&
+    (() => {
+      try {
+        execFileSync('git', ['merge-base', '--is-ancestor', storedHead, 'HEAD'], { cwd: ROOT, stdio: 'pipe' })
+        return true
+      } catch {
+        return false
+      }
+    })()
+
+  const missing = []
+  if (!existsSync(snap)) missing.push(`_freeze.sha256（当前值=\n${now}）`)
+  if (storedList === null) missing.push('_freeze.files.txt')
+  if (storedHead === null) missing.push('_freeze.head')
+  if (missing.length) {
+    fail('A0-12', '契约快照三件套已存且已核', `缺 ${missing.join(' / ')}`, '跑 tools/a0-check.mjs --record-baseline 生成')
   } else {
-    const stored = readFileSync(snap, 'utf8').trim()
-    if (stored === now.trim()) {
-      pass('A0-12', '契约快照哈希已存', `v0.1 快照与本仓当前契约逐字相等（${now.split('  ')[0].slice(0, 16)}…）`, '后续契约变更须比对留痕（防 G10 契约漂移不可见）')
+    const hashOk = readFileSync(snap, 'utf8').trim() === now.trim()
+    const hashOnlyAdd = (storedList ?? []).filter((l) => !canonList.includes(l))
+    const hashOnlyDel = canonList.filter((l) => !(storedList ?? []).includes(l))
+    const listOk = hashOnlyAdd.length === 0 && hashOnlyDel.length === 0
+    const headOk = headIsAncestor
+    const detail =
+      `哈希腿=${hashOk ? '逐字相等' : '已漂移'}（${now.split('  ')[0].slice(0, 16)}…）；` +
+      `清单腿=${listOk ? `一致（${canonList.length} 件）` : `漂移：多 ${hashOnlyAdd.length}/少 ${hashOnlyDel.length} 件`}` +
+      `${listOk ? '' : ` ⇒ 多=${JSON.stringify(hashOnlyAdd.slice(0, 3))} 少=${JSON.stringify(hashOnlyDel.slice(0, 3))}`}；` +
+      `HEAD 腿=${headOk ? `快照锚点仍是祖先（存 ${String(storedHead).slice(0, 7)} ⊑ 现 ${actualHead.slice(0, 7)}）` : `锚点不在历史中：存 ${String(storedHead).slice(0, 7)} 不是现 ${actualHead.slice(0, 7)} 的祖先`}`
+    if (hashOk && listOk && headOk) {
+      pass('A0-12', '契约快照三件套已存且已核', detail, '三条腿都必须被机检真读 —— 只存不验等于漂移不可见')
     } else {
-      fail('A0-12', '契约快照哈希已存', `契约已漂移，须留痕。存=\n${stored}\n现=\n${now}`, '比对上一版并记录差异')
+      const which = [!hashOk && '哈希腿', !listOk && '清单腿', !headOk && 'HEAD 腿'].filter(Boolean).join('+')
+      fail('A0-12', '契约快照三件套已存且已核', `${which}漂移；${detail}`, '比对上一版并记录差异（旧值存档不覆盖）')
     }
   }
 }
@@ -307,6 +393,18 @@ if (want('A0-13')) {
     }
   } else {
     fail('A0-13', 'G1–G15 全数归属', `缺归属表 ${f}`, '回 §2 补归属')
+  }
+}
+
+// ══ A0-14 源文件可解析（元门禁：块注释早终止）════════════════════════════════
+if (want('A0-14')) {
+  const r = node([P('tools/check-comment-guard.mjs')])
+  const out = (r.out ?? '') + (r.err ?? '')
+  const scan = /扫描 (\d+) 个源文件/.exec(out)
+  if (r.ok) {
+    pass('A0-14', '源文件可解析（块注释早终止元门禁）', `扫描 ${scan?.[1] ?? '?'} 个源文件，无语法类错误`, '该陷阱本仓踩过两次：注释里写 glob 路径 ⇒ 注释提前终止 ⇒ 报「X is not defined」指不到真因')
+  } else {
+    fail('A0-14', '源文件可解析（块注释早终止元门禁）', out.split('\n').filter((l) => l.startsWith('✗')).join(' / ').slice(0, 200) || '有文件不可解析', '查块注释里的星号+斜杠组合')
   }
 }
 
@@ -361,7 +459,16 @@ if (argv.includes('--record-baseline')) {
       .join('\n')
     execFileSync('mkdir', ['-p', P('contract')])
     writeFileSync(P('docs/contract/_freeze.sha256'), now + '\n')
-    console.log(`\n[baseline recorded] sample HEAD=${head} dirty=${dirty}；契约快照已写入 docs/contract/_freeze.sha256`)
+    // ⚠ 三件套必须**一起重取**：只更哈希腿而清单腿/HEAD 腿留旧值，就是让判据三腿互相矛盾。
+    const list = execFileSync('bash', ['-lc', "find packages -name '*.ts' -not -path '*/node_modules/*' -not -path '*/lib/*' | sort"], {
+      cwd: P('.'), encoding: 'utf8',
+    })
+    writeFileSync(P('docs/contract/_freeze.files.txt'), list)
+    writeFileSync(P('docs/contract/_freeze.head'), execFileSync('git', ['rev-parse', 'HEAD'], { cwd: P('.'), encoding: 'utf8' }))
+    console.log(
+      `\n[baseline recorded] sample HEAD=${head} dirty=${dirty}；契约快照三件套已重取` +
+        `（sha256 / files.txt ${list.split('\n').filter(Boolean).length} 件 / head）`,
+    )
   } catch (error) {
     console.error('基线记录失败:', error.message)
   }

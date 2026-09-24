@@ -31,10 +31,22 @@
 ## 契约冻结三件套（A0-12）
 
 ```bash
+# 哈希腿：契约唯一归属地的两个源文件
 sha256sum packages/core/src/event-types.ts packages/core/src/domain.ts > docs/contract/_freeze.sha256
-find packages -name '*.ts' -not -path '*/node_modules/*' | sort > docs/contract/_freeze.files.txt
+# 清单腿：**全部源文件**（⚠ 必须排 lib/：它是 tsc 构建产物且被 .gitignore 忽略，
+#   纳入清单会让清单随「有没有 build 过」漂移 —— 实测排与不排 = 35 vs 57 件）
+find packages -name '*.ts' -not -path '*/node_modules/*' -not -path '*/lib/*' | sort > docs/contract/_freeze.files.txt
 git rev-parse HEAD > docs/contract/_freeze.head
 ```
+
+> ⚠ **为什么清单腿要排 `lib/`**（本仓 2026-09-24 实测）：`packages/*/lib/` 是 `tsc` 产物、
+> 已进 `.gitignore`。若纳入清单，**「跑没跑过 build」会改变清单内容**，而清单的意义是
+> 「源码面有无变动」—— 让构建产物参与就是不稳定的真源。且旧清单正是 `find` 忘了排 `lib/`
+> 的产物，7 个会话各自撞到它并标记「清单腿已漂，待 S0 收口」。
+
+**三条腿都必须被机检真正读取**（A0-12）：只存不验 = 漂移不可见。历史缺陷正是
+「`_freeze.sha256` 只哈希 2 个硬编码文件、`_freeze.files.txt` 与 `_freeze.head` 全仓无人读」⇒
+清单漂了 25 行（10 → 35）**没有任何判据报警**。现 A0-12 同时校验哈希腿、清单腿与 HEAD 腿。
 
 **变更协议**：改契约的那一席独占 `packages/core` → 追加 `docs/contract/CHANGELOG.md` 一行
 → **重取三件套，旧值存档不覆盖** → 各席跑 `npm run typecheck`（**编译期报错即适配清单**）。
