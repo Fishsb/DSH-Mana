@@ -75,12 +75,20 @@ const req = (over = {}) => ({
 // ── J1 判定链被真调到（装配 + 监听器存在）──────────────────────────────────
 test('J1 判定链：mana/jev/judge 有监听器并被真调到', async () => {
   const { ctx } = await boot()
-  // ⚠ **不能用"结果不等于下游默认值"来判断监听器是否存在**（本席首版如此，实测假绿）：
-  //   端点不可达时 jev 走**降级路径** ⇒ 它会**调 next()** 并把下游结果透传回来，
-  //   此时 `source` 正是 `downstream-default` —— 看起来"像空链"，其实监听器活得很好。
-  //   首版之所以"通过"，是因为当时端点缺省=真 Ollama，判得出结果才没走降级 ——
-  //   那是**靠外部服务换来的绿**（非 hermetic），一并修正。
-  //   ⇒ 正确判法：**在下游放一个哨兵**，看它有没有被调到。哨兵在 ⇒ 监听器在场且调了 next()。
+  // ⚠ **判"监听器在场"必须能与"监听器缺席"分辨开**（本席首版 + 二次修都在这点上假绿，实测两次）：
+  //   ① 首版断言「结果 source 不等于下游默认值」—— 端点可达时 jev 直接返回，看似通过；
+  //      一旦端点不可达（hermetic 化之后），jev 走降级并透传下游 ⇒ source 恰是默认值 ⇒ 假红。
+  //   ② 二版改成「jev 的结果 ∨ 下游哨兵被调到」—— 看似两全，实则**没牙**：
+  //      监听器**缺席**时下游哨兵**照样**被调到（那正是 waterfall 的默认路径）
+  //      ⇒ 删掉 jev 的监听器后本项**依然全绿**（本席用变异实测确认：
+  //         把 `ctx.on('mana/jev/judge')` 改名 ⇒ 5/5 仍绿 ⇒ 判据无牙）。
+  //   ⇒ 正确判法：**让 jev 的成功路径可断言**。做法 = 给它一个能判出结果的桩驱动
+  //     （`judgeFn`），使"监听器在场且自己判出来了"成为一个**可分辨的信号**：
+  //     · 监听器在场 ⇒ 结果由桩产出（source 为 mana-jev 或带桩标记的概率）
+  //     · 监听器缺席 ⇒ 下游默认值原样返回（无桩标记）
+  //     ⚠ 桩在**测试侧**注入，不外呼、不依赖 Ollama ⇒ 仍保持 hermetic。
+  // 用服务面的 judgeGuarded 直接验证"监听器真接上"这一事实：
+  // 若监听器不存在，事件系统里就没有 'mana/jev/judge' 的监听器 ⇒ 下游计数器会 +1。
   let downstreamReached = 0
   const got = await ctx.waterfall('mana/jev/judge', req(), async () => {
     downstreamReached += 1
@@ -95,12 +103,26 @@ test('J1 判定链：mana/jev/judge 有监听器并被真调到', async () => {
   })
   assert.ok(got, 'waterfall 应返回一个结果对象')
   assert.equal(got.requestId, 'req-judge-1', '关联键必须回填（I-6 统一 requestId）')
-  // 两种情形都说明"监听器在场"：① 它自己判出来了（source=mana-jev）；② 它调了 next()（哨兵被调到）
-  const listenerPresent = got.source === 'mana-jev' || downstreamReached >= 1
-  assert.ok(
-    listenerPresent,
-    `jev 的判定监听器应真接上（否则是空链）：source=${got.source}、下游哨兵被调=${downstreamReached}`,
+  // **有牙的判据**：jev 的监听器在场 ⇒ 它一定调 next()（降级路径要求），故下游会被调到。
+  // 但"下游被调到"在监听器缺席时**也会**发生 ⇒ 单靠它无牙。
+  // 故再加一条**只有监听器在场才可能成立**的信号：jev 处理过 ⇒ 时间戳/字段被它覆写过。
+  // 实测可行的可分辨信号 = `ctx.get('mana-jev')` 存在 **且** waterfall 结果里
+  // 带 jev 覆写的 `reason`（jev 降级时会把自家 reason 前插，见 jev 监听器实现：
+  // `reason: outcome.reason ?? downstream.reason ?? 'jev-degraded'`）。
+  // ⚠ 可分辨信号 = **jev 把自家降级事实写进了 reason**。
+  //   jev 的监听器在降级时执行 `reason: outcome.reason ?? downstream.reason ?? 'jev-degraded'`：
+  //   端点不可达 ⇒ `outcome.reason` 是 ollama 失败码（非空）⇒ 它**覆盖**下游的
+  //   `'no-listener-default'`。监听器**缺席**时下游 reason 会**原样**返回。
+  //   ⇒ 判据 = 「下游哨兵被调到」**且**「返回的 reason 不再是下游那个」——
+  //     前半说明链路通、后半**只有监听器在场才成立**（这正是首版缺的牙）。
+  assert.ok(downstreamReached >= 1, 'Waterfall 应至少走到下游默认（链路要通）')
+  assert.notEqual(
+    got.reason,
+    'no-listener-default',
+    `jev 的判定监听器应真接上并覆写 reason；原样拿到下游 reason 说明**监听器缺席**` +
+      `（source=${got.source}、reason=${got.reason}）`,
   )
+  assert.equal(got.degraded, true, '端点不可达 ⇒ 必然降级（degraded 必须显式）')
 })
 
 // ── J2 降级显式：degraded/reason/probability 三者自洽（G8）─────────────────
