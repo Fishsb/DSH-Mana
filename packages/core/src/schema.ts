@@ -57,7 +57,22 @@ CREATE TABLE IF NOT EXISTS memory_items (
   emotional_arousal REAL DEFAULT 0,
   vector BLOB,
   related_ids TEXT,
-  retired INTEGER DEFAULT 0
+  retired INTEGER DEFAULT 0,
+  -- ── L-00 契约补列（2026-09-25 由 F1 契约补列席补入；**最小集，只补这两列**）──────────
+  -- ⚠ 为什么只补这两列、不预补 v10 §36 的其余 10 列：
+  --   无写者的列进来只会变成下一个「列在写者不在」——即列存在但**没有任何生产路径写它**，
+  --   于是「功能已实现」与「列摆着没人用」在数据上完全同形。按需补、不预补。
+  -- ⚠ 列名/类型**逐字**对齐消费侧探测面（packages/reconsolidation/src/columns.ts 的
+  --   REQUIRED_COLUMNS 与 updates.ts 的读写代码）：
+  --     · reconsolidation_window_until —— 再巩固窗口落点，写 ISO 串（toISOString()，
+  --       与 created_at 同口径；closeDueWindows 靠**固定宽度 UTC 串的字典序 == 时间序**比较）；
+  --     · update_history —— 内容更新历史，写 JSON 数组（stringify 后的文本）。
+  --   两列都**可空且无 DEFAULT**，这是 SQLite ALTER TABLE ADD COLUMN 的硬限制所要求的
+  --   （带 NOT NULL 又无 DEFAULT 时 SQLite 直接拒绝，见本文件 createSchema 的 blocked 预检）。
+  -- ⚠ 这两列**只补表定义**，不动迁移机制：createSchema 由**列 diff**驱动
+  --   （版本号可以撒谎，列的实际存在不会），故存量库由既有 ALTER TABLE 通道自动跟上。
+  reconsolidation_window_until TEXT,
+  update_history TEXT
 );
 
 -- ── 程序性规则（方案 §11.2 原样）────────────────────────────────────────────

@@ -72,7 +72,8 @@ test('② 真数据腿：走**全部**三条生产路径后，`mana_trace` 新�
 
 test('③ 降级路径同样在命名空间内（降级留痕最容易写成"借用"别的标签）', async () => {
   ran += 1
-  const { core, svc } = await mount({ columns: false })
+  // L-00 已执行 ⇒ 降级腿由 legacy 形态提供（真缺列且补列不发生）；详见 _harness.mjs 的 mount 说明。
+  const { core, svc } = await mount({ legacy: true })
   core.writeMemoryItem({ id: 'm1', type: 'episodic', content: 'x' })
   const before = maxSeq(core)
   svc.openWindow({ memoryId: 'm1', type: 'episodic', now: 1_700_000_000_000 })

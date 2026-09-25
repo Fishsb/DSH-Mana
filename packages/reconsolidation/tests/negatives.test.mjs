@@ -15,6 +15,13 @@
  *
  * ⚠ 扰动由 `_harness.runWithMutation` 施加：锚点必须**恰好命中一次**（命中 0 次即抛，
  *   说明真源已改、变异器已过期 —— 那时静默通过就是假绿）。
+ *
+ * ── 第 ⑥ 条打的是**契约真源**（L-00 之后新增，2026-09-25）─────────────────────────────
+ *   ①–⑤ 扰动的都是**本包** `src/*.ts`；第 ⑥ 条扰动的是 `../core/src/schema.ts`
+ *   （`memory_items` 两列的契约真源）—— 因为 L-00 之后本包"能不能转 applied"这件事
+ *   **不再由本包决定**：列在不在由 core 的表定义决定。判据（本包所有 applied 腿 + a0 的 A0-8）
+ *   读的正是那一份 → 靶子一致。
+ *   ⚠ 机制不变：读**真源**（只读），扰动只写**沙箱副本**；真源 sha256 对拍前后逐字节相同。
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
@@ -30,7 +37,7 @@ function sanitizeEnvForProbe() {
   return env
 }
 
-const EXPECTED_CASES = 5
+const EXPECTED_CASES = 6
 let ran = 0
 process.on('exit', () => {
   cleanupAll()
@@ -146,4 +153,22 @@ test('⑤ 扰动必须真的落在**被 import 的那份 src** 上（靶子自�
       '此时上面的清洗与"计数解析不到即记 -1"必须重新评估（不得静默沿用）',
   )
   assert.equal(leaky.status, 0, '静默假绿的特征正是"零用例但 exit 0"——记在这里，防止它被当成通过')
+})
+test('⑥ **把契约里的两列注释掉** ⇒ 补列/applied 腿**必红**（打的是 core 的契约真源）', () => {
+  ran += 1
+  // 扰动语义：`packages/core/src/schema.ts` 里 `memory_items` 的两列定义被注释掉
+  //   （= "L-00 没做 / 被回退"的真实形态）。
+  //   ⚠ 靶子：走 createSchema 真补列的 applied 腿（`degraded-three-state` 用例①）——
+  //     两列没进表定义 ⇒ 补列无事可做 ⇒ 该腿的前置控制与补列断言必须报红。
+  const r = assertNegativeControl('契约列被注掉', {
+    file: '../core/src/schema.ts',
+    find: '  reconsolidation_window_until TEXT,\n  update_history TEXT',
+    replace: '  -- reconsolidation_window_until TEXT,\n  -- update_history TEXT',
+    testFile: 'tests/degraded-three-state.test.mjs',
+    expectCase: '前提取数',
+  })
+  // ⚠ 真源证据必须指向 **core 的 schema.ts**（不是本包的某个 src）——
+  //   这条对拍的全部意义就是"契约文件在靶上"，路径写错就变成另一次自证。
+  assert.equal(r.target.endsWith(join('core', 'src', 'schema.ts')), true, `扰动目标必须落在 core 契约真源上，实测 ${r.target}`)
+  assert.equal(r.code, 1)
 })

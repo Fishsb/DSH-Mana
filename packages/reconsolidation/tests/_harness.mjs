@@ -5,13 +5,27 @@
  *   ① **夹具绿 ≠ 真数据绿**：本包所有"窗口开/关"与"内容更新"用例都**走生产路径**
  *      （`core.writeMemoryItem` 建行 + 本包服务面写列 + **回读**断言），
  *      没有一条是"测试自己直写列再自己读"的自证。
- *   ② **两列不在是本仓现状**：`makeDb({columns:false})` 建的是**真现状库**
- *      （只有 core 的 26 列）；`makeDb({columns:true})` 用真 DDL + 真 `ALTER TABLE`
- *      模拟 L-00 补列之后。两条路径都由本包的生产代码处理，夹具只提供前提。
+ *   ② **三种库形态各自是一种真事实**（L-00 契约补列**已执行**，2026-09-25 由 F1 席补入
+ *      `packages/core/src/schema.ts` ⇒ 本夹具的前提**随契约变更重写**，见下）：
+ *      · `{columns:true}` —— **全新库**：真 DDL 建出即含两列（列来自 `CREATE TABLE`）；
+ *      · `{columns:false}`（缺省）—— **L-00 之前的存量库 + 本次挂载真补列**：
+ *        真 DDL 建库后 `ALTER TABLE ... DROP COLUMN` 掉两列（= 旧库的列形态），
+ *        再交给 core 装配 ⇒ **core 的 `createSchema` 由列 diff 驱动、用真 `ALTER TABLE`
+ *        把两列补回来**。这条路径正是「L-00 补列后本包自动转 applied」的机制证据：
+ *        补列由**被测系统的生产代码**完成，夹具不代劳；
+ *      · `{legacy:true}` —— **L-00 未执行的库**：同样删掉两列，但装配时 `autoMigrate:false`
+ *        ⇒ 补列**不发生** ⇒ 本包仍然走**降级腿**（三态里"缺列"那一支的真实形态）。
+ *      ⚠ 旧版夹具用手写 `ALTER TABLE ... ADD COLUMN` 模拟"已补列"：那在 L-00 之前是必要的
+ *        替代品，在 L-00 之后**会与真 DDL 撞车**（同一列被声明两次 ⇒
+ *        `duplicate column name`），且它验的是"手写 ALTER 能补"，不是"本仓补列机制能补"。
+ *        故废弃手写 ALTER，改为**让真 `createSchema` 去补**。
  *   ③ **负向对拍要打对靶**：判据读的是 `src/`（判据器 a1 的内容腿读 `lib/`），
  *      故 `runWithMutation` 改的是 **src 文件**并**同时改 lib 是不可能**的 ——
  *      它只跑 `node --test`（import src），不跑任何按包名解析到 lib 的判据。
  *      ⚠ 对拍前后 **sha256 必须逐字节相同**（`restore()` 返回值里带证据）。
+ *      ⚠ 本仓契约文件（`packages/core/src/schema.ts`）**不在本包**：`runWithMutation` 的
+ *        `file` 允许写 `../core/src/schema.ts` —— 它读的是**真源**（只读）、写的是
+ *        **沙箱副本**里对应位置的文件，故"改契约列定义"这类对拍也能在不碰真源的前提下真跑。
  */
 import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
@@ -47,7 +61,11 @@ export const PACKAGES_DIR = findPackagesDir(PKG_DIR)
 export const loadPackage = (dir) => import(new URL(`${dir}/src/index.ts`, pathToFileURL(PACKAGES_DIR + '/').href).href)
 export const settle = (ms = 250) => new Promise((r) => setTimeout(r, ms))
 
-/** 本包显式依赖的两列（夹具与判据共用；与 `src/columns.ts` 的清单**各自独立写一遍**）。 */
+/**
+ * 本包显式依赖的两列（夹具与判据共用；与 `src/columns.ts` 的清单**各自独立写一遍**）。
+ * ⚠ 这两列的**契约真源**在 `packages/core/src/schema.ts` 的 `memory_items` 表定义
+ *   （L-00 已补入）；本清单只用于「把它们从库里摘掉以造旧库形态」，不冒充 schema 真源。
+ */
 export const TWO_COLUMNS = ['reconsolidation_window_until', 'update_history']
 
 const tmpDirs = []
@@ -59,34 +77,72 @@ export function cleanupAll() {
 // ══ 装配（真 core + 真本包）══════════════════════════════════════════════════
 /**
  * 装配 core + 本包，返回服务面。
- * @param {{columns:boolean, rawCore?:boolean}} opts
- *   `columns:true` 时先建库并 `ALTER TABLE` 补两列（**再**交给 core 装配）。
- *   `rawCore:true` 时不走 cordis，直接执行 `coreMod.apply` 到一个最小 ctx 上
- *   （用于"降级腿要有真服务面"的对照，仍走 core 的真 apply）。
+ *
+ * @param {{columns?:boolean, legacy?:boolean}} opts
+ *   · `columns:true`   —— **全新库**：真 DDL 建出即含两列（列来自 `CREATE TABLE`）；
+ *   · 缺省（`false`）  —— **L-00 之前的存量库**：先删两列造旧形态，再交给 core 装配
+ *                        ⇒ `createSchema` 的列 diff 补列**真跑**（补列 = 被测系统的生产代码）；
+ *   · `legacy:true`    —— **L-00 未执行的库**：删两列且 `autoMigrate:false`
+ *                        ⇒ 补列不发生 ⇒ 本包走**降级腿**。
+ *   ⚠ `legacy` 与 `columns` 互斥（同时为真没有任何语义）。
+ *
+ * 返回值额外带三条**取数**（判据据此断言形态，而不是假设形态）：
+ *   · `preColumns`        —— 交给 core **之前** `memory_items` 的实际列清单（前置控制）；
+ *   · `coreColumns`       —— 装配完成后同一张表的实际列清单（PRAGMA 读回）；
+ *   · `columnsAddedByMount` —— `coreColumns` 相对 `preColumns` 的**集合差**（= 本次装配真加了哪些列）。
+ *   ⚠ 第三条**不是**读 core 的自报值：本仓 core 的 `appliedColumns` 挂在 `openManaDb()` 的返回值上，
+ *     而服务面（`ManaCoreService`）**没有这个字段** —— 直接读 `core.appliedColumns` 会得到
+ *     `undefined`，再 `?? []` 就变成**恒真的空数组**（"没补列"与"字段根本不存在"同形，
+ *     正是本仓最防的假绿）。故本夹具**只从两次 PRAGMA 读回值算差集**：
+ *     legacy 形态下它为空、存量库形态下它非空 —— 同一个计算两条形态给出不同结果，
+ *     证明这个量**真有分辨力**（不是恒真的装饰）。
+ *
+ * ⚠ `rawCore:true` 的历史口径已移除（全仓无调用方）：降级腿的对照由 `legacy:true` 承担。
  */
-export async function mount({ columns = false } = {}) {
+export async function mount({ columns = false, legacy = false } = {}) {
   const mod = await loadPackage('reconsolidation')
   const coreMod = await loadPackage('core')
   const dir = mkdtempSync(join(tmpdir(), 'rcn-'))
   tmpDirs.push(dir)
   const path = join(dir, 'mana.db')
 
-  if (columns) {
-    // 先按 core 的真 DDL 建库，再补两列 ⇒ 与"L-00 之后的存量库"同形。
+  const colsOf = (db) => db.prepare('PRAGMA table_info(memory_items)').all().map((r) => String(r.name))
+  let preColumns = []
+
+  if (!columns) {
+    // 步骤一：按 core 的**真 DDL** 建库（此刻两列在，因为 L-00 已把它们写进表定义）。
     const raw = new DatabaseSync(path)
     coreMod.createSchema(raw)
-    for (const c of TWO_COLUMNS) raw.exec(`ALTER TABLE memory_items ADD COLUMN ${c} TEXT`)
+    // 步骤二：`DROP COLUMN` 摘掉两列 ⇒ 与"L-00 之前的库"列形态一致（行数据一并保留）。
+    //   ⚠ 只动这**两列**，其余列一律不碰（否则测的就不是"补这两列"）。
+    //   ⚠ 摘之前先看它**在不在**：语义是"造一个 L-00 之前的库"（那个库里这两列本来就
+    //     **没有**），不是"必须删掉两列"。若无条件删，则一旦契约里的列定义被人拿掉
+    //     （负向对拍 N⑥ 正是这个扰动），`DROP COLUMN` 会先抛 `no such column` ——
+    //     用例确实变红了，但红在**夹具崩了**，判据该抓的那条（"补列没发生"）反而没被验到。
+    //     带守卫后，同一扰动直击判据腿本身。
+    for (const c of TWO_COLUMNS) {
+      if (colsOf(raw).includes(c)) raw.exec(`ALTER TABLE memory_items DROP COLUMN ${c}`)
+    }
+    preColumns = colsOf(raw)
+    // 前置控制：摘列必须**真的**摘掉了 —— 否则"旧库"根本不旧，后面的补列断言全是假绿。
+    const stillThere = TWO_COLUMNS.filter((c) => preColumns.includes(c))
+    if (stillThere.length) throw new Error(`夹具失效：本应摘掉的两列仍在库中 —— ${stillThere.join(',')}`)
     raw.close()
   }
 
+  // 步骤三：交给 core 装配。`legacy:true` ⇒ `autoMigrate:false` ⇒ 补列**不发生**（降级腿）。
+  const migrate = legacy ? false : true
   const ctx = new Context()
-  ctx.plugin(coreMod, { storePath: path })
+  ctx.plugin(coreMod, { storePath: path, autoMigrate: migrate })
   await settle(250)
   const fiber = ctx.plugin(mod)
   await settle(300)
   const core = ctx.get('mana-core')
   const svc = ctx.get('mana-reconsolidation')
-  return { ctx, core, svc, mod, fiber, path, dir }
+  const coreColumns = colsOf(core.db)
+  // 集合差 = 本次装配**真的**加上去的列（只由两次 PRAGMA 读回值算出，不读任何自报字段）
+  const columnsAddedByMount = coreColumns.filter((c) => !preColumns.includes(c))
+  return { ctx, core, svc, mod, fiber, path, dir, preColumns, coreColumns, columnsAddedByMount }
 }
 
 /** 走一次真 waterfall，返回链尾哨兵与最内层次数（口径同 forgetting/skeleton.test.mjs:52）。 */
@@ -142,6 +198,23 @@ export function runWithMutation({ file, find, replace, testFile }) {
   const hits = original.split(find).length - 1
   if (hits !== 1) throw new Error(`扰动锚点必须恰好命中 1 次，实测 ${hits}：${file}（真源已改 ⇒ 变异器过期）`)
 
+  /**
+   * 扰动目标在**沙箱内**的落点。
+   *
+   * ⚠ 允许 `file` 越过本包去扰动**契约真源**（`../core/src/schema.ts`）—— L-00 之后
+   *   "把新加的列从表定义里摘掉"才是本包最该做的那条对拍（它正是"columnsPresent 报缺列"
+   *   的成因）。机制不变：读的是**真源**（只读），写的仍是**沙箱副本**里对应位置的文件。
+   *   路径解析：`../core/src/schema.ts` ⇒ `<沙箱>/packages/core/src/schema.ts`
+   *   （沙箱里 `packages/` 下与真仓同构，core 已整包拷入）。
+   */
+  const sandboxTarget = (sandbox) => {
+    const abs = join(PKG_DIR, file)
+    if (!abs.startsWith(PACKAGES_DIR + sep)) {
+      throw new Error(`扰动目标必须在 packages/ 树内，实测 ${abs}（越界会写到仓外）`)
+    }
+    return join(sandbox, 'packages', abs.slice(PACKAGES_DIR.length + 1))
+  }
+
   const sandbox = mkdtempSync(join(tmpdir(), 'rcn-neg-'))
   const sandboxPkg = join(sandbox, 'packages', 'reconsolidation')
   let result
@@ -159,7 +232,9 @@ export function runWithMutation({ file, find, replace, testFile }) {
     cpSync(join(PKG_DIR, 'tests'), join(sandboxPkg, 'tests'), { recursive: true })
     cpSync(join(PKG_DIR, 'package.json'), join(sandboxPkg, 'package.json'))
     // 扰动**只写沙箱**
-    writeFileSync(join(sandboxPkg, file), original.replace(find, replace))
+    const dest = sandboxTarget(sandbox)
+    mkdirSync(dirname(dest), { recursive: true })
+    writeFileSync(dest, original.replace(find, replace))
     result = runNodeTest(testFile, sandboxPkg)
   } finally {
     rmSync(sandbox, { recursive: true, force: true })
