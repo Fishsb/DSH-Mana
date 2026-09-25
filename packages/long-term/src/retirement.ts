@@ -99,9 +99,23 @@ export interface LiveSearchResult {
   hits: { id: string; content: string; summary: string | null }[]
   /** 0 命中的原因分类；有命中时为 null。 */
   reason: 'ok' | 'too_short' | 'empty_library' | null
-  /** 全部物理行数（含已退休）。 */
-  librarySize: number
-  /** `retired=0` 的行数。 */
+  /**
+   * **全表物理行数（含已退休）** = `counts.total`（不设 WHERE）。
+   *
+   * ⚠ **为什么不叫 `librarySize`**（S30 席裁定，2026-09-25）：core 的
+   *   `LexicalRecallResult.librarySize` 已被裁定为**活记忆数**（`retired = 0`）。
+   *   同一个词在两个包指两个量 ⇒ 读代码的人**必然猜错一次**。此处统计的是
+   *   「表里一共有多少行」这个**不同的量** ⇒ 按本仓纪律**改名**而不是改值
+   *   （改动值会得到 `totalSize === liveSize` 的冗余副本，等于把两个身份不同的读数
+   *     合成一个：那正是"同一条事实两个归属地"）。
+   * ⚠ 恒等式：`totalSize === liveSize + retiredSize`（三者**同时**回报才可分辨；
+   *   合成一个数 ⇒ 「行没了」与「行还在但被排除」同形）。
+   * ⚠ 与 `reason` **无因果**：下方 0 命中的判据分母是 `liveSize`，不是本字段 ——
+   *   故 core 那次「分母退回全量 ⇒ `empty_library` 假红」的实害在本包**不存在**。
+   *   本字段是**库规模读数**（软删除不变式的取证：retire 前后它必须相等）。
+   */
+  totalSize: number
+  /** `retired=0` 的行数（**本函数 0 命中判据的分母**，见下方 `reason`）。 */
   liveSize: number
   /** `retired=1` 的行数。 */
   retiredSize: number
@@ -327,7 +341,8 @@ export function searchLiveMemories(db: DatabaseSync, rawQuery: string, limit: nu
   assertLimit(limit)
   const counts = countMemories(db)
   const base = {
-    librarySize: counts.total,
+    // ⚠ 三态**分列**（total / live / retired）：本字段是库规模读数，不是 reason 的分母。
+    totalSize: counts.total,
     liveSize: counts.live,
     retiredSize: counts.retired,
   }

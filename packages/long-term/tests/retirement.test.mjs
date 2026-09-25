@@ -20,8 +20,16 @@
  *
  * ⚠ **本文件的用例数本身也是判据**（与两份既有文件同口径）：实测**空文件**在显式路径下
  *   同样报 `# tests 1 / # pass 1 / exit 0`（计的是"文件加载成功"）⇒ 空/被截断是**假绿**。
- *   故本文件固定 **7** 条，末条为用例计数自检（少一条即红）。
+ *   故本文件固定 **9** 条，末条为用例计数自检（少一条即红）。
  *   ⚠ 计数**必须同步登记**进 `verify.mjs` 的 `TEST_FILES`，否则本文件被清空时外部防线不报。
+ *
+ * ── S30 席新增的两条腿（⑦/⑧，收口 1 与收口 3）──────────────────────────────────
+ *   · ⑦ **库规模读数与活记忆读数不得合并**：构造「4 条里 1 条 retired」这个**两者不等**的
+ *     夹具（前置控制 = 断言两读数**确实不同**），把 `totalSize` / `liveSize` 各自的
+ *     口径与恒等式 `totalSize === liveSize + retiredSize` 钉住。
+ *     ⚠ 与本项呼应的是 core：`LexicalRecallResult.librarySize` 已被裁定为**活记忆数**
+ *       ⇒ 本包那个**全表口径**的旧同名字段改名 `totalSize`（同一个词不再指两个量）。
+ *   · ⑧ **注释 ⇄ 实现 一致性**：见该用例头的"这条腿的效力边界"（不夸大）。
  *
  * 运行（**显式路径**）：node --test packages/long-term/tests/retirement.test.mjs
  */
@@ -65,7 +73,7 @@ const Q = '开源免费'
  */
 const Q2 = '无关记忆'
 
-const EXPECTED_CASES = 7
+const EXPECTED_CASES = 9
 let ran = 0
 
 /** 开一个**只属于本次用例**的真库（真 core 插件 → openManaDb → 建表 + FTS 触发器）。 */
@@ -210,7 +218,11 @@ test('③ A2-7 退休行不泄漏：结果中 retired=1 计数 == 0；且退休�
   const none = searchLiveMemories(db, '库里绝对没有的词条')
   assert.equal(none.hits.length, 0, '无关词必须 0 命中')
   assert.equal(none.reason, 'ok', `库非空却 0 命中 ⇒ reason 须为 'ok'（真查过），实测 ${none.reason}`)
-  assert.equal(none.librarySize, 4, 'reason 必须可被库规模交叉核对')
+  // ⚠ S30 收口 1：本字段是**全表物理行数**（含已退休），故此处仍是 4（2 活 + 2 退休）。
+  //   它与 core 的 `librarySize`（= 活记忆数）**不是同一个量** ⇒ 已改名 `totalSize`。
+  //   下方 ⑦ 用「4 条里 1 条退休」的夹具把两个读数**分开**钉住（本行在 2/2 下分辨不出）。
+  assert.equal(none.totalSize, 4, 'totalSize = 全表物理行数（含退休），reason 必须可被它交叉核对')
+  assert.equal(none.liveSize, 2, 'liveSize = retired=0 的行数（本夹具 4 行 2 退休 ⇒ 2）')
   assert.equal(searchLiveMemories(db, '短').reason, 'too_short', '过短查询必须是 too_short（trigram 下静默返回空集与"没有"同形）')
   // ── 第二条查询词：活行 2 条里 1 条命中，退休行 1 条必须被滤掉（两个方向都可分辨）
   const res2 = searchLiveMemories(db, Q2)
@@ -348,8 +360,187 @@ test('⑥ 真装配：svc.retirement 逐项可用 + 经服务面复算 A2-6/A2-7
   assert.equal(ctx.get('mana-long-term'), undefined, '卸载后服务必须消失（"卸载即净"）')
 })
 
-// ══ ⑦ 用例计数自检（防本文件被截断/掏空）════════════════════════════════════════
-test('⑦ 用例计数自检 + 判据字面量在册', () => {
+
+// ══ ⑦ S30 收口 1：库规模读数 ≠ 活记忆读数（totalSize / liveSize 分列）══════════════
+test('⑦ 库规模读数 ≠ 活记忆读数：4 条里 1 条退休 ⇒ totalSize=4 / liveSize=3，且 reason 的分母是 liveSize', async () => {
+  ran += 1
+  const { core, db } = await mountCore('s30-counts')
+  // 4 条：3 活 + 1 退休 —— **两个读数必须不等**，否则下面什么也分辨不出。
+  core.writeMemoryItem({ id: 'a1', type: 'episodic', content: HIT_A, summary: null })
+  core.writeMemoryItem({ id: 'a2', type: 'episodic', content: PLAIN, summary: null })
+  core.writeMemoryItem({ id: 'a3', type: 'episodic', content: PLAIN_R, summary: null })
+  core.writeMemoryItem({ id: 'r1', type: 'episodic', content: HIT_R, summary: null })
+  assert.equal(retireMemory(db, 'r1').changed, true, '前置：r1 必须真的被退休')
+
+  // ── 独立测量：**不信被测函数自报的计数**，直接查库取同一批事实
+  const physicalRows = Number(db.prepare('SELECT COUNT(*) c FROM memory_items').get().c)
+  const liveRows = Number(db.prepare('SELECT COUNT(*) c FROM memory_items WHERE retired = 0').get().c)
+  assert.equal(physicalRows, 4, `前置：物理行数须为 4，实测 ${physicalRows}`)
+  assert.equal(liveRows, 3, `前置：活行数须为 3，实测 ${liveRows}`)
+  // ⚠ **前置控制**：两读数相等的话，两个字段口径写反也测不出来（平凡通过）。
+  assert.notEqual(
+    physicalRows,
+    liveRows,
+    '前置控制：本用例要求「全表行数 ≠ 活行数」—— 否则 totalSize/liveSize 的口径互换无法被证伪',
+  )
+
+  const res = searchLiveMemories(db, Q)
+  assert.equal(res.totalSize, physicalRows, 'totalSize = **全表物理行数（含已退休）**，须与独立测得的物理行数相等')
+  assert.equal(res.liveSize, liveRows, 'liveSize = **活记忆数**（retired=0），须与独立测得的活行数相等')
+  assert.equal(res.retiredSize, 1, `retiredSize = retired=1 的行数，实测 ${res.retiredSize}`)
+  assert.equal(
+    res.totalSize,
+    res.liveSize + res.retiredSize,
+    '三态恒等式 totalSize === liveSize + retiredSize —— 合成一个数会让「行没了」与「行还在但被排除」同形',
+  )
+  assert.notEqual(res.totalSize, res.liveSize, '两个字段不得是同一个数（口径写反即红）')
+
+  // ── reason 的分母是 liveSize：**两个方向都要可分辨**
+  const miss = searchLiveMemories(db, '库里绝对没有的词条')
+  assert.equal(miss.hits.length, 0, '前置：该词必须 0 命中')
+  assert.equal(
+    miss.reason,
+    'ok',
+    `活记忆非空而查不到 ⇒ reason 须为 'ok'（真查过），实测 ${miss.reason}；` +
+      '若这里是 empty_library，说明分母被写死（反向腿失败）',
+  )
+
+  // 把剩下 3 条也退休 ⇒ 全表仍有 4 行，而活记忆为 0
+  for (const id of ['a1', 'a2', 'a3']) retireMemory(db, id)
+  const allRetired = searchLiveMemories(db, Q)
+  assert.equal(allRetired.totalSize, 4, `全表仍有 4 行（物理行不因退休消失），实测 ${allRetired.totalSize}`)
+  assert.equal(allRetired.liveSize, 0, `活记忆数应为 0，实测 ${allRetired.liveSize}`)
+  assert.equal(
+    allRetired.reason,
+    'empty_library',
+    `全表 4 行但活记忆为 0 ⇒ 0 命中是**正确行为**（'empty_library'），实测 ${allRetired.reason}。` +
+      '若分母退回 totalSize ⇒ 此处读成 ok，正是 core 那次「有记忆但全退休」被判成 A1-10 假红的同构形态',
+  )
+})
+
+// ══ ⑧ S30 收口 3：计数字段的**口径声明 ⇄ 实现**必须同向 ══════════════════════════
+/**
+ * 本腿守的是「**改口径而忘了改注释**」这一形态，做法是**让注释去决定期望值**：
+ *   ① 从源码里读出该字段的口径声明（physical = 含已退休 / live = 活记忆数）；
+ *   ② 用**独立测得的**行数算出该声明**应有的**取值；
+ *   ③ 断言字段实测值等于该期望值 —— 声明或实现**任一侧**漂移即红。
+ *
+ * ⚠ **效力边界（如实写，不夸大）**，这条腿**不**证明：
+ *   · 口径变更**是否合理** —— 若有人把注释与实现**一起**改成同一个新口径，本腿照绿
+ *     （那是刻意的口径变更，属评审范围，不是"忘改注释"；本腿只抓**单侧**漂移）；
+ *   · 注释的**可读性 / 完整性** —— 它只判"声明与行为同向"，不判注释写得好不好。
+ * ⚠ 为什么不做成"断言注释里出现了某些词"（本仓点名的「数注释」假腿）：那种写法**恒真** ——
+ *   改了实现而注释原样留着，子串照样命中 ⇒ 正是它声称要防的形态却抓不到。
+ *   故这里的口径词是**被消费的**（决定期望值），不是被计数的。
+ */
+const SCOPE_PHYS = [/全表/, /物理行数/, /含已退休/]
+const SCOPE_LIVE = [/活记忆数/, /retired\s*=\s*0/]
+
+/** 从声明文本判出口径。规则显式写出，并在下方自检里被逐条钉住。 */
+function classifyScope(decl) {
+  // 「不含已退休」/「排除已退休」= **活记忆数**的同义声明。子串里含「含已退休」，
+  // 若按子串直接判 physical 就是**把相反的声明读成同一个**（本仓「负控要能真否证」形态）。
+  if (/不含已退休|排除已退休|不含退休|排除退休/.test(decl)) return 'live'
+  const firstAt = (res) => {
+    let best = -1
+    for (const re of res) {
+      const m = re.exec(decl)
+      if (m && (best < 0 || m.index < best)) best = m.index
+    }
+    return best
+  }
+  const p = firstAt(SCOPE_PHYS)
+  const l = firstAt(SCOPE_LIVE)
+  if (p < 0 && l < 0) return 'undeclared'
+  if (p < 0) return 'live'
+  if (l < 0) return 'physical'
+  // 两者都出现（注释块常引述对面口径作对比，本文件即是）⇒ **首个声明胜出**
+  return p < l ? 'physical' : 'live'
+}
+
+/** 一致性断言体：期望值**由声明推出**，与实测值比。 */
+function assertScopeMatches(declared, measured) {
+  assert.notEqual(
+    declared,
+    'undeclared',
+    '该字段的口径**未在注释里声明**（既无「全表/物理行数/含已退休」也无「活记忆数/retired = 0」）—— ' +
+      '本仓要求口径显式写下：改口径的人若只改代码不改注释，本腿必须红',
+  )
+  const expect = declared === 'physical' ? measured.physical : measured.live
+  assert.equal(
+    measured.value,
+    expect,
+    `口径声明为「${declared}」⇒ 期望 ${expect}，实测 ${measured.value}（独立测得 physical=${measured.physical} / live=${measured.live}）` +
+      ' —— 声明与实现**不同向**：改了一侧而忘了另一侧',
+  )
+}
+
+test('⑧ 口径声明 ⇄ 实现一致：totalSize 的注释声明决定期望值，任一侧漂移即红', async () => {
+  ran += 1
+  const { db } = await seed('s30-scope')
+
+  // ── ① 取声明：抽出紧邻字段声明的那段块注释
+  const src = readFileSync(fileURLToPath(new URL('retirement.ts', SRC)), 'utf8')
+  const lines = src.split('\n')
+  const at = lines.findIndex((l) => /^\s{2}totalSize:\s*number/.test(l))
+  assert.ok(at > 0, `源码里必须能找到 totalSize 的字段声明（锚点漂移 ⇒ 本腿失效），实测行号 ${at}`)
+  const block = []
+  for (let i = at - 1; i >= 0; i -= 1) {
+    if (!/^\s*\*/.test(lines[i])) break
+    block.unshift(lines[i])
+  }
+  assert.ok(block.length > 0, '字段声明前必须紧邻块注释（否则口径无处声明）')
+  const decl = block.join('\n')
+  assert.ok(decl.includes('totalSize') || decl.length > 20, '取到的注释块须非空且与该字段相关')
+
+  // ── ② 独立测量 + 实测值
+  const physical = Number(db.prepare('SELECT COUNT(*) c FROM memory_items').get().c)
+  const live = Number(db.prepare('SELECT COUNT(*) c FROM memory_items WHERE retired = 0').get().c)
+  assert.notEqual(physical, live, '前置控制：本夹具的 physical 与 live 必须不等，否则两侧判不出差别（平凡通过）')
+  const measured = { physical, live, value: searchLiveMemories(db, Q).totalSize }
+
+  // ── ③ 分类器自检（防它退化成恒绿/恒红）
+  assert.equal(classifyScope('活记忆数'), 'live', '分类器：活记忆数 ⇒ live')
+  assert.equal(classifyScope('全表物理行数（含已退休）'), 'physical', '分类器：全表物理行数 ⇒ physical')
+  assert.equal(
+    classifyScope('不含已退休的行数'),
+    'live',
+    '分类器：**「不含已退休」是「含已退休」的否定** —— 按子串直判会把相反的声明读成同一个（负控必须能真否证）',
+  )
+  assert.equal(classifyScope('就一个数'), 'undeclared', '分类器：无任何口径词 ⇒ undeclared（不得默认通过）')
+  assert.equal(
+    classifyScope('全表物理行数（含已退休）……引述对面：活记忆数'),
+    'physical',
+    '分类器：两者都出现 ⇒ 首个声明胜出（注释引述对面口径作对比不得让本方声明失效）',
+  )
+
+  // ── ④ 正向：真声明 + 真实现 ⇒ 必须不抛
+  const declared = classifyScope(decl)
+  assert.doesNotThrow(() => assertScopeMatches(declared, measured), `本文件的声明与实现必须同向（声明判定 = ${declared}）`)
+
+  // ── ⑤ 负向对拍（两个方向，各打一侧）
+  const drifted = decl.replace('**全表物理行数（含已退休）**', '**活记忆数**')
+  assert.notEqual(drifted, decl, '对拍前置：扰动必须真的改动了声明文本（否则测的是原地不动）')
+  assert.equal(classifyScope(drifted), 'live', '对拍前置：漂移后的声明须被判为 live')
+  assert.throws(
+    () => assertScopeMatches(classifyScope(drifted), measured),
+    /口径|期望/,
+    '负向对拍失败：**注释漂移**（改口径忘改注释）没有报红 ⇒ 本腿是装饰',
+  )
+  assert.throws(
+    () => assertScopeMatches(declared, { ...measured, value: measured.live }),
+    /口径|期望/,
+    '负向对拍失败：**实现漂移**（改代码忘改注释）没有报红 ⇒ 本腿只测注释、没测同向',
+  )
+  assert.throws(
+    () => assertScopeMatches('undeclared', measured),
+    /口径|期望/,
+    '负向对拍失败：口径未声明时没有报红 ⇒ 删掉口径说明也能通过',
+  )
+})
+
+// ══ ⑨ 用例计数自检（防本文件被截断/掏空）════════════════════════════════════════
+test('⑨ 用例计数自检 + 判据字面量在册', () => {
   ran += 1
   assert.equal(ran, EXPECTED_CASES, `本次执行到的用例数必须为 ${EXPECTED_CASES}；实测 ${ran}（有用例被删即红）`)
   const self = readFileSync(fileURLToPath(import.meta.url), 'utf8')

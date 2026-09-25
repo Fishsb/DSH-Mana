@@ -204,11 +204,6 @@ export function isInjectable(record: Pick<ProfileChangeRecord, 'verdict'>): bool
   return record.verdict.decision === 'inject'
 }
 
-/** 一次变更是否**被拒**（= 该偏好转「不注入」，册:151 的退场动作）。 */
-export function isRetired(record: Pick<ProfileChangeRecord, 'verdict'>): boolean {
-  return record.verdict.decision === 'retired_no_injection'
-}
-
 /**
  * 留痕事件类型：变更写一条，退场写另一条。
  * ⚠ 退场**也**必须留痕（fail-closed 纪律：沉默地不写、但必须留痕）——
