@@ -120,8 +120,151 @@ const record = (id, title, state, detail, evidence = '') =>
   results.push({ id, title, state, detail: withCoord(detail), evidence })
 const pass = (id, t, d, e) => record(id, t, 'PASS', d, e)
 const fail = (id, t, d, e) => record(id, t, 'FAIL', d, e)
-const hang = (id, t, d, e) => record(id, t, 'HANG', d, e)
+/**
+ * 挂账项：第 5 参 = **溯源字段**（加固 1，见 `hangProv`）。
+ * ⚠ 缺它 ⇒ 挂账自检腿 `hangProvenance` 点名（只报不拦：这是可读性/可追溯性的补强，
+ *   不是新判据档位；把「没写溯源」升级成 FAIL 会与「不改判据档位」的约束冲突）。
+ */
+const hang = (id, t, d, e, prov) => record(id, t, 'HANG', prov ? d + hangProv(prov) : d, e)
 const none = (id, t, d, e) => record(id, t, 'NONE', d, e)
+
+// ══ 挂账项的溯源字段（加固 1；主持人裁定 2026-09-25）══════════════════════════
+/**
+ * ⚠ **为什么挂账项必须有这两行**（主持人实读，不是推测）：挂账项此前只有一句话描述，
+ *   后果**不是「字少」，是跨阶段静默**：
+ *     · `A1-5` 在 a1-check 里记 HANG，而它的实现/验收归属落在**阶段 3** 的 `B4.2`
+ *       ⇒ **阶段 1 的门读它通过**，只读报告的人看不见「它原定根本不在阶段 1 验收」；
+ *     · `ARTIFACTS` 的挂账已跨多次提交，同样没有「什么时候开始挂的」。
+ *   ⇒ 每个 HANG 的 detail 必须能回答两句：**首现时刻**、**原定验收阶段**。
+ *
+ * ⚠ **只加可读信息，不改任何判据档位**（HANG 仍是 HANG，不许变 FAIL）—— 档位属拍板面。
+ * ⚠ **阶段号不硬编码**：`sectionSlice` / `critAnchor` / `batchAnchor` 都**从
+ *   `docs/mana-rollout-plan.md` 现读** —— 「判据表行 → 所属阶段段 → 该阶段批次」是那份
+ *   文档的结构事实，不是本脚本的常量。写不出就**显式标「待补」**，绝不编一个
+ *   （编出来的比空着更坏：它会被当成已核事实读走）。
+ * ⚠ 读文档失败**不是**本项判红条件（本项是挂账态、且判据表不是本脚本的写面）；
+ *   失败表现为那两行里出现 `待补`，并由挂账自检腿 `hangProvenance` 点名（非阻断）。
+ */
+const PLAN_PATH = P('docs/mana-rollout-plan.md')
+let _planLines = undefined
+function planLines() {
+  if (_planLines === undefined) {
+    try { _planLines = readFileSync(PLAN_PATH, 'utf8').split(/\r?\n/) } catch { _planLines = null }
+  }
+  return _planLines
+}
+/** 顶级节切片：`top` = '4' ⇒ { start, end, text }（1-based 行号，覆盖 `## 4. …` 到下一个 `## N. `）。 */
+function sectionSlice(top) {
+  const ls = planLines()
+  if (!ls) return null
+  const heads = []
+  ls.forEach((l, i) => { const m = l.match(/^##\s+(\d+)\./); if (m) heads.push({ num: m[1], i }) })
+  const at = heads.findIndex((h) => h.num === String(top))
+  if (at < 0) return null
+  const end = at + 1 < heads.length ? heads[at + 1].i : ls.length
+  const slice = ls.slice(heads[at].i, end)
+  return { start: heads[at].i + 1, end, text: slice.join('\n'), lines: slice }
+}
+/** 某顶级节里全部 `§N.M` 引用的去重集合（供 C16 致盲腿用；`可见` = C16 正则会匹配的那些）。 */
+function sectionSectionRefs(top) {
+  const s = sectionSlice(top)
+  if (!s) return null
+  const all = new Set(); const visible = new Set()
+  for (const l of s.lines) {
+    for (const m of l.matchAll(/§(\d+(?:\.\d+)*)/g)) all.add(m[1])
+    for (const m of l.matchAll(/(?:见|读|跳|按|回|阅)\s*(?:本册\s*)?§(\d+(?:\.\d+)*)/g)) visible.add(m[1])
+  }
+  return { start: s.start, all, visible }
+}
+/** 判据表里 `id` 那一行的锚点 + 它所在**阶段段**的批次清单（全部现读，读不到返回 null）。 */
+function critAnchor(id) {
+  const ls = planLines()
+  if (!ls) return null
+  const esc = id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const rx = new RegExp('^\\|\\s*\\**' + esc + '\\**\\s*\\|')
+  const at = ls.findIndex((l) => rx.test(l))
+  if (at < 0) return null
+  let stage = null; let stageAt = -1
+  for (let i = at; i >= 0; i -= 1) {
+    const m = ls[i].match(/^###\s+阶段\s+(\d+)/)
+    if (m) { stage = Number(m[1]); stageAt = i; break }
+  }
+  const batches = []
+  if (stageAt >= 0) {
+    for (let i = stageAt; i < ls.length; i += 1) {
+      const h = ls[i].match(/^###\s+阶段\s+(\d+)/)
+      if (h && Number(h[1]) !== stage) break
+      const b = ls[i].match(/^\|\s*\*\*(B\d+\.\d+)\*\*\s*\|/)
+      if (b) batches.push({ code: b[1], line: i + 1 })
+    }
+  }
+  return { line: at + 1, stage, batches }
+}
+/** 批次号（如 B4.2）在 §4 的锚点行与**它自己所属的阶段**（现读）。 */
+function batchAnchor(code) {
+  const ls = planLines()
+  if (!ls) return null
+  const rx = new RegExp('^\\|\\s*\\*\\*' + code.replace('.', '\\.') + '\\*\\*\\s*\\|')
+  const at = ls.findIndex((l) => rx.test(l))
+  if (at < 0) return null
+  let stage = null
+  for (let i = at; i >= 0; i -= 1) {
+    const m = ls[i].match(/^###\s+阶段\s+(\d+)/)
+    if (m) { stage = Number(m[1]); break }
+  }
+  return { line: at + 1, stage }
+}
+/** 挂账溯源的统一渲染（一处实现，避免三处格式漂移）。 */
+function hangProv({ token, crit, implBatch, note }) {
+  // 首现时刻：git log -S <token> 取**最早**那条 commit（该字符串首次进入本文件的提交）。
+  let first = '**待补**（git 历史不可得）'
+  try {
+    const r = spawnSync('git', ['log', '--format=%h|%ad', '--date=short', '-S', token, '--', 'tools/a1-check.mjs'], { cwd: ROOT, encoding: 'utf8' })
+    const row = String(r.stdout ?? '').trim().split('\n').filter(Boolean).pop()
+    if (row) { const [h, d] = row.split('|'); first = `${h} (${d})` }
+  } catch { /* 保持待补 */ }
+  const bits = [`⏱ 首现 ${first}（git log -S "${token}" 实测）`]
+  const c = crit ? critAnchor(crit) : null
+  const b = implBatch ? batchAnchor(implBatch) : null
+  if (crit) {
+    bits.push(c
+      ? `判据表行 ${crit}@L${c.line}（所在阶段段 = 阶段 ${c.stage}）`
+      : `判据表行 ${crit} **待补**（本册现读不到该行 —— 表被改名/移动）`)
+  } else {
+    bits.push('本项**不在判据表内**（本册未给「' + (token === 'ARTIFACTS' ? '产物新鲜度' : 'vec0 语义') + '」立独立验收条）')
+  }
+  if (implBatch) {
+    bits.push(b
+      ? `实现/验收归属批次 ${implBatch}@L${b.line}（阶段 ${b.stage}）`
+      : `实现/验收归属批次 ${implBatch} **待补**（本册现读不到该批次行）`)
+    if (b && c && b.stage !== c.stage) {
+      bits.push(`⚠ **跨阶段**：本项在阶段 ${c.stage} 的判据表里、由阶段 ${c.stage} 的门读；而实现与验收归属在阶段 ${b.stage} ⇒ 阶段 ${c.stage} 的绿**不构成**本项被验收`)
+    } else if (b && !c) {
+      bits.push(`⚠ 归期：本项无判据表行，验收归属阶段 ${b.stage}`)
+    }
+  } else if (!crit) {
+    bits.push('原定验收阶段 = **待补**（触发式项，本册未给「何时启用」的验收阶段）')
+  }
+  if (note) bits.push(note)
+  return `｜⏱ 挂账溯源：${bits.join('｜')}`
+}
+/**
+ * 挂账 detail 的**字段存在性判定**（一处实现：`--self-test` 与真数据检查共用同一个函数
+ * —— 两处各写一遍会让「自测绿而真数据没查」这种假覆盖重新长出来）。
+ *
+ * `hasFirst` 对「首现 = 待补」判**假**：首现时刻由 `git log -S` 现算，在本仓内**总该有值**，
+ *   待补意味着历史丢失或函数被绕过 ⇒ 必须红（这正是「清空首现 ⇒ 报红」的落点）。
+ * `hasTarget` 只要求**给出了归属**（判据表行 / 归属批次 / 跨阶段 / 归期任一），
+ *   不要求阶段号一定存在 —— 「本册没有」时如实写待补是正确口径，不算缺字段。
+ */
+function provFieldsOf(detail) {
+  const d = String(detail ?? '')
+  return {
+    hasProv: /挂账溯源/.test(d),
+    hasFirst: /首现/.test(d) && !/首现 \*\*待补\*\*/.test(d),
+    hasTarget: /判据表行|归属批次|跨阶段|归期|不在判据表内/.test(d),
+  }
+}
 
 // ── 变异装置（内存克隆，零磁盘写入仓内文件）──────────────────────────────────
 /**
@@ -724,7 +867,13 @@ const fixed = (x, n = 6) => Number(x).toFixed(n)
   }
   const detail = anchors.map(([n, g, w]) => `${n}=${fixed(g)}（差 ${Math.abs(g - w).toExponential(2)}）`).join(' · ')
   if (bad.length) fail(id, title, `闭式核不符：${bad.join('；')}`, '回排序步骤（衰减核参数 h=14 天）')
-  else if (impls.length) hang(id, title, `${detail}｜⚠ 仓内已出现衰减核实现者：${impls.join(', ')}`, '本项须改接真实现后再判；对闭式核自证不再是有效判据')
+  else if (impls.length)
+    hang(id, title, `${detail}｜⚠ 仓内已出现衰减核实现者：${impls.join(', ')}`, '本项须改接真实现后再判；对闭式核自证不再是有效判据', {
+      token: 'A1-5',
+      crit: 'A1-5',
+      implBatch: 'B4.2',
+      note: '原定验收阶段 = 阶段 3（B4.2 实现半衰期 14 天）；**而本项由阶段 1 的门读** ⇒ 阶段 1 的绿不构成它被验收',
+    })
   else
     none(
       id,
@@ -1049,7 +1198,18 @@ function runCases(file, cases) {
   } else if (fails.length === 0 && states.length === 3) {
     const hangs = states.filter((x) => x === 'HANG').length
     if (hangs === 3) {
-      hang(id, title, '扩展未安装（候选路径均不存在）⇒ 三语义**未验证**；装 sqlite-vec-linux-x64@0.1.9 后自动转 PASS/FAIL', '§8 C4：vec0 为规模化升级项（>10 万条启用），当前不装合规；但"未装"报 HANG 而非 PASS')
+      hang(
+        id,
+        title,
+        '扩展未安装（候选路径均不存在）⇒ 三语义**未验证**；装 sqlite-vec-linux-x64@0.1.9 后自动转 PASS/FAIL',
+        '§8 C4：vec0 为规模化升级项（>10 万条启用），当前不装合规；但"未装"报 HANG 而非 PASS',
+        {
+          token: 'W-1..3',
+          crit: null,
+          implBatch: null,
+          note: '原定验收阶段 = **被启用时**（本册 §4 阶段 1 / B1.1 的验收挂钩：「启用 vec0 时须补一条 W-1/W-2/W-3 各造一次负例」）—— 属**触发式**验收条，本册未给它固定阶段号，故如实标此口径而不编阶段号',
+        },
+      )
     } else {
       pass(id, title, `三条负例全部实测复现（vec_version=${parsed.vecVersion}）：W-1 缺省=L2、W-2 rowid 须 BigInt、W-3 KNN 须带 LIMIT`, `扩展=${parsed.extension}`)
     }
@@ -1116,6 +1276,132 @@ function runCases(file, cases) {
     pass(id, title, '含尖括号内容被转义（内层 < = 0）；注入为尾部追加、既有消息逐字节不变', '判据表 docs/mana-rollout-plan.md:456-457；宿主契约「this waterfall cannot mutate messages」')
   } else {
     fail(id, title, r.failed.length ? `挂的用例：${r.failed.join(' / ')}` : `本项用例未全绿（passed=${r.passed.length}/2）`, '回注入块组装/追加步骤')
+  }
+}
+
+// ══ 自测腿：C16 的**致盲形态**（加固 2；S20 上报、主持人已复现）════════════════
+/**
+ * ⚠ 要抓的不是「引用写错」，是**判据看不见**：
+ *   `docs/_check-consistency.mjs:357` 的 C16 正则是
+ *     `/(?:见|读|跳|按|回|阅)\s*(?:本册\s*)?§(\d+(?:\.\d+)*)/`
+ *   —— 触发词与 `§` 之间**只允许空白（与 `本册`）**。插进任何别的字符（哪怕只是加粗标记），
+ *   该引用就**完全不进入匹配**。主持人决定性复现两态：
+ *     `按 §6.4`      ⇒ C16 看得见（本册无 §6.4 ⇒ 报红，好事）
+ *     `按**** §6.4`  ⇒ **exit=0 / C16 PASS** —— 那个 PASS 是「**看不见**」，不是「已解析」。
+ *   那一处正则**不是本脚本的写面**（归文档侧），故这里只做一件事：
+ *   **把该形态本身钉成可机检的红**，并点名到行号。
+ *
+ * ⚠ 判据形态（**只对「本册内部引用」断言**，避免把合法的外部/中性引用判红）：
+ *   ① 触发词 + 若干非空白字符 + `§N`，且顶级号 N **属本册**（与 C16 同一口径）；
+ *   ② 触发词与 `§` 之间**不含**分句/分栏标记（`；。，、）｜`）—— 含则说明该触发词并不支配这个 §
+ *      （例：「再跳到 §4 …；要查…→ 读 §6」里那个被命中的「按」属于更早的「按方案」）；
+ *   ③ 触发词与 `§` 之间**不含** `方案` —— 明示外部（`按方案 §6.4` 是**正确写法**，不是缺陷）；
+ *   ④ `§N` 旁另有 `本册` 字样 ⇒ 显式本册引用，**任何间隔都不许**（哪怕只多一个空格）。
+ *   本册**当前实测该集合为空**（见 detail）⇒ 这条腿现在绿；但那是「眼下没有」，不是「永远没有」：
+ *   文档里一出现 `按**X** §6.1` 就立刻红。
+ *
+ * ⚠ **不调用** `docs/_check-consistency.mjs` 代替本腿：C16 对顶级 `§N` 只看「有没有同名小节」，
+ *   对 **`§N.M` 才做存在性校验** ⇒ 调它**在结构上答不了**本腿要问的问题（两态实证见 handoff 对拍 B）。
+ * ⚠ 本腿内嵌的 C16 正则**是一份副本，会漂** ⇒ 由 `--self-test` 的 `c16pattern` 用例直接读原文比对，
+ *   把「副本过期」也变成红（否则原文改了、这里还在按老规则护，是同一类假绿）。
+ */
+const C16_RX = /(?:见|读|跳|按|回|阅)\s*(?:本册\s*)?§(\d+(?:\.\d+)*)/g
+const TRIG_CHARS = '见读跳按回阅'
+const CLAUSE_MARKS = /[；。，、）)｜|]/
+/**
+ * 扫一份文本，返回全部「触发词与 § 之间有内容 ⇒ C16 看不见」的**本册**引用。
+ *
+ * 规则（每条都对应一个「不判红」的正当情形 —— 宁可少报也不误报，
+ * 因为**误报会把真缺陷淹掉**，那正是本腿要防的形态）：
+ *   ① 触发词与 § 之间**只允许空白**（与 `本册`）；其余任何内容 ⇒ 候选；
+ *   ② 间隔里含分句/分栏标记 ⇒ **不算**：说明该触发词并不支配这个 §
+ *      （例「再跳到 §4 ……；要查…→ 读 §6」里，向前找最近触发词会命中更早的『按』）；
+ *   ③ 间隔里含 `方案` ⇒ **不算**：明示外部，`按方案 §6.4` 是**正确写法**；
+ *   ④ 顶级号不属本册、且 § 旁无 `本册` 字样 ⇒ **不算**（与 C16 同为「顶级号不属本册 ⇒ 交 C8」）；
+ *   ⑤ **枚举串**：触发词与本 § 之间已有**另一个** `§N`，且到它之间无分句标记 ⇒ **不算**
+ *      （「按 §6.0 分档纪律与 §6.1 清单」里的 `与` 不是触发词，向前找会命中 `按`）。
+ *
+ * ⚠ 本册 **2026-09-25 实测命中 2 处**（L6/L79，见 handoff 对拍 A）—— 都是**真**致盲，不是误报：
+ *   两处的渲染结果分别是「跳到 §4」「见 §2 G9」，引用**又正确又必要**、但不会进 C16。
+ * ⚠ `nearby` 为真时跳过规则③④（离线自测用：合成文本无章节表，无法用『顶级号属本册』判断）。
+ */
+function c16BlindRefs(text, { nearby = false } = {}) {
+  const ls = String(text).split(/\r?\n/)
+  const ownTop = new Set()
+  for (const l of ls) { const m = l.match(/^##\s+(\d+)\./); if (m) ownTop.add(m[1]) }
+  const out = []
+  ls.forEach((l, i) => {
+    for (const m of l.matchAll(/§(\d+(?:\.\d+)*)/g)) {
+      const idx = m.index
+      const before = l.slice(Math.max(0, idx - 32), idx)
+      let gi = -1
+      for (let k = before.length - 1; k >= 0; k -= 1) if (TRIG_CHARS.includes(before[k])) { gi = k; break }
+      if (gi < 0) continue
+      const gap = before.slice(gi + 1)
+      if (/^\s*(?:本册\s*)?$/.test(gap)) continue           // C16 看得见 ⇒ 不是致盲形态（规则①）
+      if (CLAUSE_MARKS.test(gap)) continue                   // 规则②
+      if (!nearby && /方案/.test(gap)) continue               // 规则③
+      const top = m[1].split('.')[0]
+      const explicitThis = /本册/.test(l.slice(Math.max(0, idx - 18), idx + 1 + m[1].length))
+      if (!nearby && !ownTop.has(top) && !explicitThis) continue   // 规则④
+      const firstSec = gap.search(/§\d/)                     // 规则⑤：枚举串
+      if (firstSec >= 0 && !CLAUSE_MARKS.test(gap.slice(firstSec))) continue
+      out.push({ ln: i + 1, trig: before[gi], gap, sec: m[1], explicitThis })
+    }
+  })
+  return out
+}
+const blindRefs = c16BlindRefs(planLines() ? planLines().join('\n') : '')
+/**
+ * 读 C16 的**正则原文**并与本腿的副本比对（原文改了而这里不知道 ⇒ 假护）。
+ *
+ * ⚠ 本函数第一版**抓错了正则**（实测踩到，是「对拍打错靶」的同型）：
+ *   原来用 `/for \(const m of l\.matchAll\((\/.*?\/g)\)\)/` 全文件找**第一个** matchAll，
+ *   而那个 loop 里第一个 matchAll 是 **C8 的**（`_check-consistency.mjs:230`，形如 § 加数字的全局正则）
+ *   ⇒ 比对结果恒为「副本过期」，本腿**结构性恒红**、且报的是**错的那条判据**。
+ *   ⇒ 改为**先定位 C16 段**（按注释文本），再在段内取正则；取不到就返回 null（=未判定，
+ *     由调用方报「未判定」而不是编一个结论）。同一纪律：**锚点必须锚到被判对象本身**。
+ */
+function readC16PatternFromDoc() {
+  try {
+    const src = readFileSync(P('docs/_check-consistency.mjs'), 'utf8')
+    const at = src.indexOf('C16 本册内部')
+    const scope = at >= 0 ? src.slice(at) : src
+    const m = scope.match(/matchAll\((\/(?:[^/\\]|\\.)*\/[gimsuy]*)\)/)
+    return m ? m[1] : null
+  } catch { return null }
+}
+{
+  const id = 'C16-GUARD'
+  const title = 'C16 致盲形态守卫：触发词与 § 之间不得有内容（对**本册内部**引用）'
+  const docPattern = readC16PatternFromDoc()
+  const docErr = []
+  if (!docPattern) docErr.push('**未判定**：读不到 docs/_check-consistency.mjs 里 C16 的正则原文（文件被改名/移动）')
+  else {
+    let docRh = null
+    try { docRh = new RegExp(docPattern.replace(/^\//, '').replace(/\/g$/, '')) } catch { docRh = null }
+    if (!docRh) docErr.push(`**未判定**：原文正则不可解析：${docPattern}`)
+    else if (docRh.source !== C16_RX.source) {
+      docErr.push(`**副本过期**：原文 = ${docPattern} ／ 本腿副本 = /${C16_RX.source}/g ⇒ 本腿护的不是当前判据（先同步再谈绿）`)
+    }
+  }
+  // `c16BlindRefs` 已把「间隔含『方案』」的情形按正确写法排除（规则③）⇒ 此处直取，不再二次过滤
+  const byLine = blindRefs
+  const pts = byLine.map((x) => `L${x.ln}「${x.trig}${x.gap}§${x.sec}」`.replace(/\s+/g, '·'))
+  const guardScope =
+    `扫描范围：${planLines() ? planLines().length : 0} 行全册；判据口径 = 触发词与 § 之间非空、**不含**分句标记与「方案」、非枚举串、且顶级号属本册（或显式带「本册」）`
+  const evidence =
+    '主持人已两态复现（派单原文）：`按 §6.4` ⇒ C16 报红；`按**** §6.4` ⇒ exit=0 / C16 PASS；' +
+    '且 `按 §?6.4` 式的改写**证实**调用 _check-consistency 也不能替代本腿（C16 对 §N.M 才做存在性校验，对顶级 §N 不看存在性）'
+  const detail = `${guardScope}｜致盲引用 ${byLine.length} 处${pts.length ? '：' + pts.join(' / ') : ''}｜C16 正则副本核验：${docErr.length ? docErr.join('；') : '与原文同源'}`
+  if (byLine.length) {
+    fail(id, title, `${detail}｜⇒ 这些引用**完全不进入 C16 匹配**（「判据绿」会是「看不见」而非「已解析」）`, evidence)
+  } else if (docErr.length) {
+    // ⚠ 不写成 PASS：正则副本是否同源**未判定**时，绿只能读成「眼下没发现致盲引用」，
+    //   不能读成「本腿在护当前判据」—— 这正是本仓「判不了不等于通过」的口径。
+    hang(id, title, `${detail}｜⇒ 0 处致盲引用，但**副本同源性未判定** ⇒ 本腿的保护范围未知（不得读成「已护住」）`, evidence)
+  } else {
+    pass(id, title, `${detail}｜⇒ 0 处致盲引用，且本腿副本与原文同源`, evidence)
   }
 }
 
@@ -1208,7 +1494,13 @@ function runCases(file, cases) {
       '（chain-e2e / injection-gate / assembly 装配腿用 ctx.loader.create(baseUrl) 按包名加载；' +
       'W2-5 走 import.meta.resolve + import(pkg)；a1-check 的 SRC 腿与 lexical-audit 直指 src ⇒ 不在受影响面）'
     if (REQUIRE_FRESH) fail(id, title, detail, '跑一次工作区 build 后复跑；或本项保持挂账并显式记录')
-    else hang(id, title, detail, evidence)
+    else
+      hang(id, title, detail, evidence, {
+        token: 'ARTIFACTS',
+        crit: null,
+        implBatch: null,
+        note: '原定验收阶段 = **待补**：本册 §3.1 / §4 只把「产物是否出自当前 src」当**各批次的构建前置**，未给它立独立验收条 ⇒ 不编阶段号（这一点本身即缺口，见 handoff 未决项）',
+      })
   }
 }
 
@@ -1228,7 +1520,15 @@ function runCases(file, cases) {
  * ⚠ 本腿是**元判据**，不进 `results`（判定项集必须恰好是 EXPECTED_IDS 这 6 项，
  *   报告里的「共 N 项」也就是判据项数，不得被元判据灌水）。
  */
-const EXPECTED_IDS = ['A1-1', 'A1-2', 'A1-4', 'A1-5', 'A1-6', 'A1-8', 'A1-9', 'A1-10', 'A1-11', 'A1-12', 'A1-13', 'A1-14', 'ARTIFACTS', 'W2-5', 'W-1..3', 'P5-UI']
+const EXPECTED_IDS = [
+  'A1-1', 'A1-2', 'A1-4', 'A1-5', 'A1-6', 'A1-8', 'A1-9', 'A1-10', 'A1-11', 'A1-12',
+  'A1-13', 'A1-14', 'ARTIFACTS', 'W2-5', 'W-1..3', 'P5-UI',
+  // ⚠ 加固 2 新加的**腿**，不是新的 A1 判据项：它判的是「C16 这条判据会不会被致盲」。
+  //   项数 16 → 17 是**声明集与实测集同步 +1**，不是判据项增删（A1 判据项仍 16 条）。
+  //   ⚠ 该变化会走进 a0-check 的 A1 腿（它读本脚本自报的期望项数做三方交叉核对，不另存清单）
+  //     ⇒ a0 侧自动跟随，无需改 a0（改了反而会造出第二份清单）。
+  'C16-GUARD',
+]
 const ids = results.map((r) => r.id)
 const missingIds = EXPECTED_IDS.filter((x) => !ids.includes(x))
 const extraIds = [...new Set(ids)].filter((x) => !EXPECTED_IDS.includes(x))
@@ -1241,11 +1541,54 @@ if (extraIds.length)
 if (dupIds.length) itemSetProblems.push(`重复 ${dupIds.length} 项：${dupIds.join(', ')}（同一 id 记两次会让计数虚高，掩盖真缺失）`)
 const itemSetOk = itemSetProblems.length === 0
 const itemSetDetail = `期望 ${EXPECTED_IDS.length} 项 [${EXPECTED_IDS.join(',')}] ／ 实测 ${results.length} 项 [${ids.join(',')}]`
+/**
+ * ── 项集等式自检（加固 3）────────────────────────────────────────────────────
+ * ⚠ 上面的 `EXPECTED_IDS` 是**代码内常量**：若有人同时改常量与实现，两侧一起漂，
+ *   「判据项集变了」这件事在报告里**不可见**。故这里把**显式差集**做成字段与一行输出：
+ *     `itemSet.seen` / `itemSet.expected` / `itemSet.missing` / `itemSet.extra` / `itemSet.dupes`
+ *   —— 与既有 `missingIds/extraIds/dupIds` 同源（不是第二份实现），只是**显式落到 JSON 与 stdout**。
+ * ⚠ 现有项集腿**不削弱**（仍是集合相等、仍点名具体 id）；这是加法。
+ */
+const itemSet = {
+  expected: EXPECTED_IDS,
+  seen: ids,
+  missing: missingIds,
+  extra: extraIds,
+  dupes: dupIds,
+  counts: { expected: EXPECTED_IDS.length, seen: ids.length },
+  problems: itemSetProblems,
+  ok: itemSetOk,
+}
+/** 差集非空即 FAIL —— 一行，机读与人读同一来源。 */
+const itemSetDiffLine =
+  `项集：期望 ${EXPECTED_IDS.length} / 实测 ${ids.length} / 差集 [${[...missingIds.map((x) => '-' + x), ...extraIds.map((x) => '+' + x), ...dupIds.map((x) => '×' + x)].join(',')}]` +
+  (itemSetOk ? ' ⇒ 相等（无缺项/多项/重复项）' : ' ⇒ **不等**（缺 = 期望里有而实测没有；+ = 实测多出；× = 重复）')
 
 // ── 变异自证腿（预注册：注入的项**必须**红、且不得误伤别的项）───────────────────
 // ⚠ 这一腿是 `--mutate` 的全部意义：没有它，`--mutate` 只是一段会打印字的代码。
 let harnessFail = false
 const selfCheck = []
+/**
+ * 「变异是否真被注入」的**判定函数**（加固 2 的 `--self-test` 要对拍它，故抽成具名函数——
+ * 内联三元表达式无法被两态调用）。
+ *
+ * ⚠ 这一行**本身曾是缺陷现场**（2026-09-25 实修）：旧写法是
+ *   `mt.selfKernel ? mutApplied.has(m) : mutApplied.has(m)` —— **两个分支字面相同**，
+ *   selfKernel 分支是**死功能**；而唯一走它的 `a1-5` 其登记又写在**请求标志**上（恒真）
+ *   ⇒ 这条腿永远绿且**不可能**红。故 `--self-test` 的 `mutation-branch` 用例
+ *   直接调本函数、用**合成输入**做出「两分支必须给出不同答案」的对照。
+ */
+const mutationInjected = (mt, m, selfSet = selfApplied, mutSet = mutApplied) =>
+  mt.selfKernel ? selfSet.has(m) : mutSet.has(m)
+/**
+ * ⚠ 两个登记集是**可注入参数**（默认仍是本进程真实的那两个）：这不是为测试开后门，
+ *   而是让「两分支会不会给出不同答案」**可被离线两态检验**——
+ *   不给参数时本函数闭包到的是**真实的空集**（非 `--mutate` 运行时两集都空），
+ *   于是一个只喂合成 id 的用例**永远拿不到 true**，会变成结构性假红
+ *   （本席第一版正是这样：`mutation-branch` 报『selfKernel=true/已登记 ⇒ false（须 true）』，
+ *   错的是用例的输入，不是被测代码）。**判据自身出假红，与出假绿同样要修** ——
+ *   只不过修法是补足输入，不是放宽断言。
+ */
 if (MUTATES.size) {
   for (const m of MUTATES) {
     const mt = MUTATORS[m]
@@ -1268,7 +1611,7 @@ if (MUTATES.size) {
      * ⚠ 登记是**全局**的：同一个变异器若出现在两处、第二处被锚点过期弄失败，
      *   全局登记仍为真 ⇒ 这一腿只能证明"至少注入过一次"，故另有下面的重复变异器闸（exit 2）。
      */
-    const injected = mt.selfKernel ? selfApplied.has(m) : mutApplied.has(m)
+    const injected = mutationInjected(mt, m)
     if (!injected) selfCheck.push(`${m}：变异**未真正注入**（锚点未命中或未加载克隆体）⇒ 本次运行不能作为自证`)
     if (tgt && tgt.state !== 'FAIL') selfCheck.push(`${m}：被注入的 ${mt.target} 实测 ${tgt.state}（**应 FAIL**）⇒ 该项判据无牙`)
     for (const r of results) {
@@ -1291,7 +1634,8 @@ if (JSON_OUT) {
         at: new Date().toISOString(),
         coord: COORD,
         mutates: [...MUTATES],
-        itemSet: { expected: EXPECTED_IDS, actual: ids, ok: itemSetOk, problems: itemSetProblems },
+        itemSet,
+        itemSetDiff: itemSetDiffLine,
         mutationSelfCheck: { ok: !harnessFail, problems: selfCheck },
         results,
       },
@@ -1309,7 +1653,9 @@ if (JSON_OUT) {
     }
     console.log('  （内存克隆注入，源文件零写入；被注入的项必须变红，其余项不受影响）')
   }
-  console.log('（挂账 ≠ 通过；无实现者 = 本项无仓内实现可测，只证判据锚点）\n')
+  console.log('（挂账 ≠ 通过；无实现者 = 本项无仓内实现可测，只证判据锚点）')
+  // 加固 3：项集差集**每次运行都印一行**（不看门判定段也能读出差集非空）
+  console.log(itemSetDiffLine + '\n')
   for (const r of results) {
     const mark = r.state === 'PASS' ? '  PASS' : r.state === 'FAIL' ? '✗ FAIL' : r.state === 'HANG' ? '  HANG' : '  NONE'
     console.log(`${mark}  [${r.id}] ${r.title}`)
@@ -1342,6 +1688,7 @@ if (JSON_OUT) {
   if (itemSetOk) console.log(`  ✓ 项集腿：期望 == 实测（${EXPECTED_IDS.length} 项逐 id 在册）`)
   else console.log(`  ✗ 项集腿：${itemSetProblems.join('；')}`)
   console.log(`  ${itemSetDetail}`)
+  console.log(`  ${itemSetDiffLine}`)
   if (MUTATES.size) console.log(`  ${harnessFail ? '✗' : '✓'} 变异自证腿：${harnessFail ? '不通过（见上）' : '注入项皆红、其余项未误伤'}`)
   console.log(`\n${gateOk ? '✅ 门通过' : `❌ 门不通过：${gateWhy.join(' + ')}`}`)
 }
@@ -1354,4 +1701,128 @@ process.exitCode = harnessFail ? 3 : !itemSetOk || results.some((r) => r.state =
 // 收尾：删本次创建的临时克隆目录（逐个删；本脚本不写仓内任何文件）
 for (const d of createdDirs) {
   try { rmSync(d, { recursive: true, force: true }) } catch { /* ignore */ }
+}
+
+// ══ `--self-test`：判据器自测表（加固 2）════════════════════════════════════
+/**
+ * ⚠ **为什么自测不能只看那三条腿自己的读数**：本脚本里已经修过**两处「形式还在、语义已丢」**
+ *   （变异自证腿的死分支、夹具自证）—— 它们的共同形态是：**腿还在跑、也没报错，只是不可能红**。
+ *   只看「腿这次绿了」永远发现不了这种缺陷，因为那正是缺陷的表现形式。
+ *   ⇒ 这里把「腿**会不会红**」本身变成可机检的两态表：每个用例都给出
+ *     **扰动输入 → 必须红** 与 **干净输入 → 必须绿** 两侧，缺一侧即判该用例无牙。
+ *
+ * ⚠ 本模式**不新增判据项**（逐用例结果打在独立段，不进 `results` ⇒ 项集等式不受影响）。
+ * ⚠ 它会**先跑完整判据腿**（依赖 itemSet / 变异自证腿的实算结果）⇒ 耗时与一次全量相当，
+ *   这是刻意的：自测表要对的靶是**本次运行真的算出来的**东西，不是另写一份期望值。
+ * ⚠ 退出码：全部用例 PASS ⇒ 0；任一用例不能两态 ⇒ 3（与「变异自证腿不过」同码：**判据无牙**）。
+ */
+if (argv.includes('--self-test')) {
+  const cases = []
+  const caseAdd = (name, ok, detail) => cases.push({ name, ok, detail })
+
+  // ① C16 副本同源：本腿护的正则 == docs/_check-consistency.mjs 里的原文
+  {
+    const p = readC16PatternFromDoc()
+    const wantSrc = C16_RX.source
+    let gotSrc = null
+    if (p) { try { gotSrc = new RegExp(p.replace(/^\//, '').replace(/\/([a-z]*)$/, '')).source } catch { gotSrc = null } }
+    caseAdd(
+      'c16pattern',
+      gotSrc !== null && gotSrc === wantSrc,
+      gotSrc === null
+        ? `**不能两态**：读不到原文正则（${p === null ? '文件缺失/正则不匹配' : p}）⇒ 本腿在护什么无法判定`
+        : `原文=${gotSrc} ／ 副本=${wantSrc} ⇒ ${gotSrc === wantSrc ? '同源' : '**副本已漂**（本腿护的不是当前判据）'}`,
+    )
+  }
+
+  // ② C16 致盲探测器的**两态**（离线合成输入，不碰文档）
+  {
+    const clean =
+      '## 2. 批次\n## 6. 阈值\n\n> 读 §3.1 找到你的批次号，再按 §6 查阈值。\n| 见 §8 C8 |\n| 按方案 §6.4 原样实现必然不可达 |'
+    const dirty = clean + '\n> 按**X** §6.1 与 跳到 §2 都要被发现。'
+    const a = c16BlindRefs(clean)
+    const b = c16BlindRefs(dirty)
+    const hit = b.filter((x) => x.ln === 7)
+    caseAdd(
+      'c16guard-twostate',
+      a.length === 0 && hit.length === 2 && hit.some((x) => x.gap === '**X** ') && hit.some((x) => x.gap === '到 '),
+      `干净输入命中 ${a.length} 处（须 0：「按方案 §6.4」是正确写法、不得误伤；「读 §3.1」「按 §6」是 C16 看得见的正形）／扰动输入 L7 命中 ${hit.length} 处（须 2：gap 分别为 **X**␣ 与 ␣到␣）⇒ ${a.length === 0 && hit.length === 2 ? '两态可分辨' : '**不能两态**（探测器无牙）'}`,
+    )
+  }
+
+  // ③ 项集差集：字段 → 那一行输出必须**逐字可复算**（防手写文案与字段漂开）
+  {
+    const redrive =
+      `项集：期望 ${itemSet.counts.expected} / 实测 ${itemSet.counts.seen} / 差集 [${[...itemSet.missing.map((x) => '-' + x), ...itemSet.extra.map((x) => '+' + x), ...itemSet.dupes.map((x) => '×' + x)].join(',')}]` +
+      (itemSet.ok ? ' ⇒ 相等（无缺项/多项/重复项）' : ' ⇒ **不等**（缺 = 期望里有而实测没有；+ = 实测多出；× = 重复）')
+    const consistent =
+      redrive === itemSetDiffLine &&
+      itemSet.ok === (itemSet.missing.length === 0 && itemSet.extra.length === 0 && itemSet.dupes.length === 0) &&
+      itemSet.counts.seen === results.length &&
+      itemSet.seen.length === results.length
+    // 负向侧：合成一组含「缺/多/重复」的 id，确认**差集非空 ⇒ 该 FAIL** 的规则真的成立
+    const syn = ['A', 'B', 'B', 'C']
+    const synExpected = ['A', 'B', 'D']
+    const synMissing = synExpected.filter((x) => !syn.includes(x))
+    const synExtra = [...new Set(syn)].filter((x) => !synExpected.includes(x))
+    const synDup = [...new Set(syn)].filter((x) => syn.filter((y) => y === x).length > 1)
+    const synRed = synMissing.length + synExtra.length + synDup.length > 0
+    caseAdd(
+      'itemset-diff',
+      consistent && synRed && synMissing.join() === 'D' && synDup.join() === 'B',
+      `字段→输出行可逐字复算=${redrive === itemSetDiffLine}、ok 与差集同源=${itemSet.ok === (itemSet.missing.length + itemSet.extra.length + itemSet.dupes.length === 0)}、实测数与 results 一致=${itemSet.counts.seen === results.length}` +
+        `｜负向侧合成 [A,B,B,C] vs 期望 [A,B,D] ⇒ 缺 ${synMissing.join()} / 多 ${synExtra.join()} / 重复 ${synDup.join()} ⇒ ${synRed ? '规则会判红' : '**规则恒绿**'}`,
+    )
+  }
+
+  // ④ 变异注入判定：**两个分支必须给出不同答案**（旧缺陷是两分支字面相同 ⇒ 死功能）
+  {
+    const selfSet = new Set(['x'])   // 合成：selfKernel 分支的登记集
+    const mutSet = new Set([])       // 合成：实现变异分支的登记集**故意为空**
+    const t1 = mutationInjected({ selfKernel: true }, 'x', selfSet, mutSet)   // ⇒ 必须 true
+    const t2 = mutationInjected({ selfKernel: false }, 'x', selfSet, mutSet)  // ⇒ 必须 false
+    const f1 = mutationInjected({ selfKernel: true }, 'y', selfSet, mutSet)   // ⇒ 必须 false
+    const f2 = mutationInjected({ selfKernel: false }, 'y', selfSet, mutSet)  // ⇒ 必须 false
+    caseAdd(
+      'mutation-branch',
+      t1 === true && t2 === false && f1 === false && f2 === false,
+      `selfKernel=true/已登记 ⇒ ${t1}（须 true）；selfKernel=false/未登记 ⇒ ${t2}（须 false）` +
+        `｜合成登记集 self=${JSON.stringify([...selfSet])} / mut=${JSON.stringify([...mutSet])} ⇒ **两分支给出不同答案**（t1=true 而 t2=false）；若代码回退成\`mt.selfKernel ? mutApplied.has(m) : mutApplied.has(m)\` 那种两分支同源的死形态，t1 会变成 false ⇒ 本用例立刻红`,
+    )
+  }
+
+  // ⑤ 挂账溯源：每个 HANG 都要答得出「首现时刻」与「原定验收阶段」
+  {
+    const hangs = results.filter((r) => r.state === 'HANG')
+    const evals = hangs.map((r) => ({ id: r.id, ...provFieldsOf(r.detail) }))
+    const missing = evals.filter((x) => !x.hasProv)
+    const noWhen = evals.filter((x) => !x.hasFirst)
+    const noTarget = evals.filter((x) => !x.hasTarget)
+    /**
+     * ⚠ **负向侧用合成输入，不打真数据**（这是本条腿能被否证的唯一方式）：
+     *   「首现时刻字段被清空 ⇒ 报红」若只对**真** detail 断言，就必须真去改数据才能对拍 ——
+     *   而改数据会把「判据红了」与「数据被改坏了」混成一件事。故这里对**同一判定函数**
+     *   喂两条合成 detail：一条正常、一条把首现清成 `待补` ⇒ 后者必须被判红。
+     */
+    const goodSynth = 'x｜⏱ 挂账溯源：⏱ 首现 abc1234 (2026-09-25)（git log -S "x" 实测）｜判据表行 A1-5@L455（所在阶段段 = 阶段 1）｜实现/验收归属批次 B4.2@L547（阶段 3）'
+    const badSynthFirst = goodSynth.replace('abc1234 (2026-09-25)', '**待补**（git 历史不可得）')
+    const badSynthProv = 'x｜（只有一句话描述，没有溯源段）'
+    const synTwoState =
+      Object.values(provFieldsOf(goodSynth)).every(Boolean) &&
+      provFieldsOf(badSynthFirst).hasProv && !provFieldsOf(badSynthFirst).hasFirst &&
+      !provFieldsOf(badSynthProv).hasProv
+    caseAdd(
+      'hang-provenance',
+      hangs.length > 0 && missing.length === 0 && noWhen.length === 0 && noTarget.length === 0 && synTwoState,
+      `HANG ${hangs.length} 项 / 缺溯源段 ${missing.length}（${missing.map((x) => x.id).join(',') || '无'}）/ 首现被清空或缺失 ${noWhen.length}（${noWhen.map((x) => x.id).join(',') || '无'}）/ 缺原定验收阶段 ${noTarget.length}（${noTarget.map((x) => x.id).join(',') || '无'}）` +
+        `｜**两态（合成输入，不动真数据）**：正常 detail ⇒ 三项全真；首现清成「待补」⇒ hasFirst 转假（即判红）；整段溯源缺失 ⇒ hasProv 转假 ⇒ ${synTwoState ? '两态可分辨' : '**不能两态**（本条腿恒绿）'}` +
+        `｜⚠ 「原定验收阶段 = 待补」对 hasTarget **不算通过**：待补只在『原定验收阶段』那一栏作如实口径，而 hasTarget 要求的是「已给出归属（判据表行/归属批次/跨阶段/归期）」`,
+    )
+  }
+
+  const bad = cases.filter((c) => !c.ok)
+  console.log('══════ 判据器自测表（--self-test：每条腿的「会不会红」本身要被机检）══════')
+  for (const c of cases) console.log(`  ${c.ok ? '✓' : '✗'} [${c.name}] ${c.detail}`)
+  console.log(`\n${bad.length ? `❌ 自测不通过：${bad.map((c) => c.name).join(', ')}（该腿**不能两态** ⇒ 它绿也不可信）` : `✅ 自测通过：${cases.length}/${cases.length} 条腿两态可分辨`}`)
+  process.exit(bad.length ? 3 : 0)
 }
