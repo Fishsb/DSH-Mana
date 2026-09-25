@@ -17,6 +17,8 @@
 | `dsh-mana-consolidation` | `packages/consolidation` | `mana-consolidation` | `mana-consolidation` | P1 | `mana-core` |
 | `dsh-mana-forgetting` | `packages/forgetting` | `mana-forgetting` | `mana-forgetting` | P1 | `mana-core` |
 | `dsh-mana-llm` | `packages/llm` | `mana-llm` | `mana-llm` | P1 | `mana-core` |
+| `dsh-mana-reconsolidation` | `packages/reconsolidation` | `mana-reconsolidation` | `mana-reconsolidation` | P1 | `mana-core` |
+| `dsh-mana-learning` | `packages/learning` | `mana-learning` | `mana-learning` | P1 | `mana-core` |
 | `dsh-mana-metacognition` | `packages/metacognition` | `mana-metacognition` | `mana-metacognition` | P2 | `mana-core` |
 | `dsh-mana-user-model` | `packages/user-model` | `mana-user-model` | `mana-user-model` | P2 | `mana-core` |
 | `dsh-mana-ui` | `packages/ui` | `mana-ui` | `mana-ui` | P2 | `mana-core` |

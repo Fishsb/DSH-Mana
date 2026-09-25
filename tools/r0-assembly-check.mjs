@@ -79,6 +79,8 @@ const MANIFEST = {
   consolidation: 'mana-consolidation',
   forgetting: 'mana-forgetting',
   scheduler: 'mana-scheduler',
+  reconsolidation: 'mana-reconsolidation',
+  learning: 'mana-learning',
   'user-model': 'mana-user-model',
   metacognition: 'mana-metacognition',
 }

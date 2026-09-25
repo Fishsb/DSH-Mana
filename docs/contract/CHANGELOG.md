@@ -17,6 +17,7 @@
 | v0.2.2 | **五类 `gate` 枚举全部接通生产侧 + 判定链接入**：<br>① `attention` 新增 `judgeState`/`judgeQuestion` 配置，Injection Gate 先问 `mana/jev/judge`（waterfall）再决定注入；<br>② 补 `skip_below_threshold`（判了但未过阈）与 `degraded_unavailable`（判定链降级）两个写入点 —— 此前 5 类中只有 3 类可达；<br>③ 补 `reset` 检测（已注入块不在上下文里时显式记账）；<br>④ `jev` 新增 `mana/jev/judge` 监听器（此前**无监听器**，判定链是空链） | I-1（`mana/jev/judge` 的消费侧）、I-3 的 `gate` 五类可达性 | S0 | 2026-09-25 | 全体：`gate` 五类现各有生产侧写入点与判据；`attention` 的判定链缺省 `judgeState=''` ⇒ 必然 `degraded_unavailable`（fail-closed，比"没判就注入"安全） |
 | v0.2.3 | **并发纪律落盘 + A0-10 改判本仓 + 契约快照「写了又回滚」可检出**：<br>① 新建 `docs/contract/concurrency-discipline.md`（六条并发纪律 + 每条的事故原文与「为什么」）；<br>② 新建 append-only 变更流水 `docs/contract/_freeze.log`（三件套的机器可读历史）；<br>③ `tools/a0-check.mjs` A0-10 由「只判仓外样板仓」改为**两仓都判**（本仓腿常开），并新增**越界腿**（提交 ⊆ 声明写面；脏件须有主）；<br>④ A0-12 由三腿扩为**六腿**（新增流水腿 / 锚点不回退腿 / 时序腿），使「写了又回滚」必须报红；<br>⑤ `--record-baseline` 加前置门（必填 `--expect` 声明写面；已跟踪脏件即拒绝，例外须 `--accept-dirty "<理由>"`）+ 流水**回读闸** | I-9（并发纪律）、A0-10、A0-12（三件套口径） | S6 | 2026-09-25 | 全体：**判据项数 16 → 16（无变化）**；A0-10 现要求 `tools/.a0-10-baseline.json` 含本仓腿（旧格式自动兼容，仅本仓腿报「无基线」FAIL，须重取一次）；契约快照多出 `_freeze.log` 一件（**新增入库件**），重取基线后 `_freeze.*` 四件一起变更 |
 | v0.2.4 | **新增第 14 包 `dsh-mana-llm` 的三件连带收口 + 契约快照重取**：<br>① `naming.md` 表内 **P1 段**追加 `dsh-mana-llm` 行（原表只列到 13 行 ⇒ `A0-5` 实测报「14 个包；问题: llm: naming.md 未登记」）；<br>② `tools/r0-assembly-check.mjs` 的 `MANIFEST` 追加 `llm: 'mana-llm'`（原 13 项 ⇒ R0 覆盖核对腿报「盘上 14 / 清单 13 / 互覆盖 ✗ 盘上有、清单缺 1 个：llm」，**红得正确**；按该腿的设立理由，**不得**以「删包」或「放宽该腿」消红）；<br>③ **`librarySize` 口径修正**：core 的 `recallLexical` 由「全表 `COUNT(*)`」改为**活记忆数**（`WHERE retired = 0`），并新增机检 `packages/core/tests/library-size-live.test.mjs`；<br>④ **契约快照三件套重取**（清单腿漂移 20 件，见下） | I-5（三名映射表）、A0-5、R0（覆盖核对腿）、A1-10（`reason` 的分母） | S24 | 2026-09-25 | 全体：① 新建包**必须**在 `naming.md` 登记；② 加包时 `MANIFEST` 与盘上目录**两边都要改**（只改一边即报红并点名）；③ `librarySize` 语义 = **活记忆数**（库里无 `retired` 行时与旧口径数值相等 ⇒ **既有判据结论不变**）；④ 判据项数 **16 → 16（无变化）** |
+| v0.2.5 | **第 15/16 包（reconsolidation / learning）的三件连带收口 + 契约快照第三次重取（seq=10）**：<br>① `naming.md` 表内 **P1 段**追加 `dsh-mana-reconsolidation` / `dsh-mana-learning` 两行（原表只列到 14 行 ⇒ `A0-5` 实测报「16 个包；问题: reconsolidation/learning: naming.md 未登记」）；<br>② `tools/r0-assembly-check.mjs` 的 `MANIFEST` 追加 `reconsolidation: 'mana-reconsolidation'` / `learning: 'mana-learning'`（原 14 项 ⇒ R0 覆盖核对腿报「盘上 16 / 清单 14 / 互覆盖 ✗ 盘上有、清单缺 2 个：learning, reconsolidation」，**红得正确**；按该腿设立理由，**不得**以「删包」或「放宽该腿」消红）；<br>③ **契约快照三件套重取**（清单腿漂移 18 件，见下） | I-5（三名映射表）、A0-5、R0（覆盖核对腿）、A0-12（三件套口径） | S29 | 2026-09-25 | 全体：① 新建包**必须**在 `naming.md` 登记；② 加包时 `MANIFEST` 与盘上目录**两边都要改**（只改一边即报红并点名）；③ 判据项数 **16 → 16（无变化）** |
 
 ## 变更背景（v0.2.3）
 
@@ -173,4 +174,60 @@
   · **被点名的件 = 既往批次产出**：那 81 件属 S7–S23 / W4 各席，它们落在写面外，是因为 seq=8 之后**无人再记录过基线**（这一跳跨了多批提交）。
 
   本席**未**把它消掉：流水 append-only，seq=8→9 这一跳已钉住，**再重取也不会变绿**（新的 prev 仍是本条）。须由主持人裁定「本批边界声明」后另行处置。
+
+## 变更背景（v0.2.5）
+
+**触发**：新增第 15/16 包 `packages/reconsolidation`（L-02）与 `packages/learning`（L-03）后的三件连带收口 + 契约快照第三次重取。①② 与前两版（v0.1.2 的 6→13 包、v0.2.4 的 llm）是**同一形态**：「清单与真源各存一份 ⇒ 漂移不可见」。
+
+| # | 现象（实测原文） | 归因 | 处置 |
+|---|---|---|---|
+| ① | `A0-5`：`共 16 个包；问题: learning: naming.md 未登记 / reconsolidation: naming.md 未登记` | `naming.md` 的表**只列到 14 行**，两个新建包未登记 | 表内 **P1 段**追加两行（不追加到表尾：该表按优先级排序）。⚠ diff 实测 **+2/−0**，插入位次在 `dsh-mana-llm` 之后、P2 段之前；表下既有注记（「本表必须与代码同步」整段）**逐字保留** |
+| ② | R0 覆盖核对腿：`盘上 16 / 清单 14 / 互覆盖 ✗ 盘上有、清单缺 2 个：learning, reconsolidation` | `MANIFEST` 是手写映射，**加包时漏改一边** | 追加 `reconsolidation: 'mana-reconsolidation'` / `learning: 'mana-learning'`（diff 实测 **+2/−0**）。⚠ **不得**以「删包」或「放宽该腿」消红 —— 该腿注释自己写着要防的就是「删一行 → 判据跟着少一行 → 恒绿」 |
+
+**③ 契约快照第三次重取（清单腿漂移 18 件 · 流水 seq=10）**
+
+⚠ **真实红因是「清单腿漂移」，不是「某包改动使哈希腿漂」**（后者是**假归因**，且会掩盖下面这 18 件）：
+
+· `_freeze.sha256` 只登记 **2 个文件**（`packages/core/src/event-types.ts` / `packages/core/src/domain.ts`）—— 本批重取前后实测该腿恒为**逐字相等**（`53c92707954562b1…`），**从未参与本次报红**；
+· 实测（`find packages -name '*.ts' -not -path '*/node_modules/*' -not -path '*/lib/*' | sort`）：盘上 **74** 个 `.ts` vs 快照 **56** 行 ⇒ **少 18 件**、多 0 件；
+· 归属（逐件点名，按 `git log --diff-filter=A` 反查引入提交，**无一件无主**）：
+  · **8 件 = `109bc79` L-02 reconsolidation 落地**：`packages/reconsolidation/src/` 的 `columns/history/index/params/trace/updates/window/windows.ts`；
+  · **7 件 = `08bf06c` L-03 Hebbian 联结学习落地**：`packages/learning/src/` 的 `hebbian/index/params/store-format/store/trace/window.ts`；
+  · **3 件 = `68596ea` L-04 双画像维护落地**：`packages/metacognition/src/` 的 `profile-index/profile-pipeline/profile.ts`。
+· 漂移的**流程事实**：上一条 record 是 **seq=9**（head `16b6662`，S24 席），其后 `d687e70…1b281ff` 共 6 个提交（含 `f0abf6c` 判据器加固、以及 L-02/L-03/L-04/llm 四批落地）**期间无人记录基线** ⇒ 清单腿基准停在 56 件。
+
+⚠ **本次重取使 A0-12 的跃迁腿基准推进到本席这一跳**：重取后末条 record = **seq=10（head `1b281ff`；expect = `docs/contract/` / `tools/r0-assembly-check.mjs` / `docs/handoff/S29.md`）**。即从本席起，跃迁腿的「上一段声明写面」换成了**本席如实窄声明的三项**，后续任何提交若落在这三项之外都会被这段窄写面点名为越界 —— 这是**刻意的**（写面声明若写成全集，这条腿就废了）。
+
+**为什么走了 `--accept-dirty` 例外路径（如实交代，不是静默绕过）**
+
+前置门②实测**拒绝**记录：`工作树有既有件被动过（已跟踪脏 2 项）`。这 2 项 = `docs/contract/naming.md` + `tools/r0-assembly-check.mjs`，**即本批产出本身**；收口席按纪律**禁 git add/commit**（提交由主持人统一做）⇒ 无法先提交再记录，只能用该门自述的例外路径。理由原文（已落进流水 `acceptDirtyReason`）：
+
+> S29 收口席录本批最终态；已跟踪脏 2 件（`docs/contract/naming.md` / `tools/r0-assembly-check.mjs`）全部在本席声明写面内，**处之外 0 件**；未跟踪新增 12 件中 **0 件属 `packages/**`**（S30 席写面 `packages/long-term/**` 本轮尚未落盘；未跟踪按前置门设计不拦不判红）
+
+⚠ **本例外的可观测性**：门自己打印了 `[baseline dirty-accepted] <理由>` + 「处之外（别席在途）：（无）」，故「脏被接受」与「树上真有别席在途」**可分辨**；且流水**回读闸 ✓**（末条三件套指纹 = 磁盘逐字相等）。
+
+**本批「碰了哪面墙 + 凭什么确认没碰坏」**
+
+| 碰的面 | 凭什么确认仍成立 |
+|---|---|
+| `docs/contract/naming.md`（**全员只读**的契约表） | 只**追加**两行于 P1 段（`git diff --numstat` = `2 0`）；表下既有注记逐字保留；`A0-5` 由两包未登记转 PASS（**16/16**）；**负向对拍**：临时删 `learning` 行 ⇒ 必报红（实测 `共 16 个包；问题: learning: naming.md 未登记`），逐字节恢复后 `sha256` 相等（`520878dec7fb3bba…`）且 A0-5 复绿 |
+| `tools/r0-assembly-check.mjs` 的 `MANIFEST` | `git diff --numstat` = `2 0`；R0 三腿由 ✗ 转 ✓（覆盖核对 ✓ / 装配计数 `N=16 → 0` ✓ / 卸载无新行 ✓）；**未放宽任何腿**；**负向对拍**：临时删 `learning` 项 ⇒ 覆盖核对腿**必报红**（实测 `覆盖核对（三源互证）：✗ 不通过`，退出码 1），逐字节恢复后 `sha256` 相等（`dc95aa791e4b99a1…`）且三腿复绿 |
+| `docs/contract/_freeze.{sha256,files.txt,head,log}`（**全员只读**的契约快照） | 走**授权路径** `--record-baseline`（唯一基线席，本席是本轮唯一允许重取基线的席）；旧值由流水 `_freeze.log` 存档**不覆盖**；重取后清单腿实测 **74 件 = 权威 walk 74 件**、哈希腿逐字相等、HEAD 腿锚点仍为祖先 |
+| 其余判据（A0-1…A0-14 / R0 / A1） | 重取**前后**各跑一次完整读数：重取前 `PASS 13 · FAIL 2 · 挂账 1`（FAIL = A0-10 提交面 52 件越界 + A0-12 清单腿少 18）；重取后 `PASS 14 · FAIL 1 · 挂账 1`（**A0-10 由 FAIL 转 PASS** —— 它枚举「基线锚点..HEAD」，锚点前移后该区间为空集）。**未为了让任何一项变绿而放宽断言、调大超时或删用例** |
+
+**已知未覆盖面（如实标注，不假装已覆盖）**
+
+· A0-12 **跃迁腿**：重取后报 **2 段越界**，两段性质**不同**，必须分开说：
+
+  · **第 1 段 `cbd80f7→16b6662`（先前既存，本席未消、也不该由本席消）**：被点名 `docs/handoff/S10.md` 等，声明写面来源 = seq=8 的 `expect`（`docs/contract/`, `tools/a0-check.mjs`, `docs/handoff/S6.md`）。⚠ 本席已**在重取前实测**该段红（原文：`跃迁腿=1 段越界：cbd80f7→16b6662…`）⇒ 它是 **S24 席那一跳（seq=8→9）造出的既往红**，**不是本席重取造成的**；
+  · **第 2 段 `16b6662→1b281ff`（本席这一跳新造）**：**59 件提交**（去 `FREEZE_OWN`），声明写面 = seq=9 的 `expect`（S24 席五项窄写面）⇒ 其中 **52 件被判越界**（`packages/learning/**`、`packages/reconsolidation/**`、`packages/metacognition/**`、`packages/llm/**`、`tools/a1-check.mjs`、`docs/handoff/S22…S28.md`、`docs/mana-rollout-plan.md`）。
+
+  ⚠ **诚实归因（两件事必须分开说）**：
+  · **红的成因 = 区间内无人记录这一流程事实**：seq=9 之后 6 个提交期间**没有任何席重取基线** ⇒ 拿 seq=9 的窄写面去比整段区间必然全越界。**不是本席碰了这些件**（本席写面实测仅 `docs/contract/` + `tools/r0-assembly-check.mjs`，`git status` 亦无 `packages/**` 脏项）；
+  · **被点名的件 = 既往批次产出（归属事实）**：L-02/L-03/L-04/llm 四批各属 `109bc79` / `08bf06c` / `68596ea` / `1b281ff` 的提交者，**逐件可追溯**。
+
+  ⚠ 本席**没有**把它消掉，且**拒绝**用「把 `--expect` 声明得尽量宽（覆盖区间内所有相关批次）让跃迁腿变绿」的做法 —— 声明写面的用途是「本席动了什么」，写成全集就**废了这条腿的意义**；本席采用**如实窄声明**（三项）。
+
+  处置建议：该腿之红需由**主持人**裁定「本批边界声明」（在流水补一条说明区间归属的 record/incident 注解）后另行处置；**本席不改流水、不改判据、不消红**。
+
 
