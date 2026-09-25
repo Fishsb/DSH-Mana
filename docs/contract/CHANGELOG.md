@@ -16,6 +16,7 @@
 
 | v0.2.2 | **五类 `gate` 枚举全部接通生产侧 + 判定链接入**：<br>① `attention` 新增 `judgeState`/`judgeQuestion` 配置，Injection Gate 先问 `mana/jev/judge`（waterfall）再决定注入；<br>② 补 `skip_below_threshold`（判了但未过阈）与 `degraded_unavailable`（判定链降级）两个写入点 —— 此前 5 类中只有 3 类可达；<br>③ 补 `reset` 检测（已注入块不在上下文里时显式记账）；<br>④ `jev` 新增 `mana/jev/judge` 监听器（此前**无监听器**，判定链是空链） | I-1（`mana/jev/judge` 的消费侧）、I-3 的 `gate` 五类可达性 | S0 | 2026-09-25 | 全体：`gate` 五类现各有生产侧写入点与判据；`attention` 的判定链缺省 `judgeState=''` ⇒ 必然 `degraded_unavailable`（fail-closed，比"没判就注入"安全） |
 | v0.2.3 | **并发纪律落盘 + A0-10 改判本仓 + 契约快照「写了又回滚」可检出**：<br>① 新建 `docs/contract/concurrency-discipline.md`（六条并发纪律 + 每条的事故原文与「为什么」）；<br>② 新建 append-only 变更流水 `docs/contract/_freeze.log`（三件套的机器可读历史）；<br>③ `tools/a0-check.mjs` A0-10 由「只判仓外样板仓」改为**两仓都判**（本仓腿常开），并新增**越界腿**（提交 ⊆ 声明写面；脏件须有主）；<br>④ A0-12 由三腿扩为**六腿**（新增流水腿 / 锚点不回退腿 / 时序腿），使「写了又回滚」必须报红；<br>⑤ `--record-baseline` 加前置门（必填 `--expect` 声明写面；已跟踪脏件即拒绝，例外须 `--accept-dirty "<理由>"`）+ 流水**回读闸** | I-9（并发纪律）、A0-10、A0-12（三件套口径） | S6 | 2026-09-25 | 全体：**判据项数 16 → 16（无变化）**；A0-10 现要求 `tools/.a0-10-baseline.json` 含本仓腿（旧格式自动兼容，仅本仓腿报「无基线」FAIL，须重取一次）；契约快照多出 `_freeze.log` 一件（**新增入库件**），重取基线后 `_freeze.*` 四件一起变更 |
+| v0.2.4 | **新增第 14 包 `dsh-mana-llm` 的三件连带收口 + 契约快照重取**：<br>① `naming.md` 表内 **P1 段**追加 `dsh-mana-llm` 行（原表只列到 13 行 ⇒ `A0-5` 实测报「14 个包；问题: llm: naming.md 未登记」）；<br>② `tools/r0-assembly-check.mjs` 的 `MANIFEST` 追加 `llm: 'mana-llm'`（原 13 项 ⇒ R0 覆盖核对腿报「盘上 14 / 清单 13 / 互覆盖 ✗ 盘上有、清单缺 1 个：llm」，**红得正确**；按该腿的设立理由，**不得**以「删包」或「放宽该腿」消红）；<br>③ **`librarySize` 口径修正**：core 的 `recallLexical` 由「全表 `COUNT(*)`」改为**活记忆数**（`WHERE retired = 0`），并新增机检 `packages/core/tests/library-size-live.test.mjs`；<br>④ **契约快照三件套重取**（清单腿漂移 20 件，见下） | I-5（三名映射表）、A0-5、R0（覆盖核对腿）、A1-10（`reason` 的分母） | S24 | 2026-09-25 | 全体：① 新建包**必须**在 `naming.md` 登记；② 加包时 `MANIFEST` 与盘上目录**两边都要改**（只改一边即报红并点名）；③ `librarySize` 语义 = **活记忆数**（库里无 `retired` 行时与旧口径数值相等 ⇒ **既有判据结论不变**）；④ 判据项数 **16 → 16（无变化）** |
 
 ## 变更背景（v0.2.3）
 
@@ -128,3 +129,48 @@
 3. **`autoMigrate` 死开关**：原实现 `if (!config.autoMigrate) createSchema(...)` 在
    `false` 时**仍然建表** ⇒ true/false 产出同一结果。现由 `openManaDb` 的 `migrate`
    单点决定，并有测试（M6）钉住「开关必须产生可观测差异」。
+## 变更背景（v0.2.4）
+
+**触发**：新增第 14 包 `packages/llm`（S22 席交付）后的三处连带收口。三项都是「**清单与真源各存一份 ⇒ 漂移不可见**」的同一形态，与前两版（v0.1.2 的 6→13 包、v0.2.3 的 D6/D7）同源。
+
+| # | 现象（实测原文） | 归因 | 处置 |
+|---|---|---|---|
+| ① | `A0-5`：`14 个包；问题: llm: naming.md 未登记` | `naming.md` 的表**只列到 13 行**，新建包未登记 | 表内 **P1 段**追加一行（不追加到表尾：该表按优先级排序） |
+| ② | R0 覆盖核对腿：`盘上 14 / 清单 13 / 互覆盖 ✗ 盘上有、清单缺 1 个：llm` | `MANIFEST` 是手写映射，**加包时漏改一边** | 追加 `llm: 'mana-llm'`。⚠ **不得**以「删包」或「放宽该腿」消红 —— 该腿注释自己写着要防的就是「删一行 → 判据跟着少一行 → 恒绿」 |
+| ③ | 「库中**唯一一条**记忆已退休」时读到 `hits=[] reason=ok librarySize=1`，而 **A1-10 的判红形态正是（库非空 && 0 命中 && reason=ok）** | `librarySize` 用全表 `COUNT(*)`,与「检索已排除 retired 行」的口径**不自洽** | 改为**活记忆数**（`WHERE retired = 0`）；语义见下 |
+
+**③ 的口径说明（为什么是修正而非行为变更）**
+
+· `librarySize` 的**唯一消费者**是 `reason` 判定，它要回答的是「**对这次检索而言**库里有没有可查的东西」；
+· 保持全量会让「有记忆但全退休」（**正确行为**）被读成 A1-10 的判红形态 ⇒ **正确行为被判成缺陷**（假红）；
+· 库里**无** `retired` 行时两者数值相等 ⇒ **既有判据结论不变**（实测：`lexical-audit.test.mjs` F2 的 `librarySize` 断言、`long-term` 的 `searchLiveMemories` 有**自己**的 `librarySize`，均不受影响）。
+
+**④ 契约快照重取（清单腿漂移 20 件）**
+
+⚠ **真实红因是「清单腿漂移」，不是「core 改动使哈希腿漂」**（后者是**假归因**，且会掩盖下面这 20 件）：
+
+· `_freeze.sha256` 只登记 **2 个文件**（`packages/core/src/event-types.ts` / `packages/core/src/domain.ts`）—— 本批的 core 改动**不在其中**；
+· 实测（`find packages -name '*.ts' -not -path '*/node_modules/*' -not -path '*/lib/*' | sort`）：盘上 **56** 个 `.ts` vs 快照 **36** 行 ⇒ **少 20 件**、多 0 件；
+· 归属（逐件点名，与 S23 席实测一致）：
+  · **19 件 = W4 一波各席新增**：consolidation 6（`chunking/consolidate/params/rules/select/vector-cosine`）、forgetting 6（`archive/criteria/params/prune/retention/strength`）、long-term 4（`activation/decay/params/retirement`）、ui 1（`replay`）、user-model 2（`params/precision`）;
+  · **1 件 = S22 席的** `packages/llm/src/index.ts`（本批新增包）。
+
+**本批「碰了哪面墙 + 凭什么确认没碰坏」**
+
+| 碰的面 | 凭什么确认仍成立 |
+|---|---|
+| `docs/contract/naming.md`（**全员只读**的契约表） | 只**追加**一行于 P1 段；表下既有注记（「本表必须与代码同步」整段）**逐字保留**；`A0-5` 由 `llm: naming.md 未登记` 转 PASS（14/14） |
+| `tools/r0-assembly-check.mjs` 的 `MANIFEST` | R0 覆盖核对腿由 ✗ 转 ✓，且装配计数 `N=14` → 归零；**未放宽任何腿**（该腿对本批的报红是正确行为） |
+| `packages/core/src/index.ts` 的 `recallLexical` | ① 新增机检 `library-size-live.test.mjs`（4 例，含**前置控制**：同库同词把 `retired` 改回 0 ⇒ 必可见）；② **负向对拍**：SQL 改回全量 ⇒ 该用例必红（实测 `reason=ok、librarySize=1`）⇒ 逐字节恢复 + `sha256` 相等；③ 复跑 `A1-10` 相关用例与 `long-term`/`vector` 检索用例 |
+| `docs/contract/_freeze.{sha256,files.txt,head}`（**全员只读**的契约快照） | 走**授权路径** `--record-baseline`（唯一基线席）；旧值由流水 `_freeze.log` 存档**不覆盖** |
+
+**已知未覆盖面（如实标注，不假装已覆盖）**
+
+· A0-12 **跃迁腿**：本批重取**新造出**一段跨批区间 —— `cbd80f7..16b6662`（seq=8 之后到现 HEAD，**83 件（去 FREEZE_OWN）/ 其中 81 件越界**），被拿来与 seq=8 声明的窄写面（`docs/contract/`, `tools/a0-check.mjs`, `docs/handoff/S6.md`）比对。
+
+  ⚠ **诚实归因（两件事必须分开说）**：
+  · **红的成因 = 本席这一跳**：重取**前**该腿是**绿**的（首跑实测 `跃迁腿=2 段区间全部 ⊆ 各段声明写面（共 5 件提交）` —— 当时"末条 record"是 seq=8，它与 seq=7 的区间确实 ⊆ S6 写面）。故这条红是**本次重取的直接后果**，**不是既往就存在的红**；
+  · **被点名的件 = 既往批次产出**：那 81 件属 S7–S23 / W4 各席，它们落在写面外，是因为 seq=8 之后**无人再记录过基线**（这一跳跨了多批提交）。
+
+  本席**未**把它消掉：流水 append-only，seq=8→9 这一跳已钉住，**再重取也不会变绿**（新的 prev 仍是本条）。须由主持人裁定「本批边界声明」后另行处置。
+

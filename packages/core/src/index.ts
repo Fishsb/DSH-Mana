@@ -240,7 +240,11 @@ export interface LexicalRecallResult {
   hits: LexicalHit[]
   /** 0 命中的原因分类；有命中时为 `null`。 */
   reason: 'ok' | 'too_short' | 'empty_library' | null
-  /** 库中记忆总条数（判「库非空」用，使 `reason` 可被交叉核对）。 */
+  /**
+   * 库中**活记忆**条数（`retired = 0`），判「库非空」用，使 `reason` 可被交叉核对。
+   * ⚠ 口径与检索 SQL 同源（同样排除 retired 行）：否则「库非空却 0 命中」与
+   *   「有记忆但全退休」会同形，而后者是**正确行为** —— 那里会把 A1-10 读成假红。
+   */
   librarySize: number
   /** 被 `checkQuery` 归一后的查询串（**可断言**：调用方传的原串可能带空白）。 */
   normalizedQuery: string | null
@@ -515,8 +519,17 @@ export function apply(ctx: Context, config: Config): void {
         .run(item.id, item.type, item.content, item.summary ?? null, item.at ?? new Date().toISOString())
     },
     recallLexical(rawQuery: string, limit = 50): LexicalRecallResult {
+      /**
+       * ⚠ **口径 = 活记忆数（`retired = 0`），不是全表行数**（主持人裁定，2026-09-25）。
+       *   本值的**唯一消费者**是下面的 `reason` 判定，它要回答的是
+       *   「**对这次检索而言**库里有没有可查的东西」—— 而检索本身已排除 retired 行（见下面的 SQL）。
+       *   若此处用全量计数，两种事实会**同形**：① 库真非空却查不到（A1-10 要判红的形态）
+       *   ② 唯一那条记忆已退休（0 命中是**正确行为**）—— 实测实害：后者被读成前者（**假红**）。
+       *   库里无 retired 行时两者数值相等 ⇒ 本改动是**口径修正**，不改变既有判据的结论。
+       */
       const librarySize = Number(
-        (opened.db.prepare('SELECT COUNT(*) c FROM memory_items').get() as { c?: number })?.c ?? 0,
+        (opened.db.prepare('SELECT COUNT(*) c FROM memory_items WHERE retired = 0').get() as { c?: number })
+          ?.c ?? 0,
       )
       const checked = checkQuery(rawQuery)
       // 长度闸先于查询：trigram 下短查询恒 0 命中且**不报错** ⇒ 必须显式分类。

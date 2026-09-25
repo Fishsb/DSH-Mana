@@ -176,9 +176,40 @@ test('F3 A2-7 白盒腿：生产检索 SQL 里 AND m.retired = 0 在册', async 
     src.includes('AND m.retired = 0'),
     'packages/core/src/index.ts 的检索 SQL 必须含 AND m.retired = 0（A2-7 的全部要害）',
   )
-  const occurrences = src.match(/retired/g)?.length ?? 0
-  // 本批契约为「只做这一处最小改动」（主持人裁定）⇒ 该计数即"最小性"的机检腿。
-  // 若这是**有意**的契约变更（例如给 writeMemoryItem 加 retired 参数），
-  // 应按 docs/handoff/S23.md 的说明先更新判据，而不是删掉这条断言。
-  assert.equal(occurrences, 1, `core/src/index.ts 中 retired 应恰出现 1 次（本次改动的最小性），实测 ${occurrences}`)
+  /**
+   * ⚠ **S24 席更新（2026-09-25，有意契约变更，非放宽）** ──────────────────────────
+   * 原断言是「`retired` 在**全文**中恰出现 1 次」，作为 S23「只做这一处最小改动」的机检腿。
+   * 现生产代码**有意**多了第 2 处触面：`librarySize` 改为活记忆数（主持人裁定，
+   * 见 `packages/core/tests/library-size-live.test.mjs` 与 `docs/handoff/S24.md`）。
+   * ⇒ 原计数必然变红。**按本仓纪律不得为了让判据变绿而放宽它**，故此处改为
+   * **更强**的形态（而不是把 1 改成 7）：
+   *   · 只在**去注释后的生产代码**上数（原断言把注释也算进去 ⇒ 多写一个字的说明就变红，
+   *     那是能被"改注释"糊弄的判据，本来就是弱点）；
+   *   · 且这 2 处**必须逐个是 `retired = 0`（活行口径）** —— 于是任何"加一条 `retired = 1`
+   *     的路径 / 裸 retired 引用 / 退化成不过滤"都会立刻点名，比原来的纯计数更紧。
+   * 本契约若再变，须**显式更新这个集合**（而不是改个数字）—— 这正是不让它退化的原因。
+   */
+  const codeLines = src.split('\n').filter((l) => !/^\s*(\*|\/\*|\*\/|\/\/)/.test(l))
+  const retiredTouchpoints = codeLines.filter((l) => l.includes('retired'))
+  assert.equal(
+    retiredTouchpoints.length,
+    2,
+    `生产代码（去注释后）中 retired 触面应恰 2 处（librarySize 活记忆数 + 检索过滤腿），实测 ${retiredTouchpoints.length}：` +
+      `\n${retiredTouchpoints.map((l) => '  · ' + l.trim()).join('\n')}`,
+  )
+  for (const l of retiredTouchpoints) {
+    assert.match(
+      l,
+      /retired\s*=\s*0/,
+      `每一处 retired 触面都必须是活行口径 \`retired = 0\`（新增 \`retired = 1\` / 裸引用即判红）：${l.trim()}`,
+    )
+  }
+  assert.ok(
+    retiredTouchpoints.some((l) => l.includes('AND m.retired = 0')),
+    '其中必须仍含 A2-7 的检索过滤腿 AND m.retired = 0（它被换掉 = 本判据失去对象）',
+  )
+  assert.ok(
+    retiredTouchpoints.some((l) => /COUNT\(\*\).*retired = 0/.test(l)),
+    '另一处必须是 librarySize 的活记忆数计数（S24 裁定；它被删掉 = 口径退回全量，empty_library 会假红）',
+  )
 })

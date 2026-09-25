@@ -72,6 +72,9 @@ const MANIFEST = {
   // P2 的 ui（S4 席交付；W2-3 的装配证据面）：它 provides('mana-ui')，与其余包同一条 Loader 通道。
   ui: 'mana-ui',
   // P1 三骨架（B2.2 建，lib 由 `npm run build --workspace` 直出）。
+  // P1 · llm（S22 席交付，W4）：宿主 LLM 通道的唯一出口（L-01）。它 inject mana-core，
+  // 与其余包同一条 Loader 通道；**不** inject ctx.llm（见其 cordis.patch.yml 注）。
+  llm: 'mana-llm',
   'long-term': 'mana-long-term',
   consolidation: 'mana-consolidation',
   forgetting: 'mana-forgetting',
