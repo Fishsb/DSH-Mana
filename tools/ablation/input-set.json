@@ -1,0 +1,84 @@
+{
+  "_comment": "A6-1 消融跑分器的**固定输入集**（tools/a6-ablation.mjs 唯一读取的输入源）。",
+  "_discipline": [
+    "本文件是唯一输入源：跑分器**只读不写**，运行时把它加载两次并比对 sha256（见自检腿 sc/input-reproducible）。",
+    "本文件内**不得**出现随机源、Date.now()、时钟派生值 —— 所有时刻都是写死的 ISO 串。",
+    "内容文本固定：改一个字即改输入集 ⇒ 两次运行的指标不可比（这是刻意的：输入集改了就该重取基线）。"
+  ],
+  "id": "a6-ablation-input-set-v1",
+  "ts": "2026-01-01T00:00:00.000Z",
+  "sessionId": "a6-ablation-session",
+  "judgeState": "用户正在学习如何把本仓的插件装配进 profile，并询问记忆注入链的落点。",
+  "judgeQuestion": "此信息是否与当前目标高度相关？",
+  "wmCapacityOn": 4,
+  "wmCapacityOff": 0,
+  "query": "末那识的记忆注入链落在哪几个包",
+  "items": [
+    {
+      "requestId": "a6-req-1",
+      "turnId": 1,
+      "at": "2026-01-01T00:00:01.000Z",
+      "content": "夹具输入 1：Mana 的注入门控在 agent/pre-step 上做判定，判定链是 mana/jev/judge 这条 waterfall。"
+    },
+    {
+      "requestId": "a6-req-2",
+      "turnId": 2,
+      "at": "2026-01-01T00:00:02.000Z",
+      "content": "夹具输入 2：工作记忆按容量上限淘汰最旧组块，并显式记账 evicted 计数，不静默丢弃。"
+    },
+    {
+      "requestId": "a6-req-3",
+      "turnId": 3,
+      "at": "2026-01-01T00:00:03.000Z",
+      "content": "夹具输入 3：时间衰减核 decay(t,h)=exp(-t*ln2/h)，半衰期 14 天，t 的单位是天。"
+    },
+    {
+      "requestId": "a6-req-4",
+      "turnId": 4,
+      "at": "2026-01-01T00:00:04.000Z",
+      "content": "夹具输入 4：巩固的 Spindle 层按激活值降序选 Top-N，Ripple 层再做相似度比对。"
+    },
+    {
+      "requestId": "a6-req-5",
+      "turnId": 5,
+      "at": "2026-01-01T00:00:05.000Z",
+      "content": "夹具输入 5：用户模型的漂移探针 reportDrift 每次真写一行 mana_trace。"
+    }
+  ],
+  "actrGrid": [
+    { "t": 0, "s": 7 },
+    { "t": 1, "s": 7 },
+    { "t": 7, "s": 7 },
+    { "t": 14, "s": 7 },
+    { "t": 30, "s": 7 },
+    { "t": 14, "s": 1 },
+    { "t": 14, "s": 30 },
+    { "t": 90, "s": 14 }
+  ],
+  "consolidation": {
+    "periodId": "a6-period-1",
+    "items": [
+      { "id": "a6-mem-a", "activation": 0.5, "content": "记忆条目 A" },
+      { "id": "a6-mem-b", "activation": 1.5, "content": "记忆条目 B" },
+      { "id": "a6-mem-c", "activation": 2.5, "content": "记忆条目 C" },
+      { "id": "a6-mem-d", "activation": 3.5, "content": "记忆条目 D" },
+      { "id": "a6-mem-e", "activation": 4.5, "content": "记忆条目 E" }
+    ],
+    "neocortex": [
+      { "id": "a6-nc-1", "content": "新皮层语义记忆 1" },
+      { "id": "a6-nc-2", "content": "新皮层语义记忆 2" }
+    ],
+    "_runsShape": "字段逐字对齐 packages/consolidation/src/chunking.ts:24 的 OperatorRun（id/goalId/steps/endedAt）—— 形状不符会让 chunk() 产出 goalId=undefined 的草稿，落库时静默变成 ruleWriteFailures（本跑分器把它落成显式指标，见 tools/a6-ablation.mjs 的 consolidation 段）。",
+    "runs": [
+      { "id": "a6-run-1", "goalId": "a6-goal-1", "steps": ["读取卡片", "改配置", "复跑验收"], "endedAt": "2026-01-01T00:20:00.000Z" },
+      { "id": "a6-run-2", "goalId": "a6-goal-1", "steps": ["读取卡片", "改配置", "复跑验收"], "endedAt": "2026-01-01T00:21:00.000Z" },
+      { "id": "a6-run-3", "goalId": "a6-goal-2", "steps": ["单步任务"], "endedAt": "2026-01-01T00:22:00.000Z" }
+    ]
+  },
+  "userModelTriggers": 2,
+  "userModelTriggerAt": "2026-01-01T00:10:00.000Z",
+  "emptyProbe": {
+    "_comment": "A6-2 的 n=0 显式落 0 用：一个**结构性为空**的子集（该 sessionId 从不写入），量它的行数必须是 0 而不是缺字段。",
+    "sessionId": "a6-ablation-session-empty"
+  }
+}
