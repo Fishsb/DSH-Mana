@@ -57,15 +57,69 @@ async function probeChain(ctx) {
   return { sentinel, inner, r }
 }
 
-test('① behavior 由运行时服务面机检（填了实现在忘改 ⇒ 必红）', async () => {
+test('① behavior 由运行时服务面机检（填了实现在忘改 ⇒ 必红）+ 反方向补牙', async () => {
   ran += 1
-  const { ctx } = await mount()
+  const { ctx, mod } = await mount()
   const svc = ctx.get('mana-forgetting')
   assert.ok(svc, 'mana-forgetting 服务必须可读（未 provide = 插件没真跑起来）')
   const st = svc.status()
-  assert.equal(st.behavior, 'skeleton', `本包尚无行为 ⇒ behavior 必须为 'skeleton'，实测 ${st.behavior}`)
+  // ── B4.2（S17 席）：本包已填实现（Pavlik–Anderson 间隔重复 + 艾宾浩斯留存核 + 四区间归档
+  //    + 只读修剪候选视图），故期望值由 'skeleton' 改 'active'。
+  //    这条判据**按设计红了**（它抓的就是「填了实现而忘记交代」）—— 本席是被它叫醒的，不是绕过它。
+  //    处置与 S14 席（long-term 的 B3.1）**同口径**：只改期望值 + 补反方向的牙。
+  assert.equal(st.behavior, 'active', `B4.2 已填实现 ⇒ behavior 必须为 'active'，实测 ${st.behavior}`)
   assert.equal(st.wired, true)
   assert.equal(typeof st.behavior, 'string', 'behavior 不得为 undefined（undefined 会被 JSON 静默丢键）')
+  /**
+   * ── **反方向补牙**（B4.2 新增 · 对文件头「反向不可机检」那条残留盲区的部分修复）──
+   * 原文承认：「填了真行为却把 behavior 留成 'skeleton' ⇒ 判据必红」**原句是空的**。
+   * 上面改成 'active' 之后，反向（自称 'active' 而背后无事）就正对着本判据：
+   * 并列断言 **'active' 必须有实现面背书**（服务面可读、14 个实现导出逐个可读）。
+   * ⇒ 若有人把实现搬走/改名/挖空而 behavior 仍写 'active'，本判据**报红**。
+   * ⚠ **仍未覆盖**（如实记，不许读成已全覆盖）：实现**还在**、behavior 却手写回 'skeleton'
+   *   —— 那一条仍然只靠下面 ⑦⑧ 间接抓，本补牙没有解决它（与 S14 席记的是同一处盲区）。
+   */
+  const F = svc.forgetting
+  assert.ok(F && typeof F === 'object', 'behavior=active 必须有实现面背书：service.forgetting 不得缺席')
+  /**
+   * ⚠ **本清单在判据侧独立写一遍**（口径抄 S14 席 long-term 的 `face`）：
+   *   只断言「`IMPLEMENTED_EXPORTS` 非空」是**自指**的（少列一项即恒绿）。
+   *   两处各写一份 ⇒ 「加了实现却只改一边」必红。
+   *   ⚠ 本席实测：第一版这里就是自指的（只比 `length === mod.IMPLEMENTED_EXPORTS.length`），
+   *     写得像个判据而已 —— 现改为独立清单。
+   */
+  const face = [
+    'classify',
+    'classifyAll',
+    'retireCandidates',
+    'archiveIntervalRows',
+    'decliningCandidates',
+    'capStatus',
+    'retirementPlan',
+    'strengthDelta',
+    'strengthDeltaRaw',
+    'strengthAfterRepeat',
+    'strengthAfterRepeats',
+    'retention',
+    'retentionWith',
+    'equivalentHalfLifeDays',
+    'pruneCandidates',
+    'pruneViewSummary',
+  ]
+  assert.deepEqual(
+    [...mod.IMPLEMENTED_EXPORTS].sort(),
+    [...face].sort(),
+    `实现面清单必须与判据侧独立清单**集合相等**（不等 ⇒ 加了实现只改了一边），实测 ${JSON.stringify(mod.IMPLEMENTED_EXPORTS)}`,
+  )
+  for (const n of face) {
+    assert.ok(n in mod, `behavior=active 必须有实现面背书：导出缺 ${n}`)
+  }
+  for (const n of ['classify', 'capStatus', 'strengthAfterRepeats', 'retention', 'pruneCandidates']) {
+    assert.equal(typeof mod[n], 'function', `实现面 ${n} 必须是函数`)
+  }
+  // 服务面挂的纯函数面必须**真能算**（不是空对象占位）：复算 A3-4 锚点
+  assert.ok(Math.abs(F.strengthAfterRepeats(1, 3) - 5.059273) <= 1e-6, 'behavior=active 必须能被复算：A3-4 锚点')
+  assert.ok(Math.abs(F.retention(14, 7) - 0.135335) <= 1e-6, 'behavior=active 必须能被复算：retention 锚点')
 })
 
 test('② 本包真在 agent/pre-step 链上：effect 面出现监听器 + 卸载后消失', async () => {

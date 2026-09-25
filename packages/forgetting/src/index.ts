@@ -1,6 +1,35 @@
 /**
- * `dsh-mana-forgetting` —— Mana 种子衰减：艾宾浩斯衰减 + 间隔重复 + 归档（P1 骨架）
+ * `dsh-mana-forgetting` —— Mana 种子衰减：艾宾浩斯衰减 + 间隔重复 + 四区间归档
  *
+ * ── 当前状态：**B4.2 已填实现**（本条与下面的历史记录并列，不覆盖）───────────────────
+ * 本包曾长期是 74 行"诚实的空壳"。B4.2 落地了 **Pavlik & Anderson 间隔重复 + 艾宾浩斯留存核
+ * + 激活值四区间归档 + 归档候选（只读）**，故 `status().behavior` 由 `'skeleton'` 改为
+ * **`'active'`**（据实现事实回报）。
+ * 尚未实现（仍属后续批次，**不得**读作已完成）：**真归档的三步流程只有第 ① 步（列候选）**——
+ *   `retired` 置位、90 天压缩（`sum(length(content))` 必须下降）、归档行排除出检索
+ *   分别需要 core 的写口与检索面改动 ⇒ 由 `retirementPlan().unimplemented` **显式列出**。
+ *   故本包现在导出的 `retireCandidates()` **只产出清单**：`retired=1` 是标记不是归档
+ *   （判据 A3-2 `docs/mana-rollout-plan.md:558` 明文「只满足①只算标记」）。
+ *
+ * ── 实现面（`src/`，判据在 `tests/forgetting.test.mjs`）──────────────────────────
+ *  · `params.ts`    —— 本包参数的**唯一出处**（Pavlik 三参数 / 四区间边界 / 留存上限缺省）
+ *  · `strength.ts`  —— `ΔS = a·(S_max − S)^b`（**A3-4 ①的实现者**）
+ *  · `retention.ts` —— `retention(t,S) = exp(-t/S)`（**A3-4 的实现者**）+
+ *                       `equivalentHalfLifeDays(S) = S·ln2`（与 long-term 的 decay 同一核的证据）
+ *  · `archive.ts`   —— 四区间归档 `A>τ+1.0 / τ<A≤τ+1.0 / τ-0.5<A≤τ / A≤τ-0.5`（**B4.2 ②**）
+ *  · `prune.ts`     —— 修剪**只读候选视图**（**B4.2 ④**；不写库、不触发归档）
+ *  · `criteria.ts`  —— **包内阈值注册表**（形态参考 metacognition 的 criteria.json；
+ *                       本表**不新增机检 ID**，见落地册:547 ④）
+ *
+ * ── ⚠ 与 `long-term` 的衰减**不是两套曲线**（C14 点名「三套衰减公式并存」）───────────
+ *   `retention(t,S) = exp(-t/S) = exp(-t·ln2 / (S·ln2)) = decay(t, S·ln2)`
+ *   ⇒ 本包**不重写**那条核：装配期 `ctx.get('mana-long-term')`（**可选依赖**，
+ *     依赖方向按落地册 §2.1 订正：`inject` 只声明 `['mana-core']`），拿到就用它的 `decay`，
+ *     拿不到才走 `retention.ts` 的闭式；`readings().kernelSource` **如实回报走了哪条**
+ *     （不静默降级 —— 降级态必须可读）。
+ *   ⛔ 半衰期常量（`long-term/src/params.ts:54` 的 `HALF_LIFE_DAYS`）**本包不重新定义**。
+ *
+ * ── 历史记录（P1 骨架期，保留原文）─────────────────────────────────────────────────
  * ⚠ **本轮（B2.2）只立骨架，不填实现**：`册:743` C12 的设计意图是
  *   「13 个空壳同批装配后面板上分不出哪几个真有行为」⇒ P1 分批建、骨架与实现分开交付。
  *
@@ -27,26 +56,164 @@
  *      一枚配置就能静默取消 next() 纪律，正是本仓最要防的那类失败。
  *   ② 对一个零行为的空壳，可"关掉"的东西只剩服务提供面本身 ⇒ `enabled=false` 的形态与
  *      "插件根本没装/装失败"**同形**，等于新增一条静默通道。空壳本就够小，无需灰度旋钮。
+ *   ⚠ **B4.2 未推翻这条**：本批交付仍然**全是纯函数**（无监听器、无定时器、不写库、不落行）
+ *   ⇒ 依旧**没有真旋钮可关**（留存上限/修剪阈值都是**调用参数**，不是插件配置：
+ *      配置面是全局单值，而这些阈值必须逐次判定时给 —— 见 `criteria.ts` 的注册表）。
  *
  * ⚠ 硬结构约束（G9 / `册:318`）：`apply` 必须注册一条 waterfall 监听器并调 `next()`，
  *   走 core 的 `registerPassThroughPreStep`（唯一写点）。漏调的后果**不报错**：
  *   本仓实测上游不调 `next()` ⇒ 下游哨兵 reached=0、返回 undefined、全程无异常。
+ *
+ * ── 行为面（B4.2 的覆盖边界，如实声明）─────────────────────────────────────────────
+ * B4.2 的交付是**纯计算**：不写 `mana_trace`、不落库、不改 `retired` 列、不注册业务监听器。
+ * 故 `skeleton.test.mjs` 判据⑦（effect 面恰好 3 条）与 ⑧（`mana_trace` 0 行）**仍然成立**，
+ * 无需改动 —— 见 `docs/handoff/S17.md` §4 对"⑦⑧要不要改"的逐条判断。
+ * ⚠ 诚实边界：`behavior: 'active'` 目前**没有任何判据强制它**（R2b 说的"反向不可机检"）。
+ *   本包新增 `tests/forgetting.test.mjs` 判据⑩ 断言实现面非空（导出逐个是函数）——
+ *   它覆盖"实现被搬走"，**不**覆盖"实现还在而 behavior 写回 skeleton"。后者仍是盲区，未修。
+ * ⚠ 可选依赖缺失时的可观测性（`docs/mana-rollout-plan.md:510`「未运行必须可查」）：
+ *   本包**不**在 `apply` 里写 `mana/plugin/inactive` —— 它**自身从不因依赖缺失而不运行**
+ *   （`inject` 只有 `mana-core`，缺它 core 会抛错在 `apply` 首行）。缺 `long-term` 时本包
+ *   **照常工作**（走闭式核），那不是"未运行"。该口径由 `readings().kernelSource` 如实暴露，
+ *   避免用一条 trace 行制造"看起来在监控"的假象。
  *
  * 阶段 3 的 B4.2 在此填实现。⚠ 归档留存上限必须与「物理删除永不发生」一起定，否则只监控不设限。
  */
 import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-agent'
 import { registerPassThroughPreStep, type ManaCoreService } from 'dsh-mana-core'
+import {
+  ARCHIVE_RETENTION_CALIBRATED,
+  ARCHIVE_RETENTION_DEFAULT_DAYS,
+  S_MAX,
+  S_INITIAL,
+  TAU_FALLBACK,
+} from './params.ts'
+import {
+  archiveIntervalRows,
+  classify,
+  classifyAll,
+  decliningCandidates,
+  retireCandidates,
+  retirementPlan,
+  capStatus,
+  type ActivationSnapshot,
+  type ArchiveLedger,
+  type CapReading,
+  type Classification,
+  type RetirementPlan,
+} from './archive.ts'
+import { equivalentHalfLifeDays, retention, retentionWith, type DecayKernelLike } from './retention.ts'
+import { strengthAfterRepeat, strengthAfterRepeats, strengthDelta, strengthDeltaRaw, type PavlikParams } from './strength.ts'
+import { pruneCandidates, pruneViewSummary, type PruneView, type PruneViewOptions } from './prune.ts'
+import { CRITERIA_REGISTRY, calibrationConsistency, uncalibratedIds } from './criteria.ts'
 
 export const name = 'mana-forgetting'
 
-/** 依赖 core（方案 §9.1）。依赖仅 core（依赖方向订正见文件头）。 */
+/**
+ * 依赖 core（方案 §9.1）。
+ *
+ * ⚠ **依赖方向订正**（`docs/mana-rollout-plan.md:509`）：原方案把 `forgetting` 挂在
+ *   `long-term` 之下 —— 「它们是 long-term 的维护者却成了依赖者」。本包 `inject` **只**声明
+ *   `mana-core`；对 `long-term` 走 `ctx.get` **可选依赖**（装配不上也照常工作）。
+ */
 export const inject: string[] = ['mana-core']
+
+/**
+ * 本包的**实现面**（导出名的机检清单）。
+ *
+ * ⚠ 它是一等判据面，不是文档：`tests/forgetting.test.mjs` 判据⑩ 逐个断言"是函数/是对象"，
+ *   把实现搬走或改名而判据不同步 ⇒ 必红。
+ */
+export const IMPLEMENTED_EXPORTS = [
+  'classify',
+  'classifyAll',
+  'retireCandidates',
+  'archiveIntervalRows',
+  'decliningCandidates',
+  'capStatus',
+  'retirementPlan',
+  'strengthDelta',
+  'strengthDeltaRaw',
+  'strengthAfterRepeat',
+  'strengthAfterRepeats',
+  'retention',
+  'retentionWith',
+  'equivalentHalfLifeDays',
+  'pruneCandidates',
+  'pruneViewSummary',
+] as const
+
+/** `long-term` 的**衰减核 + τ** 的最小读取面（可选依赖；缺失即降级）。 */
+interface LongTermLike {
+  readonly activation?: { readonly decay?: unknown; readonly params?: { readonly tau?: number } }
+  readonly params?: { readonly tau?: number }
+}
+
+/** 装配读数：核的来源 + τ 的来源 + 未校准项。**降级必须可读**，不许静默。 */
+export interface ForgettingReadings {
+  /** 衰减核来自哪：`'mana-long-term'`（复用它的 `decay`）或 `'fallback'`（本包闭式）。 */
+  readonly kernelSource: 'mana-long-term' | 'fallback'
+  /** τ 的来源（`long-term` 的 `params.tau` / 本包降级缺省）。 */
+  readonly tauSource: 'mana-long-term' | 'fallback'
+  /** 生效的 τ 读数。 */
+  readonly tau: number
+  /** 生效的 S_max（天）。 */
+  readonly sMax: number
+  /** 生效的归档留存上限（天）。 */
+  readonly archiveRetentionDays: number
+  /** 该上限是否**已校准**。`false` ⇒ `capStatus` 只回 `'uncalibrated'`/`'over'`。 */
+  readonly archiveRetentionCalibrated: boolean
+  /** 注册表里**未校准**的阈值 id（`samples=0` 或未预注册）。 */
+  readonly uncalibrated: readonly string[]
+}
+
+/** 遗忘纯函数面（**只读**：不写库、不改 `retired`、不注册监听器）。 */
+export interface ManaForgetting {
+  /** 四区间归档归属（`A` 与 `τ` 显式传入 —— τ 的唯一写者是 long-term）。 */
+  classify(memoryId: string, activation: number, tau?: number, retired?: boolean): Classification
+  /** 整批归属 + 分桶。 */
+  classifyAll(items: readonly ActivationSnapshot[], tau?: number): ReturnType<typeof classifyAll>
+  /** **归档候选清单**（`A≤τ−0.5` **且 retired=0**，对齐 A3-2 ① 的 SQL；只列，不是执行）。 */
+  retireCandidates(items: readonly ActivationSnapshot[], tau?: number): readonly Classification[]
+  /** 归档区间**全部**行（含已退役）；与 `retireCandidates` 分列，两口径不合成一个数。 */
+  archiveIntervalRows(items: readonly ActivationSnapshot[], tau?: number): readonly Classification[]
+  /** 「衰退中」候选清单（降注入优先级）。 */
+  decliningCandidates(items: readonly ActivationSnapshot[], tau?: number): readonly Classification[]
+  /** 归档**留存上限**判定（三态；未校准**不得**读成 ok）。 */
+  capStatus(ledger: ArchiveLedger, now: number, capDays?: number | null): CapReading
+  /** 「真归档」三步流程现状（未做的部分**显式列出**）。 */
+  retirementPlan(): RetirementPlan
+  /** 单步强度增量 `ΔS`（原始式，**会越界** —— 见 `strengthDeltaRaw` 的实测记录）。 */
+  strengthDelta(s: number, p?: Partial<PavlikParams>): number
+  /** 与 `strengthDelta` 同值（公开别名，供判据/回归直接引用"裸公式"这一事实）。 */
+  strengthDeltaRaw(s: number, p?: Partial<PavlikParams>): number
+  /** 一次重复后的强度。 */
+  strengthAfterRepeat(s: number, p?: Partial<PavlikParams>): number
+  /** 连续重复 `n` 次后的强度。 */
+  strengthAfterRepeats(s0: number, n: number, p?: Partial<PavlikParams>): number
+  /** 留存率 `exp(-t/S)`。走 `long-term` 的核（若可用），否则本包闭式。 */
+  retention(t: number, s: number): number
+  /** 强度 ⇒ 等价半衰期 `h = S·ln2`（与 long-term 的 decay 同核的可复算证据）。 */
+  equivalentHalfLifeDays(s: number): number
+  /** 修剪**只读候选视图**（不写库、不触发归档）。 */
+  pruneCandidates(items: readonly ActivationSnapshot[], tau?: number, options?: PruneViewOptions): PruneView
+  /** 修剪视图的一行摘要（面板用）。 */
+  pruneViewSummary(view: PruneView): string
+  /** 装配读数（核/τ 来源 + 未校准项）。 */
+  readings(): ForgettingReadings
+  /** 包内阈值注册表快照（只读）。 */
+  criteria(): typeof CRITERIA_REGISTRY
+  /** 「声称已校准」与「登记样本数」的一致性（`calibrated=true` 而 `samples=0` ⇒ 报红）。 */
+  calibrationConsistency(): { ok: boolean; reason: string }
+}
 
 export interface ManaSvc {
   readonly plugin: string
-  /** 'skeleton' = 本包**尚无行为**（由 tests 读运行时服务面机检）；'active' = 已填实现。 */
+  /** `'skeleton'` = 本包**尚无行为**（由 tests 读运行时服务面机检）；`'active'` = 已填实现。 */
   status(): { plugin: string; wired: boolean; behavior: 'skeleton' | 'active' }
+  /** B4.2 新增：遗忘纯函数面（只读，见 `ManaForgetting`）。 */
+  readonly forgetting: ManaForgetting
 }
 
 declare module '@deepseek-ai/cordis' {
@@ -55,13 +222,82 @@ declare module '@deepseek-ai/cordis' {
   }
 }
 
+/**
+ * 解析 `long-term` 的衰减核。
+ *
+ * ⚠ 结构类型（`DecayKernelLike`）而非 import 它的类型：本包**不**在编译期依赖 long-term
+ *   （`inject` 里没有它），只在运行期 `ctx.get` 试取 —— 拿不到就降级，且**如实回报**。
+ */
+function resolveKernel(ctx: Context): { kernel: DecayKernelLike | null; tau: number | null } {
+  let lt: LongTermLike | undefined
+  try {
+    // ⚠ 走 cordis 的 `get(name: string)` 重载（本包**不** import long-term 的类型 ⇒ 它不在
+    //   `keyof Context` 里）。拿不到是**正常态**（可选依赖），不是错误。
+    const got: unknown = ctx.get('mana-long-term')
+    lt = got as LongTermLike | undefined
+  } catch {
+    lt = undefined
+  }
+  const activation = lt?.activation
+  const decay = activation?.decay
+  const kernel: DecayKernelLike | null =
+    typeof decay === 'function'
+      ? { decay: (t: number, h?: number) => (decay as (t: number, h?: number) => number).call(activation, t, h) }
+      : null
+  const tauRaw = lt?.activation?.params?.tau ?? lt?.params?.tau
+  const tau = typeof tauRaw === 'number' && Number.isFinite(tauRaw) ? tauRaw : null
+  return { kernel, tau }
+}
+
+/** 装配纯函数面。**不写库、不注册业务监听器**（见文件头 §行为面）。 */
+function makeForgetting(ctx: Context): ManaForgetting {
+  const { kernel, tau } = resolveKernel(ctx)
+  const tauEff = tau ?? TAU_FALLBACK
+  const retentionFn = (t: number, s: number): number =>
+    kernel ? retentionWith(kernel, t, s) : retention(t, s)
+  const readings = (): ForgettingReadings => ({
+    kernelSource: kernel ? 'mana-long-term' : 'fallback',
+    tauSource: tau === null ? 'fallback' : 'mana-long-term',
+    tau: tauEff,
+    sMax: S_MAX,
+    archiveRetentionDays: ARCHIVE_RETENTION_DEFAULT_DAYS,
+    archiveRetentionCalibrated: ARCHIVE_RETENTION_CALIBRATED,
+    uncalibrated: uncalibratedIds(),
+  })
+  const cap = (ledger: ArchiveLedger, now: number, capDays: number | null = ARCHIVE_RETENTION_DEFAULT_DAYS): CapReading =>
+    capStatus(ledger, now, capDays, ARCHIVE_RETENTION_CALIBRATED)
+  return Object.freeze({
+    classify: (memoryId: string, activation: number, t: number = tauEff, retired = false) =>
+      classify(memoryId, activation, t, retired),
+    classifyAll: (items: readonly ActivationSnapshot[], t: number = tauEff) => classifyAll(items, t),
+    retireCandidates: (items: readonly ActivationSnapshot[], t: number = tauEff) => retireCandidates(items, t),
+    archiveIntervalRows: (items: readonly ActivationSnapshot[], t: number = tauEff) => archiveIntervalRows(items, t),
+    decliningCandidates: (items: readonly ActivationSnapshot[], t: number = tauEff) => decliningCandidates(items, t),
+    capStatus: cap,
+    retirementPlan,
+    strengthDelta,
+    strengthDeltaRaw,
+    strengthAfterRepeat,
+    strengthAfterRepeats,
+    retention: retentionFn,
+    equivalentHalfLifeDays,
+    pruneCandidates: (items: readonly ActivationSnapshot[], t: number = tauEff, options?: PruneViewOptions) =>
+      pruneCandidates(items, t, options),
+    pruneViewSummary,
+    readings,
+    criteria: () => CRITERIA_REGISTRY,
+    calibrationConsistency,
+  })
+}
+
 export function apply(ctx: Context): void {
   const core: ManaCoreService | undefined = ctx.get('mana-core')
   if (!core) throw new Error('mana-forgetting: 缺少 mana-core 服务（inject 未满足）')
 
   const service: ManaSvc = {
     plugin: name,
-    status: () => ({ plugin: name, wired: true, behavior: 'skeleton' }),
+    status: () => ({ plugin: name, wired: true, behavior: 'active' }),
+    forgetting: makeForgetting(ctx),
   }
 
   ctx.effect(() => {
@@ -72,3 +308,48 @@ export function apply(ctx: Context): void {
   // G9：waterfall 直通 + next()。**无条件注册**（不得由任何配置门控，见文件头）。
   registerPassThroughPreStep(ctx, name)
 }
+
+// 公共导出面（供其它包**只读**消费）。
+export {
+  ARCHIVE_RETENTION_DEFAULT_DAYS,
+  ARCHIVE_RETENTION_CALIBRATED,
+  A_RETIRE_MARGIN,
+  A_STRONG_MARGIN,
+  ARCHIVE_INTERVALS,
+  PAVLIK_A,
+  PAVLIK_B,
+  S_MAX,
+  S_INITIAL,
+  TAU_FALLBACK,
+  type ArchiveIntervalName,
+  type IntervalSpec,
+} from './params.ts'
+export {
+  archiveIntervalRows,
+  classify,
+  classifyAll,
+  retireCandidates,
+  decliningCandidates,
+  capStatus,
+  retirementPlan,
+} from './archive.ts'
+export type { ActivationSnapshot, ArchiveLedger, CapReading, CapStatus, Classification, RetirementPlan } from './archive.ts'
+export { retention, retentionWith, equivalentHalfLifeDays } from './retention.ts'
+export type { DecayKernelLike } from './retention.ts'
+export { strengthDelta, strengthDeltaRaw, strengthAfterRepeat, strengthAfterRepeats, pavlikParams } from './strength.ts'
+export type { PavlikParams } from './strength.ts'
+export { pruneCandidates, pruneViewSummary } from './prune.ts'
+export type { PruneCandidate, PruneView, PruneViewOptions } from './prune.ts'
+export {
+  CRITERIA_REGISTRY,
+  CRITERIA_IDS,
+  criteriaEntry,
+  thresholdValue,
+  thresholdParam,
+  thresholdStatus,
+  uncalibratedIds,
+  registryMatchesParams,
+  calibrationConsistency,
+  PRUNE_SCORE_THRESHOLD_V10,
+} from './criteria.ts'
+export type { CriteriaEntry, CriteriaProbe } from './criteria.ts'
