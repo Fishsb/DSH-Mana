@@ -36,11 +36,34 @@ export interface TraceItem {
   readonly turnId: number
 }
 
+/** 回放面的一步（Host 侧 `ReplayStep` 的跨界镜像；两端各自声明，不共享 import）。 */
+export interface ReplayStep {
+  readonly seq: number
+  readonly eventType: string
+  readonly kind: string | null
+  readonly at: string
+  readonly state: Readonly<Record<string, string | number | boolean | null>>
+}
+
+/** 审计回放面（Host 侧 `ReplayFrame` 的跨界镜像）。 */
+export interface ReplayFrame {
+  readonly from: number | null
+  readonly to: number | null
+  readonly sessionId: string | null
+  readonly steps: readonly ReplayStep[]
+  readonly gaps: readonly (readonly number[])[]
+  readonly unknownPayloads: number
+  /** ⚠ 审计回放**恒为空数组**：非空即「这次回放要写库」= 状态回放，本半区会判它为降级。 */
+  readonly scanTargets: readonly string[]
+}
+
 export interface PanelsSnapshot {
   readonly generatedAt: string
   readonly heatmap: readonly HeatCell[]
   readonly goalTree: readonly GoalNode[]
   readonly timeline: readonly TraceItem[]
+  /** 认知轨迹的**审计回放**面（只读、可复现）；未取到时为 `null`（≠ 空回放）。 */
+  readonly replay: ReplayFrame | null
   readonly degraded: boolean
   readonly reason: string
 }
@@ -51,6 +74,8 @@ export interface RenderReport {
   readonly cells: number
   readonly treeNodes: number
   readonly timelineRows: number
+  /** 审计回放窗口内的步数（0 = 无回放面或空窗口，与 `degraded` 合读可分辨）。 */
+  readonly replaySteps: number
   readonly traceSeq: number
   readonly degraded: boolean
   readonly reason: string
@@ -76,6 +101,19 @@ export const PANEL_MARKS = {
   heatmap: 'heatmap',
   goalTree: 'goal-tree',
   timeline: 'timeline',
+  replay: 'replay',
+} as const
+
+/**
+ * 本半区认识的**回放模式**（与 Host 侧 `REPLAY_MODES` 逐字一致）。
+ *
+ * ⚠ 这里**只声明 audit 的用法**：`state` 是写回式回放（G10 复活旧状态），
+ *   本半区**没有**触发它的入口，也没有对应的方法名 —— 声明它是为了让
+ *   「审计回放收到的扫描面里出现了写目标」这条**可被判定**（见 `replay()` 的 degraded 分支）。
+ */
+export const REPLAY_MODES = {
+  audit: 'audit-replay',
+  state: 'state-replay',
 } as const
 
 /** 槽注册面（只取本半区用到的两个方法）。 */
@@ -111,6 +149,7 @@ const EMPTY_SNAPSHOT: PanelsSnapshot = {
   heatmap: [],
   goalTree: [],
   timeline: [],
+  replay: null,
   degraded: false,
   reason: '',
 }
@@ -144,16 +183,72 @@ export function buildTree(nodes: readonly GoalNode[]): {
 
 /** 空快照（通道不可达时用；与「真的没有数据」由 `degraded` 区分）。 */
 function unreachable(reason: string): PanelsSnapshot {
-  return { generatedAt: '', heatmap: [], goalTree: [], timeline: [], degraded: true, reason }
+  return { generatedAt: '', heatmap: [], goalTree: [], timeline: [], replay: null, degraded: true, reason }
 }
 
 /** 拉一次面板数据：**先探通道再调用**，探不到即降级，不抛错也不伪装成空数据。 */
 export async function fetchPanels(ctx: unknown, limit: number): Promise<PanelsSnapshot> {
   const state = resolveHost(ctx)
   if (!state.ok) return unreachable(state.reason)
-  const raw = (await state.host.call(METHODS.panels, { limit })) as PanelsSnapshot | undefined
+  let raw: PanelsSnapshot | undefined
+  try {
+    raw = (await state.host.call(METHODS.panels, { limit })) as PanelsSnapshot | undefined
+  } catch (error) {
+    // ⚠ 通道**在**、调用却失败（路由被撤 / 宿主异常）同样是「读不到」⇒ 必须落**显式降级**。
+    //   抛给调用方会让整块面板白屏 = 失败不可观测（本席 R5 反证用例实测咬出来的真缺陷）。
+    return unreachable(error instanceof Error ? error.message : 'host.call 抛出')
+  }
   if (raw === undefined || raw === null) return unreachable('host.call 返回空')
-  return raw
+  // 回放面**独立取数**（不让回放故障连带把三面板判成不可用）：取不到就落 null，
+  // 渲染侧显式画「无回放面」，**不伪装成空回放**。
+  let replayFrame: ReplayFrame | null = null
+  try {
+    const rep = await replay(ctx, { limit })
+    replayFrame = rep.frame
+  } catch {
+    replayFrame = null
+  }
+  return { ...raw, replay: replayFrame }
+}
+
+/** 一次审计回放的取数结果：**决定论字段**（`degraded`/`reason` 与面板同源纪律）。 */
+export interface ReplayReport {
+  readonly frame: ReplayFrame | null
+  readonly degraded: boolean
+  readonly reason: string
+}
+
+/**
+ * **审计回放**取数（只读）。
+ *
+ * ⚠ 三条纪律，逐条可断言：
+ *  ① **只读**：本函数只发 `METHODS.replay`（读端），本半区**没有**写回方法名；
+ *  ② 收到的帧若自报写目标（`scanTargets` 非空）⇒ **判降级并拒绝使用**，不静默接受
+ *     —— 那正是「状态回放会复活旧状态」（G10）在消费侧的可见形态；
+ *  ③ 回放面缺失（`null`/`undefined`）同样显式降级，**不伪装成「空回放」**。
+ */
+export async function replay(
+  ctx: unknown,
+  query: { limit?: number; fromSeq?: number; sessionId?: string } = {},
+): Promise<ReplayReport> {
+  const state = resolveHost(ctx)
+  if (!state.ok) return { frame: null, degraded: true, reason: state.reason }
+  let raw: ReplayFrame | undefined
+  try {
+    raw = (await state.host.call(METHODS.replay, query)) as ReplayFrame | undefined
+  } catch (error) {
+    return { frame: null, degraded: true, reason: error instanceof Error ? error.message : 'replay 取数失败' }
+  }
+  if (raw === undefined || raw === null) return { frame: null, degraded: true, reason: 'host.call 返回空' }
+  const targets = Array.isArray(raw.scanTargets) ? raw.scanTargets : []
+  if (targets.length > 0) {
+    return {
+      frame: null,
+      degraded: true,
+      reason: `审计回放自报写目标（${REPLAY_MODES.state} 形态）：${targets.join(', ')} —— 已拒绝`,
+    }
+  }
+  return { frame: { ...raw, steps: Array.isArray(raw.steps) ? raw.steps : [] }, degraded: false, reason: '' }
 }
 
 // ── 渲染（纯函数，不依赖 DOM ⇒ 可确定性断言）────────────────────────────────
@@ -240,6 +335,45 @@ function renderTimeline(React: ReactFace, items: readonly TraceItem[]): unknown 
 }
 
 /**
+ * **审计回放**面板：每步一行，`data-seq`/`data-kind` 可枚举，`data-mode` 标明是**只读**回放。
+ *
+ * ⚠ `data-mode` 只可能是 `audit-replay`：本渲染器**没有**状态回放的形态
+ *   （那会写回记忆库、复活旧状态，G10）。两者在**渲染树上**也能分辨，不只是命名。
+ */
+function renderReplay(React: ReactFace, frame: ReplayFrame | null | undefined): unknown {
+  // ⚠ 缺键（`undefined`）与显式 `null` 走同一分支：跨界数据缺键是**常态**
+  //   （旧版 Host 不返回该字段），而 `frame.steps` 会在缺键时**抛错** ⇒ 面板整块白屏，
+  //   正是本文件开头禁掉的「失败不可观测」。本行由既有 d2-③ 用例实测咬出来
+  //   （快照字面量没有 replay 键 ⇒ TypeError），不是推测。
+  if (frame === null || frame === undefined) {
+    return React.createElement(
+      'section',
+      { key: 'replay', 'data-panel': PANEL_MARKS.replay, 'data-mode': REPLAY_MODES.audit },
+      React.createElement('h4', null, '认知轨迹回放（审计·只读）'),
+      React.createElement('p', { 'data-empty': 'true' }, '无回放面'),
+    )
+  }
+  return React.createElement(
+    'section',
+    { key: 'replay', 'data-panel': PANEL_MARKS.replay, 'data-mode': REPLAY_MODES.audit },
+    React.createElement('h4', null, '认知轨迹回放（审计·只读）'),
+    frame.steps.length === 0
+      ? React.createElement('p', { 'data-empty': 'true' }, '回放窗口为空')
+      : React.createElement(
+          'ol',
+          null,
+          ...frame.steps.map((s) =>
+            React.createElement(
+              'li',
+              { key: String(s.seq), 'data-seq': String(s.seq), 'data-kind': s.kind ?? 'unclassified' },
+              `${s.kind ?? '未归类'} @ seq ${s.seq}`,
+            ),
+          ),
+        ),
+  )
+}
+
+/**
  * 把一份快照渲染成元素树（**纯函数**：不吃 hooks、不碰 DOM ⇒ 可直测）。
  * 降级态渲染一条可读提示，而不是空白（失败必须可观测）。
  */
@@ -258,6 +392,7 @@ export function renderPanels(React: ReactFace, snapshot: PanelsSnapshot): unknow
     renderHeatmap(React, snapshot.heatmap),
     renderGoalTree(React, snapshot.goalTree),
     renderTimeline(React, snapshot.timeline),
+    renderReplay(React, snapshot.replay),
   )
 }
 
@@ -278,9 +413,26 @@ export function createPanelComponent(
     if (typeof React.useEffect === 'function' && setSnap !== undefined) {
       React.useEffect(() => {
         let live = true
-        void load().then((s) => {
-          if (live) setSnap(s)
-        })
+        // ⚠ 取数**抛错**时落降级快照（不是 unhandled rejection + 白屏）：与「读到了但降级」
+        //   走同一形状，消费侧靠 `degraded`/`reason` 分辨。
+        void load().then(
+          (s) => {
+            if (live) setSnap(s)
+          },
+          (error: unknown) => {
+            if (live) {
+              setSnap({
+                generatedAt: '',
+                heatmap: [],
+                goalTree: [],
+                timeline: [],
+                replay: null,
+                degraded: true,
+                reason: error instanceof Error ? error.message : '取数抛出',
+              })
+            }
+          },
+        )
         return () => {
           live = false
         }
@@ -390,6 +542,7 @@ export async function render(params: {
       cells: 0,
       treeNodes: 0,
       timelineRows: 0,
+      replaySteps: 0,
       traceSeq: -1,
       degraded: true,
       reason: snapshot.reason,
@@ -404,7 +557,11 @@ export async function render(params: {
     try {
       const ack = (await state.host.call(METHODS.render, {
         panel: SLOT_ID,
-        rendered: snapshot.heatmap.length + tree.roots.length + snapshot.timeline.length,
+        rendered:
+          snapshot.heatmap.length +
+          tree.roots.length +
+          snapshot.timeline.length +
+          (snapshot.replay?.steps.length ?? 0),
         sessionId: params.sessionId ?? '',
         turnId: params.turnId ?? 0,
       })) as { ok?: boolean; traceSeq?: number; degraded?: boolean; reason?: string } | undefined
@@ -419,10 +576,11 @@ export async function render(params: {
   }
 
   return {
-    panels: 3,
+    panels: 4,
     cells: snapshot.heatmap.length,
     treeNodes: snapshot.goalTree.length,
     timelineRows: snapshot.timeline.length,
+    replaySteps: snapshot.replay?.steps.length ?? 0,
     traceSeq,
     degraded,
     reason,

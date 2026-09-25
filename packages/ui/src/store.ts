@@ -11,9 +11,15 @@
  *     （`docs/contract/degradation.md` I-8 禁 `catch { return null }`）。
  *  3. `ui/render` 落点**必须真写一行** `mana_trace` —— 这是 R5 反证判据的唯一可读面
  *     （卸载后同一触发不再产生新行）。
+ *
+ * ⚠ **本适配器的写口只有一个**：`writeRender`（写 `mana_trace` 的 `ui/render` 行）。
+ *   审计回放（`traceRows`，见 `src/replay.ts`）走的是**只读** SELECT，
+ *   且本文件里**不存在**任何写 `memory_items` 的语句 —— 「回放不写库」（A5-3）
+ *   在类型与语句两个面上都成立，不靠注释自律。
  */
 import type { DatabaseSync } from 'node:sqlite'
 import type { GoalNode, HeatCell, PanelStore, TraceItem } from './panel.ts'
+import type { TraceRow } from './replay.ts'
 
 /** 结构化行视图：`node:sqlite` 的 `get()`/`all()` 返回 `Record<string, unknown>`。 */
 type Row = Record<string, unknown>
@@ -103,6 +109,32 @@ export function createPanelStore(db: DatabaseSync): PanelStore {
         at: str(r.timestamp),
         sessionId: str(r.session_id),
         turnId: num(r.turn_id),
+      }))
+    },
+
+    /**
+     * 审计回放的原料：`mana_trace` 按 `seq` **升序**读。`fromSeq` 左闭下界；
+     * `sessionId === null` = 不限会话（**不是**「匹配空串」—— 那会把无会话的行丢掉）。
+     *
+     * ⚠ 只读：本方法不写任何表。回放的写回形态（状态回放）**在本包无入口**（G10）。
+     */
+    traceRows(limit: number, fromSeq: number, sessionId: string | null): readonly TraceRow[] {
+      const base =
+        `SELECT seq, event_type, payload, session_id, turn_id, timestamp
+           FROM mana_trace
+          WHERE seq >= ?`
+      const rows = (
+        sessionId === null
+          ? db.prepare(`${base} ORDER BY seq ASC LIMIT ?`).all(fromSeq, limit)
+          : db.prepare(`${base} AND session_id = ? ORDER BY seq ASC LIMIT ?`).all(fromSeq, sessionId, limit)
+      ) as Row[]
+      return rows.map((r) => ({
+        seq: num(r.seq),
+        eventType: str(r.event_type),
+        payload: str(r.payload),
+        sessionId: str(r.session_id),
+        turnId: num(r.turn_id),
+        at: str(r.timestamp),
       }))
     },
 

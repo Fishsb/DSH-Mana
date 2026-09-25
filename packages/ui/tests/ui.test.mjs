@@ -148,7 +148,12 @@ test('ui 插件在真 Context 中装载并 provide mana-ui（装配判据=服务
   assert.equal(st.wired, true, 'status().wired 必须为 true')
   assert.equal(st.renderTrace, true)
   assert.equal(typeof st.channel, 'boolean', 'channel 必须是布尔（不可用 undefined 表状态）')
-  assert.deepEqual([...svc.methods].sort(), ['mana-ui/meta', 'mana-ui/panels', 'mana-ui/render'])
+  // ⚠ 本行是**声明式枚举**（不是"看着像就够了"）：新增协议方法必须在这里显式登记，
+  //   否则「方法默默加了一个」在判据上不可见。B6.2 新增 `mana-ui/replay`（审计回放，只读）。
+  assert.deepEqual(
+    [...svc.methods].sort(),
+    ['mana-ui/meta', 'mana-ui/panels', 'mana-ui/render', 'mana-ui/replay'],
+  )
   await uiFiber.dispose()
   await coreFiber.dispose()
   void ctx
@@ -404,6 +409,9 @@ test('d2-③ 渲染树可枚举：三面板节点带稳定标记，降级态有�
       { id: 'g2', parentId: 'g1', title: '子', status: 'active', priority: 0, depth: 1 },
     ],
     timeline: [{ seq: 7, eventType: 'ui/render', at: 't', sessionId: 's', turnId: 1 }],
+    // ⚠ 本快照**故意不带 `replay` 键**（缺键 = 旧版 Host 的形态）⇒ 回放面板必须落
+    //   「无回放面」而不是**抛错白屏**。这是本席实测咬出来的真缺陷：缺键时 renderReplay
+    //   抛 TypeError，四块面板**一起**不可观测 —— 正是 degradation 契约禁掉的形态。
     degraded: false,
     reason: '',
   }
@@ -419,11 +427,17 @@ test('d2-③ 渲染树可枚举：三面板节点带稳定标记，降级态有�
     return out
   }
   const panels = walk(tree, (n) => n.props && n.props['data-panel'])
+  // ⚠ 枚举面随实现扩到四块面板（B6.2 新增「认知轨迹回放」）——这是**声明**，不是放宽：
+  //   旧版写成三块，新增面板会在这里红；反过来漏挂一块也红。
   assert.deepEqual(
     panels.map((p) => p.props['data-panel']),
-    ['mana-ui', 'heatmap', 'goal-tree', 'timeline'],
-    '根 + 三块面板必须各出现一次且有稳定标记',
+    ['mana-ui', 'heatmap', 'goal-tree', 'timeline', 'replay'],
+    '根 + 四块面板必须各出现一次且有稳定标记',
   )
+  // 回放面板**必须**带 `data-mode` 且逐字等于审计回放：渲染树上也能把「只读审计回放」
+  //   与「写回状态回放」（G10，会复活旧状态）分开。
+  const replayPanel = panels.find((p) => p.props['data-panel'] === 'replay')
+  assert.equal(replayPanel?.props['data-mode'], 'audit-replay', '回放面板必须自报为审计（只读）回放')
   // 热力图：两格，且色阶按 min/max 归一（1 → 1，0 → 0）
   const heatCells = walk(tree, (n) => n.props && 'data-cell' in n.props)
   assert.equal(heatCells.length, 2, '每一行一个格子')

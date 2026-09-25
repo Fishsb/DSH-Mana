@@ -7,7 +7,20 @@
  *
  * 本文件**不含**任何 node 专有 API（无 `node:fs` / `node:sqlite`），
  * 它只面向注入进来的存储端口 `PanelStore` 与协议层 `PanelWire`。
+ *
+ * ⚠ **「回放」在本文件里只有一个含义：审计回放**（`METHODS.replay`）——
+ *   读 `mana_trace` ⇒ 产出状态序列，**只读、可复现**（`册:629` A5-3）。
+ *   与之语义相反的**状态回放**（写回、会复活旧状态，`册:176` G10 / `方案:904`）
+ *   **在本包没有入口**：本文件的存储端口 `PanelStore` 上没有、也不许有写
+ *   `memory_items` 的方法。分流的完整对照表见 `src/replay.ts` 文件头。
  */
+import {
+  assertAuditReplayReadOnly,
+  replayWindow,
+  REPLAY_LIMIT_DEFAULT,
+  type ReplayFrame,
+  type TraceRow,
+} from './replay.ts'
 
 /** 跨界的**唯一**数据形态：无损 JSON（两端各自声明，不共享 import）。 */
 export interface HeatCell {
@@ -66,6 +79,14 @@ export interface PanelStore {
   goals(limit: number): readonly GoalNode[]
   /** 读认知轨迹（`mana_trace`）。 */
   timeline(limit: number): readonly TraceItem[]
+  /**
+   * 读回放窗口的原料：`mana_trace` 按 `seq` **升序**的前 `limit` 行（`fromSeq` 为左闭下界）。
+   *
+   * ⚠ **只读**。审计回放的输入端**不得**再有任何写口 —— 这是「只读回放」在类型面上的落点：
+   *   本端口**没有**「把状态写回 `memory_items`」的方法（那就是 G10 的状态回放），
+   *   而本端口唯一的写口是下面的 `writeRender`，它只写 `mana_trace` 的落点行。
+   */
+  traceRows(limit: number, fromSeq: number, sessionId: string | null): readonly TraceRow[]
   /** 写一条 `mana_trace` 的 `ui/render` 行，返回 `seq`（R5 落点）。 */
   writeRender(entry: {
     sessionId: string
@@ -86,6 +107,8 @@ export const METHODS = {
   panels: 'mana-ui/panels',
   render: 'mana-ui/render',
   meta: 'mana-ui/meta',
+  /** **审计回放**（只读、可复现）。⚠ 与「状态回放」不是同一件事，见本文件头注。 */
+  replay: 'mana-ui/replay',
 } as const
 
 /** 单次读取的行数上限（**不设无界读**）。 */
@@ -145,6 +168,29 @@ export function registerPanels(wire: PanelWire, store: PanelStore): void {
     } catch (error) {
       // 显式降级：不吞错成 null，也不把「读不到」与「本来没有」混为一谈。
       return degradedSnapshot(error instanceof Error ? error.message : 'unknown store failure')
+    }
+  })
+
+  /**
+   * **审计回放**端点：读一段 `mana_trace` ⇒ 回放成状态序列（只读）。
+   *
+   * ⚠ 端点名 `mana-ui/replay` 只指**审计**回放；状态回放（写回、复活旧状态）在本包
+   *   **无端点**（也没有可用的写口），见 `src/replay.ts` 的分流表。
+   */
+  wire.handle(METHODS.replay, (args: unknown) => {
+    const a = asRecord(args)
+    const limit = clampLimit(a.limit, REPLAY_LIMIT_DEFAULT)
+    const fromSeq = typeof a.fromSeq === 'number' && Number.isFinite(a.fromSeq) ? Math.floor(a.fromSeq) : 0
+    const sessionId = typeof a.sessionId === 'string' && a.sessionId !== '' ? a.sessionId : null
+    try {
+      const rows = store.traceRows(limit, fromSeq, sessionId)
+      const frame = replayWindow(rows, { limit, fromSeq, sessionId })
+      // 守卫就在返回值这一行上：万一上游把审计回放改造成会写库的形态，这里**当场抛**。
+      assertAuditReplayReadOnly(frame)
+      return frame
+    } catch (error) {
+      // 降级必须可读（I-8）：与读三面板同一信封，不让「读不到」与「本来没有」同形。
+      return degradedSnapshot(error instanceof Error ? error.message : 'unknown replay failure')
     }
   })
 

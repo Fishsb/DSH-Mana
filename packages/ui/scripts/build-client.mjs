@@ -53,7 +53,7 @@ export function buildClient() {
   const body = [
     stripExports(host),
     stripExports(main),
-    'module.exports = { apply, render, heatLevel, buildTree, fetchPanels, renderPanels, createPanelComponent, reactFace, mountPanel, mountPanelWith, resolveHost, METHODS, SLOT_KEY, SLOT_ID, SLOT_ORDER, PANEL_MARKS, __setRequire }',
+    'module.exports = { apply, render, replay, heatLevel, buildTree, fetchPanels, renderPanels, createPanelComponent, reactFace, mountPanel, mountPanelWith, resolveHost, METHODS, SLOT_KEY, SLOT_ID, SLOT_ORDER, PANEL_MARKS, REPLAY_MODES, __setRequire }',
   ].join('\n')
   const artifact = [
     `window.__ModuleLoader__.load({ id: ${JSON.stringify(ID)}, factory: (require) => {`,

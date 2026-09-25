@@ -18,6 +18,14 @@ export const METHODS = {
   panels: 'mana-ui/panels',
   render: 'mana-ui/render',
   meta: 'mana-ui/meta',
+  /**
+   * **审计回放**（只读；`册:629` A5-3）。
+   *
+   * ⚠ 与「状态回放」（`方案:904` 的「重启后从 `mana_trace` 回放」⇒ G10 复活旧状态）
+   *   **不是同一件事**：状态回放会**写回**记忆库，本半区**没有**它的方法名 ——
+   *   不是"暂时没调"，是**协议面上不存在**。分流对照表见 Host 侧 `src/replay.ts`。
+   */
+  replay: 'mana-ui/replay',
 } as const
 
 /** Host 侧 `host.call` 的最小面（结构性声明，不 import 任何包）。 */
