@@ -20,7 +20,7 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { existsSync, mkdtempSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
@@ -65,7 +65,7 @@ async function bootDirect({ capacityChunks, budgetChars = 4000 }) {
 }
 
 /** 真装配链：core → perception → attention → working-memory（按包名解析）。 */
-async function bootChain({ capacityChunks = 4 } = {}) {
+async function bootChain({ capacityChunks = 4, budgetChars = 4000 } = {}) {
   const store = tmpStore()
   const ctx = new Context()
   ctx.baseUrl = BASE_URL
@@ -77,7 +77,7 @@ async function bootChain({ capacityChunks = 4 } = {}) {
   await settle(150)
   await ctx.loader.create({ name: 'dsh-mana-attention', config: {} })
   await settle(150)
-  await ctx.loader.create({ name: 'dsh-mana-working-memory', config: { capacityChunks } })
+  await ctx.loader.create({ name: 'dsh-mana-working-memory', config: { capacityChunks, budgetChars } })
   await settle(150)
   const missing = ['mana-core', 'mana-perception', 'mana-attention', 'mana-working-memory'].filter((s) => !ctx.get(s))
   assert.deepEqual(missing, [], `未装配的服务：${missing.join(', ')}`)
@@ -98,7 +98,9 @@ function readTrace(store) {
  * `MANA_STAGES[1]`（'attention' 段），`attention` 包写的行**也是**这一段的标签
  * （`attention/src/index.ts:190`）。⇒ 两包在本链上**标签同形**，只看 event_type 无法归属。
  * 唯一可分辨的身份在各自 payload 的**独有字段**上：
- *   · 工作记忆行：`{requestId, size, capacityChunks, evicted, didEvict}`
+ *   · 工作记忆行：`{requestId, size, capacityChunks, evicted, budgetChars, chars, budgetEvicted, truncated, truncatedChars, didEvict}`
+ *     （G2 把读数换成单一来源 `metrics()`，键集随之扩展；`wmRows` **不按"键集逐字相等"**认领 ——
+ *      那会让每次加字段都变成一次判据改造；改认**语义锚**：size/capacityChunks/evicted 三件套）
  *   · attention 行：`{requestId, contentChars}`
  * 本函数按这个形状认领；形状变了就该在这里红，而不是静默数错。
  */
@@ -119,16 +121,44 @@ function wmRows(rows) {
   })
 }
 
-/** 造一条**真作意放行**（字段形状 = attention 广播的那条，attention/src/index.ts:173-181）。 */
-const att = (i) => ({
+/**
+ * 造一条**真作意放行**（字段形状 = attention 广播的那条，attention/src/index.ts:173-181）。
+ * `content` 可覆盖：**默认值必须保持 3 码点**，否则 W1/W2/W4/W5 的 chars 读数会被这一个参数改动带跑
+ * （改判据的夹具去迁就新用例 = 把老腿的读数变成假的）。预算腿一律显式传长内容。
+ */
+const att = (i, content = `内容${i}`) => ({
   sessionId: 'sess-wm',
   turnId: 1,
   requestId: `req-${i}`,
   at: `2026-01-01T00:00:${String(i).padStart(2, '0')}Z`,
-  content: `内容${i}`, // 3 码点/字
+  content,
   jevProbability: null,
   degraded: false,
 })
+
+/**
+ * **预算记账腿**的认领器：只认**真的带预算读数**的 WM 行。
+ * 为什么不复用 `wmRows`：`truncated`/`budgetEvicted` 若被写成"常量 0 回填"或干脆没写进落痕，
+ * `wmRows` 仍会认领（三件套没变）⇒ 认领腿看不出"记账没落到审计面"。
+ * 这里要求它们是**数字**；落痕缺字段时过滤后行数会掉 ⇒ 下面的计数腿立刻可见。
+ */
+function budgetRows(rows) {
+  return wmRows(rows).filter((r) => {
+    try {
+      const p = JSON.parse(r.payload ?? '{}')
+      return (
+        typeof p.budgetChars === 'number' &&
+        typeof p.chars === 'number' &&
+        typeof p.budgetEvicted === 'number' &&
+        typeof p.truncated === 'number' &&
+        typeof p.truncatedChars === 'number'
+      )
+    } catch {
+      return false
+    }
+  })
+}
+
 
 // ── ⑤ 容量闸 + 边界腿三点 ────────────────────────────────────────────────────
 test('W1 ⑤容量闸边界腿：容量−1 / 容量 / 容量+1 三点 —— 逐出只发生在 +1 那一次', async () => {
@@ -277,7 +307,12 @@ test('W5 ⑦snapshot 结构与顺序：顺序**敏感**（FIFO：idx 0 最旧、
   assert.deepEqual(snap.chunks.map((c) => c.seq), [1, 2, 3], '数组顺序必须是到达顺序（idx 0 = 最旧）')
   assert.equal(snap.chunks[snap.chunks.length - 1].requestId, 'req-3', '末位 = 最新进入的那条')
   // 结构必须完整给出（判据用：读不到就等于没有）
-  assert.deepEqual(Object.keys(snap).sort(), ['budgetChars', 'capacityChunks', 'chars', 'chunks', 'evicted'])
+  // ⚠ G2 后键集含 3 个**预算记账**键；**未**新增 size —— snapshot 有 chunks，条数是冗余派生字段
+  //   （多一个派生字段 = 多一个漂移源；status 才带 size）。
+  assert.deepEqual(
+    Object.keys(snap).sort(),
+    ['budgetChars', 'budgetEvicted', 'capacityChunks', 'chars', 'chunks', 'evicted', 'truncated', 'truncatedChars'],
+  )
   assert.deepEqual(Object.keys(snap.chunks[0]).sort(), ['at', 'content', 'requestId', 'seq'])
 
   // 深拷贝：调用方改了读到的快照**不得**影响内部状态
@@ -355,3 +390,333 @@ test('W8 ⑧失败可观测：畸形作意载荷**大声抛**（未被静默吞�
   // 对照：良构载荷必不抛（证明上面那条不是"凡输入皆抛"的假覆盖）
   assert.doesNotThrow(() => onAttention(att(1)))
 })
+
+// ══ G2 新增：预算闸（budgetChars）真闸判据 ═══════════════════════════════════
+//
+// 背景（F4 实证 + 主持人源码级复核）：@budgetChars@ 曾是**零消费死开关** —— 全仓仅 4 处出现
+// （接口×2 + 缺省 + 报告字段），**无任何比较**；实测 @budgetChars=1 + 4×5000 字@ ⇒
+// @{chars:20000, over:19999, evicted:0}@，超预算字无动作、无记账。本组判据把「它到底管没管」
+// 变成**可机检**：每条腿都用与缺省值**不同的**预算值，且都断言**行为随该值变**。
+//
+// 两闸顺序口径 = **先容量（条数）、后预算（字符）**，理由与判据见 W11。
+
+/** 造 n 个码点的内容串。默认用 '中'：**1 码点 / 3 字节** ⇒ 顺带把「按码点计」与「按字节计」区分开。 */
+const rep = (n, ch = '中') => ch.repeat(n)
+
+test('W9 ⑨预算闸边界：容量轴关掉、只留预算轴 —— 恰满不动作 / 超 1 字必动作 / 多块逐出 / 单块截断', async () => {
+  // (甲) 恰满预算：**不得**逐出、不得截断（边界是 >，不是 >=）—— 与容量闸 W1 同口径
+  {
+    const { ctx } = await bootDirect({ capacityChunks: 0, budgetChars: 300 })
+    const wm = ctx.get('mana-working-memory')
+    assert.equal(wm.snapshot().budgetChars, 300, '配置真生效（读回 = 写下的值）')
+    const flags = [wm.push(att(1, rep(100))), wm.push(att(2, rep(100))), wm.push(att(3, rep(100)))]
+    const s = wm.snapshot()
+    assert.deepEqual(flags, [false, false, false], '恰满预算时 push 不得报逐出')
+    assert.equal(s.chars, 300, '3×100 码点 = 恰满 300')
+    assert.equal(s.chunks.length, 3, '恰满预算不得逐出（管住 = size 3）')
+    assert.equal(s.budgetEvicted, 0, '恰满：零预算逐出')
+    assert.equal(s.truncated, 0, '恰满：零截断')
+    assert.equal(s.truncatedChars, 0, '恰满：零截断字符')
+  }
+
+  // (乙) 超 1 码点：**必逐出最旧**（差值 1 也必须动作 —— 这是"死开关"与"真闸"的分水岭）
+  {
+    const { ctx } = await bootDirect({ capacityChunks: 0, budgetChars: 299 })
+    const wm = ctx.get('mana-working-memory')
+    wm.push(att(1, rep(100)))
+    wm.push(att(2, rep(100)))
+    assert.equal(wm.push(att(3, rep(100))), true, '超预算 1 码点也必须报逐出（死开关在这里恒 false）')
+    const s = wm.snapshot()
+    assert.equal(s.size === undefined ? s.chunks.length : s.size, 2, '超 1 码点 ⇒ 逐出 1 条')
+    assert.deepEqual(s.chunks.map((c) => c.requestId), ['req-2', 'req-3'], '逐出的必须是**最旧**那条')
+    assert.equal(s.chars, 200)
+    assert.equal(s.budgetEvicted, 1, '预算逐出必须**显式记账**（不许静默 shift）')
+    assert.equal(s.truncated, 0, '多块情形走逐出，不走截断')
+  }
+
+  // (丙) 单条自身超预算一大截 ⇒ 截断到恰满（不是整条丢）
+  {
+    const { ctx } = await bootDirect({ capacityChunks: 0, budgetChars: 10 })
+    const wm = ctx.get('mana-working-memory')
+    const didEvict = wm.push(att(1, rep(100)))
+    const s = wm.snapshot()
+    assert.equal(s.chunks.length, 1, '单条超预算须**保留一条**（就绪性下限），不得整条丢空')
+    assert.equal([...s.chunks[0].content].length, 10, '须截断到恰好等于预算（不是少于）')
+    assert.equal(s.chars, 10)
+    assert.equal(s.truncated, 1, '截断必须**显式记账**（1 次）')
+    assert.equal(s.truncatedChars, 90, '截断字符数 = 100 - 10（不是只记次数不记量）')
+    assert.equal(s.budgetEvicted, 0, '截断不得混进逐出账（两者必须可分辨）')
+    assert.equal(didEvict, false, '截断**不**算逐出（条数未减，返回值不得被截断污染）')
+    assert.deepEqual(s.chunks.map((c) => c.seq), [1], '截断改的是 content，seq/身份不得被换掉')
+    assert.equal(s.chunks[0].requestId, 'req-1')
+  }
+
+  // (丁) 单条恰好超 1 码点 ⇒ 截断 1 码点（边界腿：截断量恰为 1）
+  {
+    const { ctx } = await bootDirect({ capacityChunks: 0, budgetChars: 99 })
+    const wm = ctx.get('mana-working-memory')
+    wm.push(att(1, rep(100)))
+    const s = wm.snapshot()
+    assert.equal(s.chars, 99, '截到 99')
+    assert.equal(s.truncatedChars, 1, '恰好截掉 1 码点')
+    assert.equal(s.truncated, 1)
+  }
+
+  // (庚) 多条 + 最旧那条**自身**就超预算 ⇒ 仍走**逐出**（截断只保留给"只剩一条"的退化情形）
+  {
+    const { ctx } = await bootDirect({ capacityChunks: 0, budgetChars: 250 })
+    const wm = ctx.get('mana-working-memory')
+    wm.push(att(1, rep(300)))
+    wm.push(att(2, rep(50)))
+    // push#1: 单条 300 > 250 ⇒ 截断到 250（truncated=1, tc=50）
+    // push#2: 250 + 50 = 300 > 250 ⇒ 多块 ⇒ **逐出最旧**（不是把 req-1 再截一次）
+    const s = wm.snapshot()
+    assert.deepEqual(s.chunks.map((c) => c.requestId), ['req-2'], '多块一律逐出最旧')
+    assert.equal(s.budgetEvicted, 1, '逐出记在预算账上')
+    assert.equal(s.truncated, 1, '截断次数**不因逐出而变**（两次动作分属两笔账）')
+    assert.equal(s.chars, 50)
+    assert.equal([...s.chunks[0].content].length, 50, '留下的那条内容不得被截')
+  }
+
+  // (辛) 一次 push 内**逐出多条**：逐出后必须**重新评估** total，直到满足上界（不是只逐一条就收手）
+  {
+    const { ctx } = await bootDirect({ capacityChunks: 0, budgetChars: 25 })
+    const wm = ctx.get('mana-working-memory')
+    for (let i = 1; i <= 4; i += 1) wm.push(att(i, rep(10)))
+    // 第 4 次：total 40 > 25 ⇒ 逐 req-1（30 > 25）⇒ 再逐 req-2（20 ≤ 25 收手）⇒ 本次逐出 **2** 条
+    const s = wm.snapshot()
+    assert.deepEqual([s.chunks.length, s.chars, s.budgetEvicted], [2, 20, 2], '一次 push 内必须逐到满足上界为止（只逐一条 = 预算仍被顶破）')
+    assert.deepEqual(s.chunks.map((c) => c.requestId), ['req-3', 'req-4'], '留下的必须是最新两条')
+    assert.ok(s.chars <= 25, '末态 chars 不得越过预算上界')
+  }
+
+  // (己) **口径腿：按码点计，不是按 UTF-16 单元 / 字节**
+  //   '𝌆' = 1 码点 / 2 个 UTF-16 单元 / 4 字节。预算 5 码点 ⇒ 5 个字**恰满**，不得截断。
+  //   若实现按 s.length（UTF-16）计，5 个会算成 10 ⇒ 必截到 5 单元 = '𝌆𝌆' + 半个代理对（非法串）⇒ 本腿红。
+  {
+    const { ctx } = await bootDirect({ capacityChunks: 0, budgetChars: 5 })
+    const wm = ctx.get('mana-working-memory')
+    wm.push(att(1, '𝌆'.repeat(5)))
+    const s = wm.snapshot()
+    assert.equal(s.chars, 5, 'chars 必须按**码点**计（5，不是 10）')
+    assert.equal(s.truncated, 0, '恰满 5 码点不得截断（按 UTF-16 计会误判成 10 ⇒ 必红）')
+    assert.equal(s.chunks[0].content, '𝌆'.repeat(5), '内容逐字不变，且不得被切出半个代理对')
+  }
+})
+
+test('W10 ⑨两闸串联：先容量后预算 —— 末态**同时**满足两个上界，且记账归属不串账', async () => {
+  // (甲) 容量 3 / 预算 5：逐条压入 3 码点的块 ⇒ 预算闸每次逐出最旧，逐出后**重新**评估（total 单调降）
+  {
+    const { ctx } = await bootDirect({ capacityChunks: 3, budgetChars: 5 })
+    const wm = ctx.get('mana-working-memory')
+    wm.push(att(1, rep(3)))
+    wm.push(att(2, rep(3))) // 3+3 = 6 > 5 ⇒ 逐出 req-1（多块路径）
+    const s1 = wm.snapshot()
+    assert.equal(s1.budgetEvicted, 1, '超预算 ⇒ 预算账 +1')
+    assert.equal(s1.evicted, 0, '容量 3 未破 ⇒ 容量账必须为 0（两笔账分账）')
+    assert.equal([...s1.chunks[0].content].length, 3, '留下的是**整块**（逐出不截断）')
+    assert.equal(s1.truncated, 0, '多块路径不得记截断')
+    assert.equal(s1.chars, 3)
+  }
+
+  // (乙) 两闸**同时**超：容量 1 / 预算 4，两条各 9 码点
+  {
+    const { ctx } = await bootDirect({ capacityChunks: 1, budgetChars: 4 })
+    const wm = ctx.get('mana-working-memory')
+    wm.push(att(1, rep(9))) // 容量 1 未破；预算：单条 9 > 4 ⇒ 截断到 4
+    const mid = wm.snapshot()
+    assert.deepEqual([mid.chunks.length, mid.truncated, mid.truncatedChars, mid.evicted, mid.budgetEvicted], [1, 1, 5, 0, 0])
+    wm.push(att(2, rep(9))) // 容量先跑：size 2 > 1 ⇒ 逐出 req-1（evicted=1）；预算后跑：单条 9 > 4 ⇒ 截断 req-2
+    const s = wm.snapshot()
+    assert.deepEqual(
+      [s.chunks.length, s.chars, s.evicted, s.budgetEvicted, s.truncated, s.truncatedChars],
+      [1, 4, 1, 0, 2, 10],
+      '两闸同超：容量先把 req-1 挤掉（记 evicted）、预算再截 req-2（记 truncated）—— 互不串账',
+    )
+    // **末态同时满足两个上界**（这是"以谁为准"的判据：谁都不得被对方顶破）
+    assert.ok(s.chunks.length <= 1, 'size 不得越过容量上界')
+    assert.ok(s.chars <= 4, 'chars 不得越过预算上界')
+  }
+
+  // (丙) 顺序判据：**行为对拍 = 正序的账本**（逆序会给出另一组读数）
+  {
+    const { ctx } = await bootDirect({ capacityChunks: 1, budgetChars: 4 })
+    const wm = ctx.get('mana-working-memory')
+    wm.push(att(1, rep(5)))
+    wm.push(att(2, rep(5)))
+    const s = wm.snapshot()
+    // 正序（先容量后预算）：push#1 容量不动作 → 预算截断(1)；push#2 容量逐出 req-1(evicted=1) → 预算截断 req-2(2)
+    // 逆序（先预算后容量）：push#2 的预算会先把 req-1 逐出(budgetEvicted=1)、req-2 截断，容量再不动作
+    //   ⇒ 读数会变成 [evicted:0, budgetEvicted:1] —— 与下面断言不同 ⇒ 顺序被钉死
+    assert.deepEqual(
+      [s.chunks.length, s.chars, s.evicted, s.budgetEvicted, s.truncated, s.truncatedChars],
+      [1, 4, 1, 0, 2, 2],
+      '记账归属必须与"先容量后预算"一致：逆序实现会得到 evicted:0/budgetEvicted:1 ⇒ 必红',
+    )
+  }
+
+  // (丁) 顺序的**结构腿**：源码里容量分支必须**先于**预算分支（行为腿 + 结构腿，两条都要）
+  {
+    const src = readFileSync(new URL('../src/index.ts', import.meta.url), 'utf8')
+    // 锚点取**闸语句本身**（`while (config.capacityChunks` / `if (config.budgetChars`），
+    // 不取比较运算符正文 —— 否则把 `<=` 改成 `<` 这类**在预算腿该红**的扰动，会先把这条**顺序腿**判红，
+    // 报错点就不是它该点的那条腿了（判据绑死写法，不是绑死顺序契约）。
+    const iCap = src.indexOf('while (config.capacityChunks')
+    const iBud = src.indexOf('if (config.budgetChars')
+    assert.ok(iCap > 0, '抽不到容量闸的闸语句 ⇒ 该腿会静默空转，必须红')
+    assert.ok(iBud > 0, '抽不到预算闸的闸语句 ⇒ 同上')
+    assert.ok(iCap < iBud, '两闸顺序契约 = 先容量后预算；实现里容量闸必须先出现（顺序颠倒 ⇒ 本腿必红）')
+  }
+})
+
+test('W12 ⑨两个闸的"不设闸"语义：capacityChunks<=0 / budgetChars<=0 —— 含**真出口**与反向对照', async () => {
+  // (甲) capacityChunks = 0 ⇒ 该轴**不设闸（无上限）**：不逐出、不记账（G2 明订，与 maxRounds=0/maxTokens=0 同族）
+  {
+    const a = await bootDirect({ capacityChunks: 0, budgetChars: 4000 })
+    const wmNo = a.ctx.get('mana-working-memory')
+    const flags = []
+    for (let i = 1; i <= 12; i += 1) flags.push(wmNo.push(att(i)))
+    const sNo = wmNo.snapshot()
+    assert.deepEqual(flags, new Array(12).fill(false), '容量 0 = 无上限 ⇒ push 恒不报逐出')
+    assert.equal(sNo.chunks.length, 12, '12 条全留（"无上限"不等于"一条不收"）')
+    assert.equal(sNo.evicted, 0, '无闸 ⇒ 零逐出（不得记 phantom 数）')
+
+    // **反向对照**：同 12 条、容量 4 ⇒ 必须逐出 8 —— 证明上面"不动作"是**配置使然**，不是阈值面失效
+    const b = await bootDirect({ capacityChunks: 4, budgetChars: 4000 })
+    const wmCap = b.ctx.get('mana-working-memory')
+    for (let i = 1; i <= 12; i += 1) wmCap.push(att(i))
+    const sCap = wmCap.snapshot()
+    assert.deepEqual([sCap.chunks.length, sCap.evicted], [4, 8], '反向对照：容量 4 时同 12 条必逐出 8（无对照则"无上限"与"闸坏了"同形）')
+  }
+
+  // (乙) budgetChars = 0 ⇒ 该轴**不设闸（无上限）**：超长内容**不截断、不逐出**
+  {
+    const a = await bootDirect({ capacityChunks: 0, budgetChars: 0 })
+    const wmNo = a.ctx.get('mana-working-memory')
+    wmNo.push(att(1, rep(100)))
+    wmNo.push(att(2, rep(100)))
+    wmNo.push(att(3, rep(100)))
+    const sNo = wmNo.snapshot()
+    assert.deepEqual([sNo.chars, sNo.budgetEvicted, sNo.truncated, sNo.chunks.length], [300, 0, 0, 3], '预算 0 = 无上限 ⇒ 300 字全留且逐字不截')
+    assert.equal([...sNo.chunks[0].content].length, 100, '无上限时内容必须逐字完整（不得被"0 预算"截成空串）')
+
+    // **反向对照**：同 3 条、预算 250 ⇒ 必须动作（否则"0 = 无上限"与"闸从不动作"同形）
+    const b = await bootDirect({ capacityChunks: 0, budgetChars: 250 })
+    const wmBud = b.ctx.get('mana-working-memory')
+    wmBud.push(att(1, rep(100)))
+    wmBud.push(att(2, rep(100)))
+    wmBud.push(att(3, rep(100)))
+    const sBud = wmBud.snapshot()
+    assert.deepEqual([sBud.chars, sBud.budgetEvicted], [200, 1], '反向对照：预算 250 时同 3 条必逐出 1 条（闸是活的）')
+  }
+
+  // (丙) **真出口腿**：配置面（设置页那组数值框）经**真 Loader** 解析后确实进到实现里
+  //      （= r0-assembly-check 同口径装配；缺省值必须能被 Schema 解析出来，显式值必须覆盖缺省）
+  {
+    const { ctx } = await bootChain({ capacityChunks: 2 }) // budgetChars 走 Schema 缺省
+    const wm = ctx.get('mana-working-memory')
+    assert.equal(wm.snapshot().budgetChars, 4000, 'Schema 缺省 4000 必须经真配置链解析进实现（不是只有接口声明）')
+    assert.equal(wm.status().budgetChars, 4000, 'status 也必须能看到该键（否则设置页读数与行为脱钩）')
+  }
+
+  // (丁) **真出口 + 真数据**：预算 1 经真链生效 —— perception→attention→working-memory 放 3 条各 20 字
+  {
+    const { ctx, store } = await bootChain({ capacityChunks: 4, budgetChars: 1 })
+    const wm = ctx.get('mana-working-memory')
+    assert.equal(wm.snapshot().budgetChars, 1, '显式值必须覆盖 Schema 缺省')
+    for (let i = 0; i < 3; i += 1) {
+      const n = ctx.get('mana-perception').perceive({
+        content: rep(20, String.fromCharCode(65 + i)), sessionId: 'g2', turnId: 1, requestId: 'g2-' + i,
+      })
+      assert.equal(n, 1, '每段应只产生一块')
+    }
+    await settle(400)
+    const s = wm.snapshot()
+    // push#1：单条 20 > 1 ⇒ 截断到 1（truncated=1, tc=19）
+    // push#2：1+20 = 21 > 1 ⇒ 多块 ⇒ 逐出 req-1（budgetEvicted=1）⇒ 单条 20 > 1 ⇒ 截断（truncated=2, tc=38）
+    // push#3：同理 ⇒ budgetEvicted=2；truncated=3, tc=57
+    assert.deepEqual(
+      [s.chunks.length, s.chars, s.budgetEvicted, s.truncated, s.truncatedChars],
+      [1, 1, 2, 3, 57],
+      '真链上预算闸必须真动作（修复前该配置下 chars=60、三笔账全 0 ⇒ 本腿必红）',
+    )
+    assert.equal(s.chunks[0].requestId, 'g2-2', '留最新一条')
+    // **记账落审计面**（不是只在内存读数里）：只认带预算读数的 WM 行
+    const rows = budgetRows(readTrace(store))
+    assert.equal(rows.length, 3, '3 次放行 ⇒ 3 行**带预算读数**的落痕（记账字段没写进去 ⇒ 过滤后行数掉 ⇒ 本腿红）')
+    const last = JSON.parse(rows[rows.length - 1].payload)
+    assert.deepEqual(
+      [last.budgetChars, last.chars, last.budgetEvicted, last.truncated, last.truncatedChars],
+      [1, 1, 2, 3, 57],
+      '落痕末行的预算读数必须与 snapshot 逐项一致（两处各算一遍 = 迟早对不上）',
+    )
+  }
+})
+
+test('W13 ⑨记账三层自洽 + 审计不泄内容：snapshot / status / mana_trace 三处同源', async () => {
+  const { ctx, store } = await bootChain({ capacityChunks: 0, budgetChars: 40 })
+  const wm = ctx.get('mana-working-memory')
+  const contents = [rep(30, '甲'), rep(30, '乙'), rep(30, '丙')]
+  for (const [i, c] of contents.entries()) {
+    ctx.get('mana-perception').perceive({ content: c, sessionId: 'g2b', turnId: 1, requestId: 'g2b-' + i })
+  }
+  await settle(400)
+
+  const s = wm.snapshot()
+  const st = wm.status()
+  // push#1：单条 30 ≤ 40 ⇒ 不动；push#2：30+30 = 60 > 40 ⇒ 逐出 req-0（budgetEvicted=1）；push#3：30+30 = 60 > 40 ⇒ 逐出 req-1（budgetEvicted=2）
+  assert.deepEqual([s.chunks.length, s.chars, s.budgetEvicted, s.truncated], [1, 30, 2, 0])
+  // ① snapshot 自洽（读数与实测内容一致）
+  assert.equal(s.chars, s.chunks.reduce((n, c) => n + [...c.content].length, 0), 'chars 必须与逐块码点数之和一致')
+  // ② status 与 snapshot 同源（含新记账键 —— 少一个就是"某处各算一遍"）
+  assert.deepEqual(
+    [st.size, st.chars, st.budgetChars, st.evicted, st.budgetEvicted, st.truncated, st.truncatedChars],
+    [s.chunks.length, s.chars, s.budgetChars, s.evicted, s.budgetEvicted, s.truncated, s.truncatedChars],
+    'status 与 snapshot 的记账读数必须逐项相等（同源）',
+  )
+  // ③ 落痕（审计面）与内存读数一致
+  const rows = budgetRows(readTrace(store))
+  assert.equal(rows.length, 3, '三次放行三行落痕')
+  const seen = rows.map((r) => JSON.parse(r.payload))
+  // push#2 的读数是 [size=1, chars=30, budgetEvicted=1]：**逐出后会重新评估 total**
+  //   （60 > 40 逐出 1 条 → 30 ≤ 40 收手）⇒ 末态不是"超了还在超"的中间态。
+  assert.deepEqual(
+    seen.map((p) => [p.size, p.chars, p.budgetEvicted, p.truncated]),
+    [[1, 30, 0, 0], [1, 30, 1, 0], [1, 30, 2, 0]],
+    '落痕读数必须是**当次** push 后的真实状态（不是末态，也不是常量回填）',
+  )
+  // ④ 记账字段必须**随行为变**（常量回填会在这里露出来）
+  assert.ok(seen[2].budgetEvicted > seen[0].budgetEvicted, '预算逐出数必须随放行推进而增长')
+  // ⑤ **审计不泄内容**（W6 的既有不变式，对新增字段同样成立）
+  for (const r of rows) {
+    for (const c of contents) assert.equal(String(r.payload).includes(c), false, '落痕 payload 不得含内容原文（新增读数不得把内容带进审计面）')
+  }
+})
+
+test('W14 ⑨防复发：每个 Config 键都必须出现在**真比较**里（budgetChars 那类死开关的机检门）', () => {
+  const src = readFileSync(new URL('../src/index.ts', import.meta.url), 'utf8')
+  const keys = [...src.matchAll(/^\s{2}([A-Za-z_$][\w$]*): Schema\./gm)].map((m) => m[1])
+  assert.deepEqual(keys.sort(), ['budgetChars', 'capacityChunks'], 'Config 键集必须恰好是这两个（加键 ⇒ 本腿红，提醒为它补判据）')
+
+  /**
+   * 「该键有真闸」的**结构签名** = 出现在不等号比较里（`config.<key> > x` 或 `x > config.<key>`）。
+   * ⚠ 这不替代行为腿（W9–W13 才是行为证据）—— 它的职责是**点出没有闸的键**：
+   *   死开关的形态恰恰是"哪里都提到了它，但没有一处拿它做判断"。
+   */
+  const hasGate = (text, key) =>
+    new RegExp('config\\.' + key + '\\s*(>|<|>=|<=)').test(text) ||
+    new RegExp('(>|<|>=|<=)\\s*config\\.' + key + '\\b').test(text)
+
+  const ungated = keys.filter((k) => !hasGate(src, k))
+  assert.deepEqual(ungated, [], '下列配置键没有任何比较 ⇒ 疑似零消费死开关：' + ungated.join(', '))
+  assert.equal(/void config/.test(src), false, '不得用 void config 把未消费的配置静默吃掉')
+
+  // ── 本检查器的**负向控制**（证明它有负荷，不是恒绿）──────────────────────
+  // ① 修复前的真实形态：只被回填进报告、从不参与比较（F4 实测的原样）
+  const deadForm = 'const snap = { budgetChars: config.budgetChars }\n'
+  assert.equal(hasGate(deadForm, 'budgetChars'), false, '负控1：只回填不回判 ⇒ 必须被判为无闸（修好前的 budgetChars 正是这一形态）')
+  // ② 真闸形态必须判过（否则本检查器会把好代码判红）
+  assert.equal(hasGate(src, 'budgetChars'), true, '负控2：真闸式必须判过')
+  assert.equal(hasGate('config.capacityChunks > 0 && chunks.length > config.capacityChunks', 'capacityChunks'), true, '负控3：容量闸式必须判过')
+})
+

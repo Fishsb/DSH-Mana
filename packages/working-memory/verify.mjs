@@ -27,7 +27,13 @@ import { readFileSync, existsSync, statSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 
-const EXPECTED_CASES = 8
+/**
+ * 用例数期望值。
+ * ⚠ **加用例必须同步改这里**（不是"改判据去迁就实现"）：本闸的意义正是**防删用例/防截断**，
+ *   数字不更新 ⇒ verify 报红（那才是它该有的行为）；数字随手改成"实测值" ⇒ 闸失去意义。
+ *   G2 由 8 → 13：新增 W9–W14 五条预算闸判据（checklist 里 W11 的洞见并入 W10，故 13 条覆盖 W1–W14）。
+ */
+const EXPECTED_CASES = 13
 const TEST = fileURLToPath(new URL('tests/working-memory.test.mjs', import.meta.url))
 const HERE = fileURLToPath(new URL('.', import.meta.url))
 
