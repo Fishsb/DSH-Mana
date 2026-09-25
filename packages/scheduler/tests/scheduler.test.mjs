@@ -286,7 +286,12 @@ test('E1 卸载 scheduler 后同一触发不再产生新行（带正向前置控
   ran += 1
   const { ctx, coreFiber, schedFiber } = await mountCoreAndScheduler()
   const core = ctx.get('mana-core')
-  const TRACE_EVENT = 'mana/scheduler/attention'
+  // ⚠ 标签真源改为 MANA_STAGES（F-01 口径 A）：旧的 'mana/scheduler/attention' 是**第三套名字**
+  //   （既不在契约 8 个带前缀事件名里，也不在裸名五类里）⇒ 本用例若继续写死旧值，
+  //   会变成「测的是生产端早已不写的东西」而恒 0/恒红。取真源而不是换个新字面量，
+  //   下一次归并时本用例自动跟随。
+  const { MANA_STAGES } = await load('core').then((m) => m)
+  const TRACE_EVENT = MANA_STAGES[1]
   const countRows = () =>
     core.db.prepare('SELECT count(*) c FROM mana_trace WHERE event_type = ?').get(TRACE_EVENT).c
 
