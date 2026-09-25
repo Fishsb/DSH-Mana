@@ -13,6 +13,14 @@
  *   故本文件固定 **8 条**，末条为用例计数自检（少一条即红）；外部核验请断言
  *   `# tests 8` **相等**，而不是 `> 0`。
  *
+ * ── B4.1（S16 席）对本文件的处置：**改期望值 + 补牙，不改判据形态** ──────────────────
+ * · 判据①：期望值 `'skeleton'` → `'active'`，**理由与取证见 `docs/handoff/S16.md` §回归自检**；
+ *   同时在同一条用例里补了"反方向"的牙（自称 active ⇒ 服务面必须有实现成员）。
+ * · 判据⑦⑧：**一字未动**（⑦ 数 effect 恰好 3 条、⑧ 的 ① 段断言空转 0 行）。
+ *   B4.1 的交付不含监听器/定时器，故 ⑦ 天然仍成立；⑧ 的 ① 段在 ⑧ 的 **② 段之后**仍成立
+ *   （② 段是 S16 **追加**的：显式巩固一次 ⇒ 只有 production_rules 多一行，mana_trace 仍 0）。
+ * · 用例数仍为 **8**（无删减；verify.mjs 侧已扩为清单式，见该文件）。
+ *
  * 运行（**显式路径**）：node --test packages/consolidation/tests/skeleton.test.mjs
  */
 import { test } from 'node:test'
@@ -57,15 +65,30 @@ async function probeChain(ctx) {
   return { sentinel, inner, r }
 }
 
-test('① behavior 由运行时服务面机检（填了实现在忘改 ⇒ 必红）', async () => {
+test('① behavior 由运行时服务面机检（B4.1 起期望值 = active，见改值理由）+ 反方向补牙', async () => {
   ran += 1
-  const { ctx } = await mount()
+  // ── 本用例的期望值由 S16 席（B4.1）从 'skeleton' 改为 'active'。**改的是期望值，不是判据形态**：
+  //    先改实现 ⇒ 本用例按设计报红（实跑复现：`本包尚无行为 ⇒ behavior 必须为 'skeleton'，实测 active`），
+  //    再由实现事实把期望值改成 'active'。处置理由与反方向补牙见下，以及 docs/handoff/S16.md §回归自检。
+  const { ctx, mod } = await mount()
   const svc = ctx.get('mana-consolidation')
   assert.ok(svc, 'mana-consolidation 服务必须可读（未 provide = 插件没真跑起来）')
   const st = svc.status()
-  assert.equal(st.behavior, 'skeleton', `本包尚无行为 ⇒ behavior 必须为 'skeleton'，实测 ${st.behavior}`)
+  assert.equal(st.behavior, 'active', `B4.1 已填实现（合并 + chunking）⇒ behavior 必须为 'active'，实测 ${st.behavior}`)
   assert.equal(st.wired, true)
   assert.equal(typeof st.behavior, 'string', 'behavior 不得为 undefined（undefined 会被 JSON 静默丢键）')
+
+  // ⚠ **反方向补牙**（S16 补，不替代 ⑦⑧）：文件头自认的反向「填了真行为却把 behavior 留成 'skeleton'」
+  //   其实是**静态期望值**问题，真正的盲区在**另一头** —— 「自称 active 而背后无事」。
+  //   这一头此前零机检。故并列断言：服务面必须真有实现成员，且实现面清单非空。
+  for (const key of ['select', 'ripple', 'chunk', 'plan', 'writeRules', 'vectorRoute']) {
+    assert.equal(typeof svc[key], 'function', `自称 active ⇒ 服务面必须有 ${key}()（自称 active 而背后无事 ⇒ 必红）`)
+  }
+  assert.ok(
+    Array.isArray(mod.IMPLEMENTED_EXPORTS) && mod.IMPLEMENTED_EXPORTS.length >= 7,
+    `实现面清单不得为空/被挖空；实测 ${JSON.stringify(mod.IMPLEMENTED_EXPORTS)}`,
+  )
+  assert.equal(mod.Config, undefined, '本包仍不导出 Config（阈值走 params 常量，不进配置面）')
 })
 
 test('② 本包真在 agent/pre-step 链上：effect 面出现监听器 + 卸载后消失', async () => {
@@ -139,9 +162,13 @@ test('⑦ effect 面精确计数：本包仍是空壳（多一条行为即红 �
   assert.ok(labels.some((l) => l.includes('agent/pre-step')), `须注册 pre-step 监听器；实测 ${JSON.stringify(labels)}`)
 })
 
-test('⑧ 行为面缺席：本包不写任何 mana_trace 行（与 ⑦ 互补）', async () => {
+test('⑧ 行为面缺席：本包不写任何 mana_trace 行（与 ⑦ 互补）+ S16 补：唯一写入面恰为 production_rules', async () => {
   ran += 1
   // 与 ⑦ 互补：⑦ 查"没加东西"，⑧ 查"真没写行"。二者合起来使"空壳"成为机检事实。
+  // ⚠ **S16 席在原用例之后追加了 ② 段**（原标题与 ① 段一字未动）：
+  //   B4.1 之后本包不再"零写入"，而是"**唯一**写入面是 production_rules（显式调用才发生）"。
+  //   若不追加这段，⑧ 会停在"空转时 0 行"的弱形态上 —— 那对"写入面四处开花"是盲的。
+  //   追加使两条同时成为机检事实：① 空转 0 行（原样保留）；② 显式巩固一次 ⇒ 只多 control 表一行。
   const { ctx } = await mount()
   const core = ctx.get('mana-core')
   assert.ok(core, 'core 服务须可读')
@@ -160,6 +187,44 @@ test('⑧ 行为面缺席：本包不写任何 mana_trace 行（与 ⑦ 互补�
       `若本包已有真行为 ⇒ 须改 status().behavior 并补 R 形态反证判据（"卸载后不再产生新行"）`,
   )
   assert.equal(before, 0, `本探针期间 mana_trace 应为空；实测 ${before}`)
+
+  // ── ② 段（S16 补）：显式走一次真巩固 + 落库，断言"写入面唯一"与"行为面仍 0 行" ────────────
+  const svc = ctx.get('mana-consolidation')
+  assert.ok(svc, '服务须可读（否则下面的 ② 段是平凡通过）')
+  const cnt = (t) => core.db.prepare(`SELECT count(*) AS c FROM ${t}`).get().c
+  const TABLES = ['mana_trace', 'production_rules', 'memory_items', 'inject_log', 'jev_log']
+  const plan = svc.plan({
+    periodId: 'skeleton-⑧-2',
+    items: [{ id: 'm1', activation: 1, vector: [1, 0] }],
+    neocortex: [{ id: 'n1', vector: [1, 0] }],
+    runs: [
+      { id: 'r1', goalId: 'g-⑧', steps: ['a'], endedAt: '2026-09-25T00:00:01.000Z' },
+      { id: 'r2', goalId: 'g-⑧', steps: ['a'], endedAt: '2026-09-25T00:00:02.000Z' },
+    ],
+  })
+  assert.equal(plan.ripple.stats.merged, 1, '夹具：cos([1,0],[1,0])=1 ⇒ 必合并（否则本段测的不是真路径）')
+  assert.equal(plan.chunking.rules.length, 1, '夹具：同序列重复 2 次 ⇒ 恰 1 条规则')
+  // ⚠ 变量名不得与上面 ① 段的 `before`/`after`（mana_trace 行数）重名 —— 重名会 ESM 编译期报
+  //   `Identifier 'before' has already been declared`，而 node --test 把它报成整个文件失败
+  //   （`# tests 1 / fail 1`，指不到真因）。本席实跑踩过一次，故用 `countsBefore`/`countsAfter`。
+  const countsBefore = Object.fromEntries(TABLES.map((t) => [t, cnt(t)]))
+  const written = svc.writeRules(plan.chunking.rules)
+  assert.equal(written.inserted.length, 1, `显式落库必须真的插入 1 行；实测 ${JSON.stringify(written)}`)
+  assert.deepEqual(written.failures, [], '不得有写失败')
+  const countsAfter = Object.fromEntries(TABLES.map((t) => [t, cnt(t)]))
+  assert.equal(
+    countsAfter.production_rules,
+    countsBefore.production_rules + 1,
+    `唯一写入面须生效（production_rules +1）；实测 ${countsBefore.production_rules} → ${countsAfter.production_rules}`,
+  )
+  for (const t of ['mana_trace', 'memory_items', 'inject_log', 'jev_log']) {
+    assert.equal(
+      countsAfter[t],
+      countsBefore[t],
+      `${t} 必须一行不动（写入面只许是 production_rules）；实测 ${countsBefore[t]} → ${countsAfter[t]}`,
+    )
+  }
+  assert.equal(countsAfter.mana_trace, 0, '走完整条巩固路径仍不得写 mana_trace（"行为面缺席"在 B4.1 后仍成立）')
 })
 
 test('⑥ 用例计数自检（防本文件被截断/删用例 —— 空文件会报 tests 1 / pass 1 的假绿）', () => {
