@@ -1,0 +1,7 @@
+# dsh-mana-llm bundle patch：挂进 profile 组合。
+# ⚠ 本插件**依赖** dsh-mana-core（契约唯一归属地）⇒ 装配位次必须在其后。
+# ⚠ 与其余 Mana 包不同：本包**不声明** ctx.llm 为 inject 依赖（见 src/index.ts 的说明）——
+#   宿主没有 LLM 面时，本包仍要能被装配、ctx.get('mana-llm') 仍要可读。
+- insert:
+    - id: mana-llm
+      name: 'dsh-mana-llm'

@@ -1,0 +1,12 @@
+{
+  "_note": "extends/include 相对本文件解析；outDir/declarationDir 因此落在本包内。",
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "lib",
+    "declarationDir": "lib/types"
+  },
+  "include": [
+    "src"
+  ]
+}
