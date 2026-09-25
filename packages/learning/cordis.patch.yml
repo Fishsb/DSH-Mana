@@ -1,0 +1,7 @@
+# dsh-mana-learning bundle patch：挂进 profile 组合。
+# ⚠ 本插件**依赖** dsh-mana-core（契约唯一归属地）⇒ 装配位次必须在其后。
+# ⚠ 本包**不**依赖 long-term / forgetting / consolidation：与它们是**只读的数学关系**
+#   （判据见 src/index.ts 文件头），不是装配依赖 —— 在此却声明会让装配期停 waiting。
+- insert:
+    - id: mana-learning
+      name: 'dsh-mana-learning'
