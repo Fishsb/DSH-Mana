@@ -255,22 +255,28 @@ HEAD 腿比对 `git rev-parse HEAD`。哈希变了清单没变 ⇒ 先查 git �
 
 | 包 | 性质 | 源码行 | `lib/` | 软链 | 测试 | 状态 |
 |---|---|---|---|---|---|---|
-| `core` | P0 | 1330 | ✅ | ✅ | 4 文件 42 例 | **已交付**（含 B1.0 开库器 + ACT-4 迁移） |
-| `jev` | P0 | 1816 | ✅ | ✅ | 3 文件 57 例 + 闸 | **已交付**（B1.2 原语/护栏/真通道） |
-| `vector` | P0 | 940 | ✅ | ✅ | 1 文件 15 例 + 闸 | **已交付**（B1.1） |
-| `perception` | P0 | 58 | ✅ | ✅ | **0** | ⚠ **仅骨架**（不发 `mana/observation`） |
-| `attention` | P0 | 101 | ✅ | ✅ | **0** | ⚠ 半成品（真发 `mana/attention`，但无测试） |
-| `working-memory` | P0 | 59 | ✅ | ✅ | **0** | ⚠ **仅骨架**（不在事件链上） |
+| `core` | P0 | 1740 | ✅ | ✅ | 11 文件 91 例 | **已交付**（含 B1.0 开库器 + ACT-4 迁移 + ACT-15 历史表/触发器） |
+| `jev` | P0 | 1856 | ✅ | ✅ | 3 文件 57 例 + 闸 | **已交付**（B1.2 原语/护栏/真通道，B1.3 框架） |
+| `vector` | P0 | 956 | ✅ | ✅ | 1 文件 15 例 + 闸 | **已交付**（B1.1；vec0 三语义真机负例见 `tools/probes/vec0-semantics.mjs`） |
+| `perception` | P0 | 118 | ✅ | ✅ | **0** | ⚠ **无测试**（W3 已接事件链：真发 `mana/observation`，源头） |
+| `attention` | P0 | 345 | ✅ | ✅ | **0** | ⚠ **无测试**（W3 已接判定链 + Injection Gate 写入点） |
+| `working-memory` | P0 | 146 | ✅ | ✅ | **0** | ⚠ **无测试**（W3 已在链上：消费 `mana/attention`、广播 `mana/working-memory`） |
 | `scheduler` | P1 | 378 | ✅ | ✅ | 14 例 | 已交付（B2.2），**待接 B2.1** |
-| `metacognition` | P2 | 1742 | ✅ | ✅ | 2 文件 15 例 | 已交付（B5.1） |
-| `user-model` | P2 | 64 | ✅ | ✅ | 4 例 | 骨架 + 判据 |
-| `ui` | P2 | 906 | ✅ | ✅ | 13 例 | 已交付（B6.1） |
-| `long-term` | P1 | 74 | ❌ | ✅ | 8 例 | **仅骨架**（待 W4） |
-| `consolidation` | P1 | 74 | ❌ | ✅ | 8 例 | **仅骨架**（待 W5） |
-| `forgetting` | P1 | 74 | ❌ | ✅ | 8 例 | **仅骨架**（待 W5） |
+| `metacognition` | P2 | 1751 | ✅ | ✅ | 3 文件 21 例 | 已交付（B5.1） |
+| `user-model` | P2 | 92 | ✅ | ✅ | 2 文件 12 例 | 骨架 + 判据（`user_model_history` 由 ACT-15 补上） |
+| `ui` | P2 | 906 | ✅ | ✅ | 2 文件 17 例 | 已交付（B6.1；装配证据已接机检） |
+| `long-term` | P1 | 74 | ✅ | ✅ | 8 例 | **仅骨架**（lib 已构建；待 W4） |
+| `consolidation` | P1 | 74 | ✅ | ✅ | 8 例 | **仅骨架**（lib 已构建；待 W5） |
+| `forgetting` | P1 | 74 | ✅ | ✅ | 8 例 | **仅骨架**（lib 已构建；待 W5） |
 
-**全仓现状（实测）**：`npm test` → **184/184 pass**；`npm run typecheck` → exit 0；
-`node tools/a0-check.mjs` → **14 PASS / 0 FAIL / 1 挂账**；`r0-assembly-check` → 6/6 装配归零。
+> ⚠ **本表订正说明（2026-09-25 实测）**：源码行改用 `find <pkg>/src -name '*.ts' | xargs cat | wc -l`
+> 口径（含 `src/client/` 等子目录；旧的粗算法会漏子目录 ⇒ `ui` 曾因此被重算错）；测试列按
+> `packages/<pkg>/tests/*.test.mjs` 的 `^test(` 计数。W3 波次（`acdcabe` 起）已把
+> `perception`/`attention`/`working-memory` 接进事件链，故三者的「仅骨架」标注**已改为「无测试」**
+> ——三包仍无任何测试文件，这是真缺口，不因接线而消失。
+
+**全仓现状（实测，2026-09-25 · HEAD 98ae46c）**：`npm test` → **251/251 pass**；`npm run typecheck` → exit 0；
+`node tools/a0-check.mjs` → **16 项 · 15 PASS / 0 FAIL / 1 挂账**；`r0-assembly-check` → **13/13 装配归零**（`N=13`）。
 
 ### C. W2 可并行派单（**关键路径已解锁**）
 
@@ -294,6 +300,25 @@ HEAD 腿比对 `git rev-parse HEAD`。哈希变了清单没变 ⇒ 先查 git �
 
 > ⚠ **W3 不可并行**：`B2.1` 跨 `perception`/`attention`/`working-memory`/`scheduler` 四包
 > （`session-allocation` §二 原文），同目录两写者必然打架。
+
+### C′. W2/W3 完成回写（2026-09-25 实测 · 订正 C/D 两表的「现状」措辞）
+
+> 上表 C/D 是**派单时的设计基线**，其「现状」措辞已过时；此处按实测回写，**不改原表文字**。
+
+| 序 | 派单时写的现状 | 实测（2026-09-25） | 落点 |
+|---|---|---|---|
+| **W2-1** | 「`cached` 列现恒 0」 | **已完工**：`framework.ts` 落地 TTL300/熔断5/冷却60/并发4/预算200 五面；`packages/jev/tests/gate.mjs` exit 0（四腿）；`cached` 0→1 有断言 | `packages/jev/src/framework.ts`（`bfa3b57` 前后） |
+| **W2-2** | 「只有 A0 级入口，A1 级无」 | **已完工并扩到 15 项**：`tools/a1-check.mjs` 有**项集等式**（集合对拍，缺项/多项皆红）+ `--mutate` 变异自证腿；已接进 `a0-check` 门链（`npm run check:a1`） | `tools/a1-check.mjs`、`tools/a0-check.mjs` |
+| **W2-3** | 「只在测试里验证渲染，未接 profile 运行态」 | **已完工**：`packages/ui/tests/assembly.test.mjs` 走真 Loader（计数 1→2→0）；client 产物禁词判据改用 `packages/ui/scripts/check-client-api.mjs`（AST+TS scanner，**不再用裸 grep**——原 grep 计注释，属假阳性） | `packages/ui/**`、`tools/a1-check.mjs` 的 `uiAssembly` 腿 |
+| **W2-4** | 「两包已交付但无消费方」 | **裁定：本轮不接线**（消费方 = Injection Gate，属 W3-2/S5 独占写面）；就地修掉 1 处真缺陷（schemastery 的 `.default(null)` 被静默丢弃 ⇒ `precisionTarget` 在真宿主路径下为 `undefined`） | `packages/{user-model,metacognition}/src/index.ts` |
+| **W2-5** | 「三骨架无 `lib/` ⇒ 按包名不可解析」 | **已完工**：三包 `lib/` 已构建且真导出 `apply,inject,name`（根因是「从没跑过 build」，构建配置本就正确） | `packages/{long-term,consolidation,forgetting}/` |
+| **W3-1** | 「`perception`/`working-memory` 仅骨架，链有断点」 | **已接通**：`perception` 真发 `mana/observation`；`working-memory` 消费 `mana/attention` 并广播 `mana/working-memory`；判定链走 `ctx.waterfall` | `packages/{perception,attention,working-memory,core}/**`（`acdcabe` 起） |
+| **W3-2** | 「`inject_log` 从无生产侧写入；`agent/pre-step` 全是直通」 | **已实现**：五类 `gate` 枚举全部接通生产侧（此前 3/5 可达）；`inject_log` 有真写入点 | 同上（`b3fa4cb`） |
+
+> **落地后仍存在的真缺口（不因接线而消失）**：`perception`/`attention`/`working-memory` **三包零测试文件**
+> （见 §B 表）；`r0-assembly-check` 的覆盖核对仍可被「协调性同时删清单行+盘上目录」绕过
+> （现由 `A0-12` 清单腿间接兜住，属语义错位，已记账）；`a1-check` 的 `ARTIFACTS` 腿是 **mtime 代理**
+> 且**只扫 `src/` 顶层**（非递归）⇒ `src/client/` 这类子目录的改动**不被计入**。
 
 ### E. 立即可并行 vs 必须串行（一句话）
 
