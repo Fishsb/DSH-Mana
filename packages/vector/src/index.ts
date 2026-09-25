@@ -15,7 +15,25 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-agent'
 import Schema from '@deepseek-ai/schemastery'
-import { registerPassThroughPreStep, type ManaCoreService, type ManaRecall } from 'dsh-mana-core'
+import {
+  MANA_STAGES,
+  registerPassThroughPreStep,
+  type ManaCoreService,
+  type ManaRecall,
+  type ManaStage,
+} from 'dsh-mana-core'
+
+/**
+ * 取第 i 个 stage 的**裸名标签**（`mana_trace.event_type` 的真源 = core 的 MANA_STAGES）。
+ *
+ * ⚠ 同 attention/working-memory：`MANA_STAGES` 是 `readonly ManaStage[]`（非元组），
+ *   在 noUncheckedIndexedAccess 下索引访问是 `ManaStage | undefined` ⇒ 集中断言一次。
+ */
+function stageLabel(i: number): ManaStage {
+  const s = MANA_STAGES[i]
+  if (s === undefined) throw new Error(`mana-vector: MANA_STAGES 缺第 ${i} 项`)
+  return s
+}
 
 import { VectorStore } from './vec-blob.ts'
 import { embedTexts, type EmbedConfig } from './embed.ts'
@@ -165,6 +183,17 @@ export function apply(ctx: Context, config: Config): void {
           rankBy: outcome.rankBy,
           degraded: outcome.degraded,
         }
+        // ⚠ A1-1 的 recall 段落点（F-01）：此前本包**只广播、不落库** ⇒
+        //   五类里的 'recall' 在 mana_trace 上**永远为空**，判据结构上不可能满足。
+        //   落库与广播**同一次调用内**成对发生（不许只做一半：那会让「事件发了」与
+        //   「审计可查」两件事漂开）。
+        core.writeTrace({
+          eventType: stageLabel(3),
+          sessionId: payload.sessionId,
+          turnId: payload.turnId,
+          payload,
+          at: payload.at,
+        })
         ctx.emit('mana/recall', payload)
       }
       return outcome

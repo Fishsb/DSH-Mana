@@ -18,9 +18,11 @@ import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-agent'
 import Schema from '@deepseek-ai/schemastery'
 import {
+  MANA_STAGES,
   registerPassThroughPreStep,
   type ManaAttention,
   type ManaCoreService,
+  type ManaStage,
 } from 'dsh-mana-core'
 import {
   GoalStack,
@@ -72,8 +74,18 @@ declare module '@deepseek-ai/cordis' {
   }
 }
 
-/** 写入 `mana_trace` 的事件类型（自己命名空间内的**记录标签**，不新增事件契约）。 */
-const TRACE_EVENT = 'mana/scheduler/attention'
+/**
+ * 写入 `mana_trace` 的事件类型 —— **裸名标签**，真源是 core 的 `MANA_STAGES`（F-01 口径 A）。
+ *
+ * ⚠ 旧值 `'mana/scheduler/attention'` 是**第三套名字**（既不在契约的 8 个带前缀事件名里，
+ *   也不在 MANA_STAGES 的裸名五类里）⇒ A1-1 按五类机检时它**必然落空**。
+ *   处置 = 归并入 `'attention'` 段：本行记的是「attention 放行的聚焦项被调度侧登记」，
+ *   与 attention 段同类；包内身份由 payload 的 topGoalId/goalCount 承载。
+ *   不保留双写：多一个第六类标签，A1-1 的「五类各 ≥1」就可被这类行**绕开**（假绿）。
+ */
+const TRACE_EVENT: ManaStage = MANA_STAGES[1] ?? (() => {
+  throw new Error('mana-scheduler: MANA_STAGES 缺 attention 段')
+})()
 
 export function apply(ctx: Context, config: Config): void {
   const core: ManaCoreService | undefined = ctx.get('mana-core')

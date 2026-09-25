@@ -17,10 +17,22 @@ import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-agent'
 import Schema from '@deepseek-ai/schemastery'
 import {
+  MANA_STAGES,
   registerPassThroughPreStep,
   type ManaAttention,
   type ManaCoreService,
+  type ManaStage,
 } from 'dsh-mana-core'
+
+/**
+ * 取第 i 个 stage 的**裸名标签**（同 attention 的安全阀：noUncheckedIndexedAccess 下
+ * 索引访问是 `ManaStage | undefined`，集中断言一次胜过每个调用点写一次 `!`）。
+ */
+function stageLabel(i: number): ManaStage {
+  const s = MANA_STAGES[i]
+  if (s === undefined) throw new Error(`mana-working-memory: MANA_STAGES 缺第 ${i} 项`)
+  return s
+}
 
 export const name = 'mana-working-memory'
 
@@ -121,7 +133,11 @@ export function apply(ctx: Context, config: Config): void {
   ctx.on('mana/attention', (att: ManaAttention) => {
     const didEvict = push(att)
     core.writeTrace({
-      eventType: 'mana/working-memory',
+      // ⚠ 标签归并（F-01 口径 A）：旧值 'mana/working-memory' **不在** MANA_STAGES 里，
+      //   而 A1-1 的判据原文要求 mana_trace.event_type 落在裸名五类内。处置 = 归并入
+      //   'attention' 段（本行记的正是「attention 放行的聚焦项进了工作记忆」，语义同类），
+      //   包内身份由 payload 字段承载 —— 不另开第六个标签（那会让五类各≥1 永远可被绕开）。
+      eventType: stageLabel(1),
       sessionId: att.sessionId,
       turnId: att.turnId,
       payload: {

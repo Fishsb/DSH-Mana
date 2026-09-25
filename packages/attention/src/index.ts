@@ -31,12 +31,35 @@ import type {} from '@deepseek-ai/dsh-agent'
 import Schema from '@deepseek-ai/schemastery'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import {
+  MANA_STAGES,
   registerPassThroughPreStep,
   type InjectionGate,
   type ManaAttention,
   type ManaCoreService,
+  type ManaDecision,
+  type ManaInjection,
   type ManaObservation,
+  type ManaStage,
 } from 'dsh-mana-core'
+
+/**
+ * 取第 i 个 stage 的**裸名标签**（mana_trace.event_type 的真源 = core 的 MANA_STAGES）。
+ *
+ * ⚠ 本仓「同一个事实」原有**三套名字**（A1-1 的原缺陷）：
+ *   ① 判据原文的裸名五类（docs/mana-rollout-plan.md:346）；
+ *   ② 契约的带前缀五类（core/src/event-types.ts:32-43）；
+ *   ③ 断言里手写的第三套（core/tests/chain-e2e.test.mjs:97 旧版）。
+ *   裁定：Cordis 事件名**带前缀**（契约，不改）；mana_trace.event_type 标签**取裸名**。
+ *   ⇒ 标签一律经本函数从 MANA_STAGES 取，不在别处手写第三套字面量。
+ * ⚠ MANA_STAGES 是 readonly ManaStage[]（非元组），noUncheckedIndexedAccess 下索引访问是
+ *   ManaStage | undefined ⇒ 集中在此断言一次；缺项时**大声抛**，不让「五类被改成三类」
+ *   变成静默的 undefined 标签落库。
+ */
+function stageLabel(i: number): ManaStage {
+  const s = MANA_STAGES[i]
+  if (s === undefined) throw new Error('mana-attention: MANA_STAGES 缺第 ' + i + ' 项（S1 五类契约被改动？）')
+  return s
+}
 
 export const name = 'mana-attention'
 
@@ -129,11 +152,19 @@ export function apply(ctx: Context, config: Config): void {
   const injectedBlocks = new Set<string>()
   let injections = 0
   let lastGate: InjectionGate | null = null
+  /**
+   * 最近一次判定链给出的概率（**仅该次 pre-step 内**有效；pre-step 开头重置为 null）。
+   *
+   * ⚠ 存它是为了让 inject_log.jev_prob 有真源：该列若恒 NULL，「没判」与「判了」在库上同形
+   *   （本仓首位缺陷类：让失败不可观测）。
+   */
+  let lastJudgeProbability: number | null = null
 
   const ingest = (obs: ManaObservation): number => {
     // 真写一行：这是「卸载即净」可被机检的唯一依据（见文件头一）。
     const seq = core.writeTrace({
-      eventType: 'observation',
+      // 裸名标签从 MANA_STAGES 取（不写字面量 —— 三套名字的根源就是「各处各自手写」）。
+      eventType: stageLabel(0),
       sessionId: obs.sessionId,
       turnId: obs.turnId,
       payload: obs,
@@ -154,6 +185,14 @@ export function apply(ctx: Context, config: Config): void {
       while (pending.length > config.maxFocusItems) pending.shift()
     }
     ctx.emit('mana/attention', att)
+    // 事件名与标签同源：这条 trace 行对应的就是刚广播的 mana/attention。
+    core.writeTrace({
+      eventType: stageLabel(1),
+      sessionId: att.sessionId,
+      turnId: att.turnId,
+      payload: { requestId: att.requestId, contentChars: [...att.content].length },
+      at: att.at,
+    })
     return seq
   }
 
@@ -195,6 +234,10 @@ export function apply(ctx: Context, config: Config): void {
     //   也要用到它（见下方 `pre-step:${turn}`）。放在 finish 内会让外部拿不到（编译期 TS2304）。
     const sid = String((payload as { agent?: { session?: { id?: unknown } } })?.agent?.session?.id ?? '')
     const turn = Number((payload as { turn?: unknown })?.turn ?? 0)
+    /** 落库/落 trace 统一用这一个 turnId（两处各写一次 Number.isFinite 会漂）。 */
+    const turnId = Number.isFinite(turn) ? turn : 0
+    /** 每次 pre-step 重置：上一轮的判定概率**不得**泄漏到本轮（否则 jev_prob 是假账）。 */
+    lastJudgeProbability = null
     /**
      * 落痕 + 返回决策：把"留痕"做成**不可绕过**的一步（不依赖调用方记得写）。
      *
@@ -220,14 +263,40 @@ export function apply(ctx: Context, config: Config): void {
       try {
         core.writeInjectLog({
           sessionId: sid,
-          turnId: Number.isFinite(turn) ? turn : 0,
+          turnId,
           requestId: pending[0]?.requestId ?? `pre-step:${turn}`,
           gate,
           memoryId: extra.memoryId ?? null,
           blockId: extra.blockId ?? null,
-          // ⚠ 不传 jevProb：本轮无判定链 ⇒ 概率**不可用**。留 null（不得用 0 冒充）。
-          jevProb: null,
+          // ⚠ 概率取**本轮判定链**的真读数：判过就记，没判/降级留 null（不得用 0 冒充）。
+          //   此前恒传 null ⇒ inject_log.jev_prob 这一列在库上**永远为空**，
+          //   而 A1-12/A2-2 的读数面包含它 ⇒ 「有列无值」是让失败不可观测的形态。
+          jevProb: lastJudgeProbability,
         })
+
+        // ── 五、injection：注入审计 —— A1-1 五类中另一个**零生产者**的类 ──
+        //
+        // ⚠ 为什么每次 pre-step 都发（含五种「没注入」）：fail-closed 门控的正常态与故障态
+        //   表面完全同形（都表现为「没注入」）⇒ 审计事件若不发，二者在 mana_trace 里不可分辨。
+        //   与本函数开头「留痕是**不可绕过**的一步」同一口径：留痕失败不吞下游（见 catch）。
+        const inj: ManaInjection = {
+          sessionId: sid,
+          turnId,
+          requestId: pending[0]?.requestId ?? `pre-step:${turn}`,
+          at: new Date().toISOString(),
+          gate,
+          blockId: extra.blockId ?? null,
+          memoryId: extra.memoryId ?? null,
+          degraded: gate === 'degraded_unavailable',
+        }
+        core.writeTrace({
+          eventType: stageLabel(4),
+          sessionId: sid,
+          turnId,
+          payload: inj,
+          at: inj.at,
+        })
+        ctx.emit('mana/injection', inj)
       } catch (error) {
         // 留痕失败**不得**吞掉下游：宿主循环优先，错误走 ctx.emit 旁路记录（G8 显式记账）。
         ctx.emit('mana/plugin/inactive', {
@@ -296,16 +365,20 @@ export function apply(ctx: Context, config: Config): void {
     //   · 可用且过阈 ⇒ 继续注入（gate='injected'）
     //   · 可用但未过阈 ⇒ `skip_below_threshold`（**判了但没放行**，与"没候选"必须分辨）
     //   · 不可用/降级 ⇒ `degraded_unavailable`（fail-closed：不注入但**必须留痕**）
-    let judge: { value?: string; probability?: number | null; degraded?: boolean; reason?: string | null } | null = null
+    // ⚠ `req` 提到 try **外层**：判定结果的载荷（decision 段）要引用 req.judgeType / req.requestId
+    //   做回填，留在 try 内会让二者作用域外不可见（TS2304 —— 这是正确报错，不要用 var 压掉）。
+    const req = {
+      requestId: pending[0]?.requestId ?? `pre-step:${turn}`,
+      judgeType: 'noul',
+      state: config.judgeState || '',
+      question: config.judgeQuestion,
+      threshold: config.jevThreshold,
+      source: name,
+    }
+    // ⚠ requestId 可空是**如实**的：ctx.waterfall 的默认 next 与桩监听器都可能不给它，
+    //   decision 载荷回填时用 ?? req.requestId 兜底（关联键不得缺省成 undefined 落库）。
+    let judge: { requestId?: string; value?: string; probability?: number | null; degraded?: boolean; reason?: string | null } | null = null
     try {
-      const req = {
-        requestId: pending[0]?.requestId ?? `pre-step:${turn}`,
-        judgeType: 'noul',
-        state: config.judgeState || '',
-        question: config.judgeQuestion,
-        threshold: config.jevThreshold,
-        source: name,
-      }
       judge = await ctx.waterfall('mana/jev/judge', req, async () => ({
         requestId: req.requestId,
         source: name,
@@ -318,6 +391,41 @@ export function apply(ctx: Context, config: Config): void {
       // 判定链抛错 ⇒ 视为不可用（fail-closed），**但必须留痕**（A1-14）。
       judge = { degraded: true, reason: `judge-threw: ${String((error as Error)?.message ?? error)}` }
     }
+
+    // ── 三、decision：判定结果（含失败/降级态）—— A1-1 五类中此前**零生产者**的两类之一 ──
+    //
+    // ⚠ 为什么降级也必须发：G8 要求降级**落显式字段**。若降级时干脆不发事件，
+    //   mana_trace 里「判了且过阈」「判了没过阈」「**根本没判成**」三态同形（首位缺陷类）。
+    //   ⇒ 三态各自有值：value='yes' / 'no' / 'unknown'，probability 恒为真读数或 null。
+    // ⚠ value 的缺省是 'unknown' 而**不是 'no'**（domain.ts:91 原文）：把降级读成「否」，
+    //   会让判定链故障在消费侧表现为一个**正常的否定结论**。
+    const decisionValue: ManaDecision['value'] =
+      judge?.value === 'yes' || judge?.value === 'no' ? judge.value : 'unknown'
+    // ⚠ probability 只认真数字；用 typeof 而不是 falsy 判空 —— 0 是合法概率，不得被当缺省吞掉。
+    const decisionProbability = typeof judge?.probability === 'number' ? judge.probability : null
+    const decisionDegraded = judge === null || judge.degraded === true
+    const decision: ManaDecision = {
+      sessionId: sid,
+      turnId,
+      requestId: judge?.requestId ?? req.requestId,
+      at: new Date().toISOString(),
+      judgeType: req.judgeType,
+      source: name,
+      value: decisionValue,
+      probability: decisionProbability,
+      degraded: decisionDegraded,
+      reason: judge?.reason ?? null,
+    }
+    core.writeTrace({
+      eventType: stageLabel(2),
+      sessionId: sid,
+      turnId,
+      payload: decision,
+      at: decision.at,
+    })
+    ctx.emit('mana/decision', decision)
+    // 仅当**本轮**确实判过（非降级）才记概率：降级时保持 null，不得用 0 冒充。
+    lastJudgeProbability = decisionDegraded ? null : decisionProbability
 
     if (!judge || judge.degraded === true) {
       // fail-closed：不注入，但留痕（A1-14 两条都要真）。

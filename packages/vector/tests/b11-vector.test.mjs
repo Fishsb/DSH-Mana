@@ -534,13 +534,21 @@ test('B1.1-⑬ 反证：卸载 vector 后同一触发不再产生新行（附正
 
 // ── 8. 缺陷③ 的**机检化**：把已知缺口钉成可观测事实（不是写句注释）─────────
 
-test('B1.1-⑭ 降级态**未落库**这件事本身可机检（缺口被钉住，不靠文档记得）', async (t) => {
-  // 复核发现：真故障时 `mana_trace`/`jev_log`/`inject_log`/`memory_items` **增量全 0**，
-  //   `mana/recall` 虽 emit 但**全仓无消费者** ⇒ G8 的"显式字段"只在**返回对象**里，
-  //   跨进程/事后不可查。
-  // ⚠ 本席**不判它红**（契约是否要求 vector recall 落库不在 degradation.md §5 范围内，
-  //   那条针对 injection gate），改为**把缺口钉成断言**：一旦下一席补了写入落点，
-  //   本用例会**变红并直接点出"缺口已闭合，请同步更新 handoff 未决项"** —— 缺口不会静默消失。
+test('B1.1-⑭ 召回记录**已落库**：recall 段不再只存在于返回对象（原缺口已闭合）', async (t) => {
+  // ── 本用例的来历（不删历史，只改口径）─────────────────────────────────────
+  // 原口径：复核发现真故障时 `mana_trace`/`jev_log`/`inject_log`/`memory_items` **增量全 0**，
+  //   `mana/recall` 虽 emit 但**全仓无消费者** ⇒ G8 的"显式字段"只在**返回对象**里，跨进程不可查。
+  //   当时把缺口**钉成断言**（增量必须为 0），并写明「一旦下一席补了写入落点，本用例会变红」。
+  //
+  // ⚠ 该缺口已于 F-01（S15 集成席）**闭合**：`vector/src/index.ts` 的 recall 现在把 `ManaRecall`
+  //   同时**落 mana_trace**（裸名 'recall'，MANA_STAGES 真源）与 emit —— 因为 A1-1 要求
+  //   「五类 event_type 各 ≥1」，而 'recall' 的全仓唯一生产者就是这一处；只广播不落库
+  //   会让五类里的 recall 在 mana_trace 上**永远为空**（判据结构上不可满足）。
+  //   ⇒ 断言按事实翻转：**只查 recall 那一类**是否真落了一行，不影响其余三表的既有口径。
+  //
+  // ⚠ 为什么不像原稿那样断言「四表增量总和 ≥1」：那太宽 ——
+  //   任何一条无关写入（备份失败留痕、plugin/inactive…）都会让它变绿，
+  //   而「recall 到底落没落库」这个**具体事实**仍然没被检查（判据绿 ≠ 事实被检查）。
 
   const { Context } = await import('@deepseek-ai/cordis')
   const coreMod = await import(CORE)
@@ -559,7 +567,13 @@ test('B1.1-⑭ 降级态**未落库**这件事本身可机检（缺口被钉住�
     const t = (n) => Number(core.db.prepare(`SELECT count(*) c FROM ${n}`).get().c)
     return { trace: t('mana_trace'), inject: t('inject_log'), items: t('memory_items'), jev: t('jev_log') }
   }
+  /** 只数 **recall 段**的行（按 event_type）；标签真源见 core 的 MANA_STAGES 第 4 项。 */
+  const { MANA_STAGES } = await import('../../core/src/domain.ts')
+  const RECALL_LABEL = MANA_STAGES[3]
+  const countRecall = () =>
+    Number(core.db.prepare('SELECT count(*) c FROM mana_trace WHERE event_type = ?').get(RECALL_LABEL).c)
   const before = countAll()
+  const recallBefore = countRecall()
 
   // 造一次**真故障**（不可达端点）触发降级路径
   const out = await svc.recall('缺陷③ 探针', [{ key: 'no-such-key', lexicalRank: 1 }], 3, {
@@ -577,13 +591,17 @@ test('B1.1-⑭ 降级态**未落库**这件事本身可机检（缺口被钉住�
     items: after.items - before.items,
     jev: after.jev - before.jev,
   }
-  const sum = delta.trace + delta.inject + delta.items + delta.jev
+  // 口径：降级**也**必须落 recall 行（G8：降级落显式字段）。用「=== 0 才红」而不是「≥1 才绿」
+  //   —— 后者在多次调用累积时会掩盖「本次没落库」。
+  const recallDelta = countRecall() - recallBefore
   assert.equal(
-    sum,
-    0,
-    `**已知缺口**：降级态只在返回对象里，四张表增量应仍为 0（实测 ${JSON.stringify(delta)}）。` +
-      `此断言变红 = 缺口已被补上 ⇒ 请把 docs/handoff/S1v.md §5 的 U7 标为已闭合并更新本条用例。`,
+    recallDelta,
+    1,
+    `降级召回必须落**恰好一条** recall 行（实得 ${recallDelta}）。` +
+      `若为 0 ⇒ 落库点被摘掉，A1-1 的 recall 类随之结构性缺失（原缺口复发）。` +
+      `若是别的数 ⇒ 一次 recall 落了多行，需核对是否重复记账。`,
   )
+  t.diagnostic(`[四表增量] ${JSON.stringify(delta)}（本题只判 recall 那一类；其余三表的增量口径见各自用例）`)
   t.diagnostic(
     `[缺陷③ 钉住] 真降级（degraded=true, channel=${out.channel}）但四表增量 = ${JSON.stringify(delta)}` +
       ` ⇒ 「降级态仅存于返回对象、未落库、事后不可查」是可机检事实，不是文档自述`,
