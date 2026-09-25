@@ -23,7 +23,7 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { existsSync, mkdtempSync, rmSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
@@ -50,20 +50,28 @@ const settle = (ms = 250) => new Promise((r) => setTimeout(r, ms))
  *
  * @param opts.injectionEnabled 注入门控开关（关掉后仍须留痕）
  * @param opts.judgeProbability 判定链给的可用概率；`null` = 判定链降级（fail-closed 路径）
+ * @param opts.baseDir 装配根；缺省 = 真仓根。给值时 = **克隆仓库**（P14 的负向腿在克隆体上跑）
  *
  * ⚠ 为什么要显式给判定链：W3-2 之后 Injection Gate 会**先问判定链**
  *   （`mana/jev/judge`，waterfall）。判定链不可用 ⇒ gate 记 `degraded_unavailable`
  *   并 **fail-closed 不注入**（这是正确行为）。故要验证 `injected` 路径，
  *   必须让判定链给出「可用且过阈」的答案 —— 本函数即为此提供一个桩监听器。
  */
-async function boot({ injectionEnabled, judgeProbability = 0.95 } = {}) {
+async function boot({ injectionEnabled, judgeProbability = 0.95, baseDir = null } = {}) {
   const dir = mkdtempSync(join(tmpdir(), 'mana-a113-'))
   cleanups.push(dir)
   const store = join(dir, 'mana.db')
 
   const ctx = new Context()
-  ctx.baseUrl = BASE_URL
-  ctx.plugin(Loader, { baseUrl: BASE_URL })
+  // 缺省从真仓根装配；给 `baseDir` 则从克隆仓库装配（P14 负向腿：只换被测的那一个包）。
+  //
+  // ⚠ **Loader 自身的 `baseUrl` 也必须跟着换**（本仓实测踩到）：只改 `ctx.baseUrl` 时
+  //   `loader.import()` 仍按 **Loader 配置里的** baseUrl 解析 ⇒ 负向腿**静默地在真源上跑**，
+  //   于是"去掉 {memoryId}"这个注入**从未生效**、断言却报了"负向腿不红"。
+  //   那正是本仓首位缺陷类：**变异没生效，读数看起来却像判据没牙**。
+  const root = baseDir ? pathToFileURL(baseDir).href + '/' : BASE_URL
+  ctx.baseUrl = root
+  ctx.plugin(Loader, { baseUrl: root })
   await settle(200)
 
   // 判定链桩：注册在**装载包之前** ⇒ 位于内层（本仓实测 waterfall 是洋葱模型，
@@ -342,6 +350,24 @@ test('P10 A1-3 I2：每个 requestId 在同一 session 至多注入一次', asyn
     byTurn.set(k, (byTurn.get(k) ?? 0) + 1)
   }
   for (const [k, c] of byTurn) assert.equal(c, 1, `${k} 的注入块数=${c}（应 1）`)
+
+  // ⚠ **A1-3 的逐字检查方式是「按 `memory_id` 分组」**（`docs/mana-rollout-plan.md:453`），
+  //   而上面两段用的是 `(session,turn)` —— 那是 **A1-2** 的口径。两者是**不同的键**：
+  //   A1-2 绿过不等于 I2 被查过。若 `memory_id` 恒 NULL，这条"0 行"就是**数不到东西的绿**
+  //   （本仓首位缺陷类）⇒ 在此真数一次（F-02）。
+  const nullInjected = rows.filter((r) => r.gate === 'injected' && r.memory_id === null).length
+  assert.equal(
+    nullInjected,
+    0,
+    `注入了却写不出 memory_id ⇒ A1-3 的分组数不到东西（判据绿 ≠ 事实被检查），实得 ${nullInjected} 行`,
+  )
+  const byMemory = new Map()
+  for (const r of rows) {
+    if (r.memory_id === null) continue
+    byMemory.set(r.memory_id, (byMemory.get(r.memory_id) ?? 0) + 1)
+  }
+  assert.ok(byMemory.size >= 1, '至少要有 1 行带 memory_id（否则该列是死列，I2 仍无可数之处）')
+  for (const [k, c] of byMemory) assert.equal(c, 1, `memory_id=${k} 在同一 session 被注入 ${c} 次（I2 要求 ≤1）`)
 })
 
 // ── P11（A1-13 第五类）`reset`：块离开上下文时必须显式记账 ──────────────────
@@ -411,4 +437,138 @@ test('P13 判定链降级：gate=degraded_unavailable（不注入但留痕，A1-
   assert.equal(rows[0].degraded, 1, '降级必须显式落位')
   assert.equal(rows[0].jev_prob, null, '概率不可用 ⇒ null（不得用 0 冒充）')
   assert.equal(decision.messages.length, 0, 'fail-closed ⇒ 不注入')
+})
+
+// ── P14（A1-3 / I2）memory_id 必须真被写上 —— 否则 I2「无可数之处」────────────
+//
+// 判据原文（`docs/mana-rollout-plan.md:453`）：
+//   A1-3 **I2**：每条记忆每 session 最多注入一次 —— 检查方式「同上，**按 `memory_id` 分组**」，
+//   阈值 **0 行**。
+//
+// ⚠ **为什么单列这一条**：`inject_log.memory_id` 此前**恒 NULL** —— `finish()` 早就支持该字段，
+//   但 7 个调用点**无一传它** ⇒「按 memory_id 分组」**数不到任何东西**：它绿，是因为分母恒空。
+//   这正是本仓首位缺陷类（**判据绿 ≠ 事实被检查**），且它与 A1-2 用 `(session,turn)` 分组是
+//   **两个不同的键** —— 后者绿过，不代表 I2 被查过。
+//   ⇒ 本用例把「那条不变式真的可数」变成可断言事实，并附**必须真能红**的负向腿。
+
+/**
+ * 克隆「加载器**真的**会加载的实现」到临时目录，并按需注入**去 memoryId 变异**。
+ *
+ * ⚠ **为什么不能在 `src/index.ts` 上改字再跑负向腿**（本席实测后改用的做法）：
+ *   本文件走**真 Loader**，而 Loader 解析 `dsh-mana-attention` 落到
+ *   **`packages/attention/lib/index.js`（构建产物）** —— 实测
+ *   `createRequire(...).resolve('dsh-mana-attention')` = `.../packages/attention/lib/index.js`。
+ *   故在 src 上改字，**加载器根本看不到**（除非重建；而重建会把负向腿的"红"变成
+ *   "构建是否成功"的副产品，并在他席并行时污染仓内产物）。
+ *   ⇒ 克隆 lib + 链回其余依赖，让 Loader 从克隆体装配。
+ *   与 `tools/a1-check.mjs` 的变异装置同一纪律：**变异只写临时目录，仓内文件零写入**。
+ */
+function cloneAttention({ dropMemoryId = false } = {}) {
+  const libPath = join(fileURLToPath(ROOT), 'packages/attention/lib/index.js')
+  const original = readFileSync(libPath, 'utf8')
+  let text = original
+  if (dropMemoryId) {
+    const ANCHOR = "finish('injected', { blockId, memoryId: injectedMemoryId })"
+    const hits = text.split(ANCHOR).length - 1
+    // 锚点命中 ≠ 1 ⇒ 真源已改、变异器已**过期** —— 此时**不许**当成"变异成功"（否则是假通过）。
+    assert.equal(
+      hits,
+      1,
+      `负向腿锚点须在 lib/index.js 命中恰好 1 次（实得 ${hits}）；命中 0 次 = 真源已改、变异器过期`,
+    )
+    text = text.replace(ANCHOR, "finish('injected', { blockId })")
+    // 变异**真的发生**才算数（不得把"请求了变异"当成"变异生效"）。
+    assert.notEqual(text, original, '变异未真正生效（克隆体与真源逐字相同）⇒ 该腿不构成自证')
+  }
+  const dir = mkdtempSync(join(tmpdir(), 'mana-mut-'))
+  cleanups.push(dir)
+  const pkgDir = join(dir, 'node_modules', 'dsh-mana-attention')
+  mkdirSync(pkgDir, { recursive: true })
+  writeFileSync(join(pkgDir, 'index.js'), text)
+  writeFileSync(
+    join(pkgDir, 'package.json'),
+    JSON.stringify({ name: 'dsh-mana-attention', type: 'module', main: './index.js' }),
+  )
+  // 其余依赖原样链回真仓：**只替换被测的那一个包**（否则变异就不隔离）。
+  const realNm = join(fileURLToPath(ROOT), 'node_modules')
+  for (const entry of readdirSync(realNm)) {
+    if (entry === 'dsh-mana-attention') continue
+    try {
+      symlinkSync(join(realNm, entry), join(dir, 'node_modules', entry), 'dir')
+    } catch {
+      /* 建链失败非致命：真出问题会在下面的装配断言里报出来（不静默吞真实故障） */
+    }
+  }
+  return dir
+}
+
+test('P14 A1-3 I2：injected 行的 memory_id 必须真被写上（否则该不变式无可数之处）', async () => {
+  // ── 正向：真装配链上，注入了就必须写得出来 ─────────────────────────────────
+  const { ctx, store } = await boot()
+  ctx.get('mana-perception').perceive({
+    content: '候选内容 M', sessionId: 'sess-a113', turnId: 1, requestId: 'req-mid-1',
+  })
+  await settle(250)
+  await firePreStep(ctx, { turn: 1 })
+  await settle(200)
+
+  const rows = readInject(store)
+  const injected = rows.filter((r) => r.gate === 'injected')
+  assert.equal(injected.length, 1, `前置：本夹具应恰好真注入 1 次（实得 ${injected.length}）`)
+
+  const nullInjected = rows.filter((r) => r.gate === 'injected' && r.memory_id === null).length
+  assert.equal(
+    nullInjected,
+    0,
+    `① 注入了却写不出"注入了哪条" ⇒ A1-3 的分组恒空（实得 ${nullInjected} 行为 NULL）`,
+  )
+  const named = rows.filter((r) => r.memory_id !== null)
+  assert.ok(named.length >= 1, '② 审计里至少要有 1 行带 memory_id（否则该列是死列）')
+  // 强断言：必须指回**本次真被注入的那条**，不是任意非空串（后者是"为绿而绿"）
+  assert.equal(
+    injected[0].memory_id,
+    'req-mid-1',
+    `memory_id 必须指回本次被注入的那条候选（实得 ${JSON.stringify(injected[0].memory_id)}）`,
+  )
+  // A1-3 的**逐字口径**：按 memory_id 分组、组内 >1 即判红 ⇒ 必须 0 行
+  const byMemory = new Map()
+  for (const r of named) byMemory.set(r.memory_id, (byMemory.get(r.memory_id) ?? 0) + 1)
+  const offenders = [...byMemory].filter(([, c]) => c > 1)
+  assert.equal(
+    offenders.length,
+    0,
+    `A1-3 口径（GROUP BY memory_id HAVING count>1）须 0 行，实得 ${JSON.stringify(offenders)}`,
+  )
+
+  // ── 负向腿：把 {memoryId} 去掉 ⇒ ① 必须 > 0（否则本判据无牙）────────────────
+  const mutantDir = cloneAttention({ dropMemoryId: true })
+  const m = await boot({ baseDir: mutantDir })
+  m.ctx.get('mana-perception').perceive({
+    content: '候选内容 M', sessionId: 'sess-a113', turnId: 1, requestId: 'req-mid-1',
+  })
+  await settle(250)
+  await firePreStep(m.ctx, { turn: 1 })
+  await settle(200)
+
+  const mRows = readInject(m.store)
+  // 负向腿的前置：变异体**也必须真注入一次** —— 否则"0 行 injected"会让下面的 >0 落空，
+  // 变成另一种假绿（判据没崩，只是根本没数到东西）。
+  assert.ok(
+    mRows.some((r) => r.gate === 'injected'),
+    `负向腿前置：变异体也应真注入一次，否则该腿数不到东西。实得 ${JSON.stringify(mRows.map((r) => r.gate))}`,
+  )
+  const mNull = mRows.filter((r) => r.gate === 'injected' && r.memory_id === null).length
+  assert.ok(
+    mNull > 0,
+    `负向腿**必须真能红**：去掉 {memoryId} 后 ① 应 > 0（实得 ${mNull}）—— 否则本判据是摆设`,
+  )
+
+  // ── 反假绿：判据读的是 lib（构建产物），而被评审/被改的源在 src ──────────────
+  //   若把 src 的 memoryId 管线删掉却不重建 ⇒ 正向腿**仍绿**而源已坏（与"命令成功≠生效"同类）。
+  //   ⇒ 显式断言 src 侧也带着这处管线，把 lib/src 漂移变成**可观测的红**而非悄悄变绿。
+  const src = readFileSync(join(fileURLToPath(ROOT), 'packages/attention/src/index.ts'), 'utf8')
+  assert.ok(
+    src.includes('memoryId: injectedMemoryId'),
+    'src 侧缺 memoryId 管线（lib 可能只是旧产物）⇒ 判据绿不成立：应重建 packages/attention 后复跑',
+  )
 })

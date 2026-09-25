@@ -195,7 +195,26 @@ export function apply(ctx: Context, config: Config): void {
     //   也要用到它（见下方 `pre-step:${turn}`）。放在 finish 内会让外部拿不到（编译期 TS2304）。
     const sid = String((payload as { agent?: { session?: { id?: unknown } } })?.agent?.session?.id ?? '')
     const turn = Number((payload as { turn?: unknown })?.turn ?? 0)
-    /** 落痕 + 返回决策：把"留痕"做成**不可绕过**的一步（不依赖调用方记得写）。 */
+    /**
+     * 落痕 + 返回决策：把"留痕"做成**不可绕过**的一步（不依赖调用方记得写）。
+     *
+     * ## `memoryId` 逐类政策（F-02：I2 不变式必须有可数之处）
+     *
+     * ⚠ **为什么这条政策必须写死在这里**：core 把 `memory_id` 定义为
+     *   「被注入记忆的 id；**未注入时为 null**」（`core/src/index.ts` 的 `InjectLogEntry`）。
+     *   若在 `injected` 一类之外也随手塞 id，`inject_log` 里同一记忆会**跨类多行**出现，
+     *   而 A1-3 的口径是「按 `memory_id` 分组、组内 >1 即判红」（`docs/mana-rollout-plan.md:453`）
+     *   ⇒ 会把「判了但没过阈」这种**正常**情形读成 I2 违例（假红）。
+     *   ⇒ 只有真注入那一类带 id；其余保持 null 并在此写明理由（这比硬塞一个 id 更正确）。
+     *
+     * | gate | memoryId | 理由 |
+     * |---|---|---|
+     * | `injected` | **必填** | 本类就是「注入了哪条记忆」的落点；恒 NULL ⇒ I2 数不到东西（F-02 的原缺陷） |
+     * | `skip_no_candidate` | null | 候选池空 / 宿主已 reject / 门控关闭 ⇒ **没有任何记忆**参与 |
+     * | `skip_below_threshold` | null | 候选是确定的，但**未注入** ⇒ 按 core 定义填 null；填了会让 A1-3 假红（见上） |
+     * | `degraded_unavailable` | null | 判定链不可用 ⇒ 没有可指的记忆；降级事实由 `degraded` 列承载 |
+     * | `reset` | null | 本行记的是**事件**（块已离开上下文）而非一次注入；回填会把同一记忆记成两次注入 |
+     */
     const finish = (gate: InjectionGate, extra: { memoryId?: string | null; blockId?: string | null } = {}) => {
       lastGate = gate
       try {
@@ -243,12 +262,15 @@ export function apply(ctx: Context, config: Config): void {
       )
       if (!stillThere) {
         injectedBlocks.clear()
+        // memoryId 政策：null（本行是「块离开上下文」这一**事件**，不是注入；见 finish 政策表）。
         finish('reset')
         return downstream
       }
     }
 
     // 下游若已决定 reject，本门控**不注入**（尊重宿主决策），但仍留痕。
+    // ⚠ 本类（连同下面「门控关闭」「候选池空」共 3 处）**本来就没有**「哪条记忆」可言
+    //   ⇒ memoryId 保持 null（政策表见 finish；硬塞一个 id 是另一种假绿）。
     if (downstream?.kind === 'reject') {
       finish('skip_no_candidate')
       return downstream
@@ -256,12 +278,12 @@ export function apply(ctx: Context, config: Config): void {
 
     const block = buildBlock()
     if (!config.injectionEnabled) {
-      // 门控关闭：**仍留痕**（否则「关掉了」与「静默失效」同形）。
+      // 门控关闭：**仍留痕**（否则「关掉了」与「静默失效」同形）。memoryId=null（无记忆被注入）。
       finish('skip_no_candidate')
       return downstream
     }
     if (block === '') {
-      // 候选池空：留痕 skip_no_candidate（A1-13 的五类之一）。
+      // 候选池空：留痕 skip_no_candidate（A1-13 的五类之一）。memoryId=null（无候选 ⇒ 无记忆可指）。
       finish('skip_no_candidate')
       return downstream
     }
@@ -299,12 +321,16 @@ export function apply(ctx: Context, config: Config): void {
 
     if (!judge || judge.degraded === true) {
       // fail-closed：不注入，但留痕（A1-14 两条都要真）。
+      // memoryId=null（判定链不可用 ⇒ 没有可指的记忆；降级事实由 degraded 列承载）。
       finish('degraded_unavailable')
       return downstream
     }
     const prob = typeof judge.probability === 'number' ? judge.probability : null
     if (prob === null || prob < config.jevThreshold) {
       // 判了但未过阈：与"候选池空"必须可分辨（否则门控为何没注入就说不清）。
+      // ⚠ memoryId **有意留 null**：候选虽确定，但本条**未注入** —— core 的定义就是
+      //   「未注入时为 null」。且 A1-3 是「按 memory_id 分组、组内 >1 即判红」，
+      //   填上会让"同一候选连续多轮没过阈"被读成 I2 违例（假红）。见 finish 政策表。
       finish('skip_below_threshold')
       return downstream
     }
@@ -322,13 +348,28 @@ export function apply(ctx: Context, config: Config): void {
       content: [{ type: 'text', text: block }],
       source: { kind: 'user' },
     })
+    // ⚠ **F-02 的关键一行**：`memoryId` 必须在清空 `pending` **之前**取。
+    //
+    //   口径：本阶段"被注入的单元"= `pending` 里那批聚焦项，其稳定身份是 `requestId`
+    //   —— 也正是 I2 去重所用的键（`injectedRequests`）。`memory_items.id` 要等
+    //   **召回驱动的注入**落地（B3.x）才会出现在这条链上，届时此处应改传真实记忆 id。
+    //   ⚠ 但即便那时，本列仍是「注入了哪条」的**唯一**落点，见下条。
+    //
+    //   ⚠ 相邻缺陷（**本批不修**，避免越界）：`finish` 内部的 `requestId` 取
+    //     `pending[0]?.requestId ?? 'pre-step:'+turn`，而此处 `pending` 紧接着被清空
+    //     ⇒ `injected` 行的 `request_id` 实际落成 `pre-step:N`（**丢掉了候选 id**）。
+    //     ⇒ 本行的 `memoryId` 是该行唯一能指回"注入了哪条"的列，恒 NULL 即 I2 无可数之处。
+    //
+    //   ⚠ 已知缺口（如实标注，不假装覆盖）：一个审计行只装得下**一个** memory_id，
+    //     而本块可含多条 ⇒ 记**首条**，其余条不逐个可查。
+    const injectedMemoryId = pending[0]?.requestId ?? null
     for (const p of pending) injectedRequests.add(p.requestId)
     pending.length = 0
     injections += 1
     const blockId = `blk-${injections}`
     // 记入"待核对是否仍在上下文"的集合：下次 pre-step 若找不到它 ⇒ 记 gate='reset'。
     injectedBlocks.add(blockId)
-    finish('injected', { blockId })
+    finish('injected', { blockId, memoryId: injectedMemoryId })
     return {
       ...downstream,
       kind: 'enter',
