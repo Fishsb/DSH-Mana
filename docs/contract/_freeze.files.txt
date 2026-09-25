@@ -9,6 +9,7 @@ packages/core/src/schema.ts
 packages/forgetting/src/index.ts
 packages/jev/src/framework.ts
 packages/jev/src/index.ts
+packages/jev/src/jev-log-gate.ts
 packages/jev/src/ollama.ts
 packages/jev/src/systemone.ts
 packages/long-term/src/index.ts

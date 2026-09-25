@@ -15,6 +15,33 @@
 | v0.2.1 | **表结构补齐（三处「声明了却没建」）**：<br>① **新建 `user_model_history` 表**（A4-4 要求阶段 0 预留；`key`/`old_value`/`new_value`/`confidence`/`at`/`session_id`/`turn_id`/`source_evidence_id` + `(key,at)` 索引）；<br>② **`jev_log` 补 `gate` 列**（A1-8 原文要读它，而该列从未建过 ⇒ 判据结构上不可执行）+ `CHECK gate IN ('unavailable','budget')`；<br>③ **`memory_items_fts` 补三个同步触发器**（external content 虚表**不自动跟随主表** ⇒ 插入后 FTS 静默 0 命中） | I-3、I-4（表结构）、A1-8/A1-9/A1-10/A4-4 的落点 | S0 | 2026-09-25 | 全体：三条均由 ADR-6 的迁移机制承接（存量库自动补列/补表/补索引），无需手工 DDL；`splitStatements` 已支持 `CREATE TRIGGER ... BEGIN…END` 体内的分号 |
 
 | v0.2.2 | **五类 `gate` 枚举全部接通生产侧 + 判定链接入**：<br>① `attention` 新增 `judgeState`/`judgeQuestion` 配置，Injection Gate 先问 `mana/jev/judge`（waterfall）再决定注入；<br>② 补 `skip_below_threshold`（判了但未过阈）与 `degraded_unavailable`（判定链降级）两个写入点 —— 此前 5 类中只有 3 类可达；<br>③ 补 `reset` 检测（已注入块不在上下文里时显式记账）；<br>④ `jev` 新增 `mana/jev/judge` 监听器（此前**无监听器**，判定链是空链） | I-1（`mana/jev/judge` 的消费侧）、I-3 的 `gate` 五类可达性 | S0 | 2026-09-25 | 全体：`gate` 五类现各有生产侧写入点与判据；`attention` 的判定链缺省 `judgeState=''` ⇒ 必然 `degraded_unavailable`（fail-closed，比"没判就注入"安全） |
+| v0.2.3 | **并发纪律落盘 + A0-10 改判本仓 + 契约快照「写了又回滚」可检出**：<br>① 新建 `docs/contract/concurrency-discipline.md`（六条并发纪律 + 每条的事故原文与「为什么」）；<br>② 新建 append-only 变更流水 `docs/contract/_freeze.log`（三件套的机器可读历史）；<br>③ `tools/a0-check.mjs` A0-10 由「只判仓外样板仓」改为**两仓都判**（本仓腿常开），并新增**越界腿**（提交 ⊆ 声明写面；脏件须有主）；<br>④ A0-12 由三腿扩为**六腿**（新增流水腿 / 锚点不回退腿 / 时序腿），使「写了又回滚」必须报红；<br>⑤ `--record-baseline` 加前置门（必填 `--expect` 声明写面；已跟踪脏件即拒绝，例外须 `--accept-dirty "<理由>"`）+ 流水**回读闸** | I-9（并发纪律）、A0-10、A0-12（三件套口径） | S6 | 2026-09-25 | 全体：**判据项数 16 → 16（无变化）**；A0-10 现要求 `tools/.a0-10-baseline.json` 含本仓腿（旧格式自动兼容，仅本仓腿报「无基线」FAIL，须重取一次）；契约快照多出 `_freeze.log` 一件（**新增入库件**），重取基线后 `_freeze.*` 四件一起变更 |
+
+## 变更背景（v0.2.3）
+
+**触发**：v10 评审（`docs/mana-v10-review-and-allocation.md` §二 D6/D7）两条实锤缺陷，
+均为「**失败不可观测**」形态（本仓排序口径的第一优先）：
+
+| # | 缺陷 | 实测形态 | 本批处置 |
+|---|---|---|---|
+| D6 | 工作树无独占期 | 会议期间 HEAD 移动 **3 次**、判据项数 **15 → 16**、`ps` 拍到**三方并发跑同一检查器**；且 `tools/a0-check.mjs:300` 的 A0-10 判的是**仓外样板仓**，Mana 本仓无人看守 | 六条纪律落盘（新增本文件）+ A0-10 **两仓都判** |
+| D7 | 「写了又回滚」走完整循环后不可见 | `_freeze.head` **07:30:31 写 → 07:53:27 回滚**；回滚后 ① 文件值 = 初始值 ② `git status docs/contract/` 为空 ③ 三件套与 HEAD 版一致 —— 三种常规检查**全看不出**；而 A0-12 的 HEAD 腿（锚点仍是祖先）**回滚后照样通过** ⇒ 一个什么都没做的动作被判通过 | 新增 append-only 流水 + A0-12 三条新腿 |
+
+**本批「碰了哪面墙 + 凭什么确认没碰坏」**：
+
+| 碰的面 | 凭什么确认仍成立 |
+|---|---|
+| `docs/contract/_freeze.{sha256,files.txt,head}`（**全员只读的契约快照**） | 走**授权路径** `--record-baseline` 重取；三腿（哈希/清单/HEAD）+ 新三腿（流水/锚点/时序）复跑全绿；旧值由流水 `_freeze.log` 存档**不覆盖** |
+| `tools/a0-check.mjs` 的 A0-10 / A0-12 判据块 | **判据项数 16 → 16 未变**（不增删项）；A0-1…A0-14/R0/A1 其余 14 项**复跑读数与改动前一致**（见 handoff §4） |
+| A0-12 新增三腿是否会把合法操作判红 | **实测**：连续 5 次合法重取（seq 1→5）每次复跑均 PASS；负向 3 例（A/B/C）每次均报红 |
+| A0-10 改判本仓是否会与别席在途冲突 | **实测**：别席 4 件在途（`docs/mana-rollout-plan.md` / `jev-gate.test.mjs` / `ollama.ts` / `tools/a1-check.mjs`）下仍 PASS —— 判据只对「**无主**的既有件改动」报红（见 `tools/a0-check.mjs` A0-10 块头注），不对「别席在途」报红 |
+
+**已知未覆盖面（如实标注，不假装已覆盖）**：
+
+1. 完全**绕开记录路径**的「手工写 → 手工回滚」（或写入后逐字节还原）**若与 `_freeze.log` 末条记录之前发生的**，不进入流水；
+2. mtime **变小**（回退）不判红（时钟回拨 / `git checkout` 会重置它，据此判红会造出「一会儿过一会儿不过」的腿）；
+3. A0-10 看不见「当次运行开始时树是什么样」—— 别席在**两次运行之间**新建又删除文件，两次读数完全相同；
+4. 流水的 `incident` 条目**由人工添加**（本批如实记录 D7 的追加，未伪装成本次实测）。
 
 ## 变更背景（v0.2.2）
 
