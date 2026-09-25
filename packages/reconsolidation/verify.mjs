@@ -11,7 +11,7 @@
  *   ① 测试文件存在且**非零字节**；
  *   ② `^test(` 声明数 **恰好等于** EXPECTED_CASES（防删用例/截断）；
  *   ③ `node --test` 退出码 0 **且** TAP `# tests` **等于** EXPECTED_CASES（不是 `>0`）；
- *   ④ **负向对拍腿真的跑过**：`tests/negatives.test.mjs` 的 TAP 结果里必须有 5 条 `ok`
+ *   ④ **负向对拍腿真的跑过**：`tests/negatives.test.mjs` 的 TAP 结果里必须有 6 条 `ok`
  *      —— 这条防的是"对拍被改成恒绿/被短路"（只数文件在长，不数它是否真的造了扰动）。
  *      ⚠ 有效性的**残留盲区（如实记）**：若有人把 `runWithMutation` 换成"直接 return 全绿"，
  *      ③ 仍会通过而 ④ 看不出来 —— 那种形态只能靠外部复核（会议/CI）核 `_harness.mjs` 的内容。
@@ -33,9 +33,9 @@ const TEST_FILES = [
   ['tests/window-boundaries.test.mjs', 5],
   ['tests/window-lifecycle.test.mjs', 4],
   ['tests/update-history.test.mjs', 5],
-  ['tests/degraded-three-state.test.mjs', 5],
+  ['tests/degraded-three-state.test.mjs', 6],
   ['tests/trace-namespace.test.mjs', 5],
-  ['tests/negatives.test.mjs', 5],
+  ['tests/negatives.test.mjs', 6],
 ]
 
 /**
@@ -106,11 +106,13 @@ if (fails.length === 0) {
     else if (ran !== expected) bad(`${rel}: TAP # tests = ${ran}，期望 ${expected}（**须相等，不得用 > 0**）`)
     else ok(`${rel}: TAP # tests = ${ran}（与期望值相等）`)
     if (rel === 'tests/negatives.test.mjs') {
-      // ④ 负向对拍腿：五条对拍必须逐条 `ok`（且不得出现 `not ok`）
+      // ④ 负向对拍腿：六条对拍必须逐条 `ok`（且不得出现 `not ok`）
+      //   ⚠ 第 ⑥ 条打的是 **core 的契约真源**（`../core/src/schema.ts`）—— L-00 补列之后
+      //     "本包能不能转 applied"由那份表定义决定，故它必须进这条常驻腿（不能被悄悄删掉）。
       const okCount = (out.match(/^ok \d+ - /gm) ?? []).length
       const notOk = (out.match(/^not ok \d+ - /gm) ?? []).length
-      if (okCount !== 5) bad(`${rel}: 负向对拍 ok 条数 = ${okCount}，期望 5（对拍被删/被短路）`)
-      else ok(`${rel}: 5 条负向对拍全部 ok（扰动→报红→真源只读→沙箱删净）`)
+      if (okCount !== 6) bad(`${rel}: 负向对拍 ok 条数 = ${okCount}，期望 6（对拍被删/被短路）`)
+      else ok(`${rel}: 6 条负向对拍全部 ok（扰动→报红→真源只读→沙箱删净）`)
       if (notOk !== 0) bad(`${rel}: 出现 ${notOk} 条 not ok`)
     }
   }
