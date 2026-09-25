@@ -25,6 +25,7 @@
  */
 import type { DatabaseSync } from 'node:sqlite'
 import { createHash, randomUUID } from 'node:crypto'
+import { jevGateOf, writeJevLogRow } from './jev-log-gate.ts'
 
 /** 端点缺省值。`path` 由调用方拼（见 `chatUrl`）。 */
 export const OLLAMA_DEFAULT_ENDPOINT = 'http://127.0.0.1:11434'
@@ -257,38 +258,40 @@ export function normalizeYesNo(candidates: readonly TokenCandidate[]): YesNoNorm
   return { pYes: sum(yesFamily), pNo: sum(noFamily), yesFamily, noFamily, unmatched }
 }
 
-/** 拼一条 `jev_log` 插入语句（列名显式，不依赖表列顺序）。 */
-const JEV_INSERT_SQL = [
-  'INSERT INTO jev_log',
-  '(id, request_type, source, state_hash, result_value, probability, cached,',
-  ' degraded, latency_ms, cost_usd, session_id, turn_id, created_at)',
-  'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-].join(' ')
-
 /**
  * 写一行 `jev_log`。
  *
  * `id` 是主键且**不设缺省** ⇒ 必须显式给 ⇒ `state_hash` 不由 SQLite 生成。
  * 列以**列名**插入（不靠位置），因此对表列顺序变动免疫。
+ *
+ * ⚠ **INSERT 列清单与写口已上移到 `./jev-log-gate.ts`**（本仓 2026-09-25 实测的缺陷）：
+ *   此前列清单在本文件里，且**不含 gate** ⇒ A1-8 的"运行态可归因"没有生产写入者，
+ *   测试只能自己直写 gate 塞进库（夹具自证）。上移后：
+ *   · 列清单只有一份（`jevLogInsertSql()`），加列不会漏值（`jevLogRowParams` 抛错兜底）；
+ *   · 判据可对**生产 SQL 本体**做负向注入（去掉 gate ⇒ 真降级不落 gate ⇒ 测试必红）。
+ *   行为面唯一变化：`degraded:true` 的行现在多写一个 `gate` 值（非降级行显式 null）。
  */
 export function writeJevLog(db: DatabaseSync, o: JevJudgeOutcome): void {
-  db.prepare(JEV_INSERT_SQL).run(
-    o.requestId,
-    o.requestType,
-    o.source,
-    o.stateHash,
-    o.value,
-    o.probability,
-    o.cached ? 1 : 0, // cached：B1.3 起命中路径写 1（只读复用该列，未改表结构）
-    o.degraded ? 1 : 0,
-    o.latencyMs,
+  writeJevLogRow(db, {
+    id: o.requestId,
+    requestType: o.requestType,
+    source: o.source,
+    stateHash: o.stateHash,
+    value: o.value,
+    probability: o.probability,
+    cached: Boolean(o.cached), // cached：B1.3 起命中路径写 1（只读复用该列，未改表结构）
+    degraded: Boolean(o.degraded),
+    // gate：门控失败归因（判据原文 gate in (unavailable,budget)）。
+    // **非降级 ⇒ 显式 null**（不是空串、不是 0）：「无门控失败」与「降级被记成正常」必须可分辨。
+    gate: jevGateOf(o),
+    latencyMs: o.latencyMs,
     // cost_usd：本机 Ollama 无计费 ⇒ 显式 null 而不是 0（**不得用 0 冒充**）；
     // 真 JEV 通道给得出真实费用（B 档浮动量）⇒ 落库，但仍不当阈值判据用。
-    o.costUsd ?? null,
-    o.sessionId ?? null,
-    o.turnId ?? 0,
-    o.atIso,
-  )
+    costUsd: o.costUsd ?? null,
+    sessionId: o.sessionId ?? null,
+    turnId: o.turnId ?? 0,
+    atIso: o.atIso,
+  })
 }
 
 /** 计一行数（判据用；只读）。 */

@@ -164,8 +164,56 @@ const MUTATORS = {
   },
 }
 
+/**
+ * ── 用法闸（0 号闸）：**在判据腿之前**失败 ────────────────────────────────────
+ *
+ * ⚠ 本仓 2026-09-25 实测的「失败不可观测」：这两道闸原先写在文末 ——
+ *   报告已经把「✅ 门通过」印完、16 项判据全跑完（约 2 分钟），**才** `exit 2`。
+ *   只读报告的人（或把 stdout 贴给别人看、管道取退出码 `| tail` 的人）看到的是**全绿**。
+ *   ⇒ 闸前移到**任何判据被执行之前**：用法错时既不跑腿、也不产生报告，
+ *     只打印错误并以 exit 2 结束（不进入下面的判据块与输出段）。
+ */
+const usageErrorEarly = (() => {
+  const dup = Object.entries(
+    [...MUTATES].reduce((acc, m) => {
+      const t = MUTATORS[m]?.target
+      if (t) (acc[t] ??= []).push(m)
+      return acc
+    }, {}),
+  ).filter(([, ms]) => ms.length > 1)
+  const unknown = [...MUTATES].filter((m) => !MUTATORS[m])
+  if (unknown.length) return `✗ 未知变异器：${unknown.join(', ')}（可用：${Object.keys(MUTATORS).join(', ')}）`
+  if (dup.length)
+    return (
+      `✗ 同一判据被注入多个变异器：${dup.map(([t, ms]) => `${t}←${ms.join('+')}`).join('，')}` +
+      `（一次只判一个缺陷，否则"哪条腿有牙"不可分辨）`
+    )
+  return ''
+})()
+if (usageErrorEarly) {
+  // process.exit 而非 exitCode：**判据腿一条都不跑**（用法错的运行不产生任何判据结论）
+  console.error(usageErrorEarly)
+  console.error('（用法错 ⇒ 本次运行不跑判据腿、不产生报告；修正参数后重跑，避免把上一次的全绿当成本次结论）')
+  process.exit(2)
+}
+
 /** 变异生效登记：克隆体**真的**与真源不同才记（锚点未命中 ⇒ 不许当成"变异成功"）。 */
 const mutApplied = new Set()
+/**
+ * **自证变异**（`selfKernel:true`）生效登记 —— 与 `mutApplied` **是两回事**，故分成两个集合。
+ *
+ * · `mutApplied` = 「源文件**克隆体**被写出来并被加载」：证据在**文件系统**上（锚点必须恰好命中一次）。
+ * · `selfApplied` = 「判据**内联核**真用了被换过的常量」：没有克隆体可比，
+ *   唯一客观证据是**该核算出来的数**变成了换过之后的那个 —— 于是登记点写在"数出来是这样"上，
+ *   而不是写在"请求了变异"上（后者恒真：请求标志与赋值条件本来就是同一个表达式）。
+ *
+ * ⚠ 这个区分是本轮（S7）修出来的：此前自证腿的分支写成
+ *   `mt.selfKernel ? mutApplied.has(m) : mutApplied.has(m)` —— **两个分支字面相同**，
+ *   自证分支是死功能（分支形式还在、语义已经丢了）。而那唯一被它覆盖的 `a1-5`，
+ *   其登记当时又写在**请求标志**上（`if (mutOf('A1-5')) mutApplied.add(...)`）⇒ 恒真。
+ *   两处叠加的结果：这条腿永远绿，且**不可能**红 —— 正是本仓最忌的"失败不可观测"。
+ */
+const selfApplied = new Set()
 /** 按「被判项」反查它的变异器（同一项可有多个变异器，一次只准注入一个）。 */
 const mutOf = (checkId) => [...MUTATES].find((m) => MUTATORS[m]?.target === checkId) ?? null
 
@@ -259,12 +307,18 @@ const fixed = (x, n = 6) => Number(x).toFixed(n)
   const decay = (t, h) => Math.exp((-t * Math.LN2) / h) // 半衰期定义式，与 docs/mana-v5-plan.md:533 逐字同形
   /** `--mutate a1-5`：判据内联核的变异（本项无实现可变异，见上面 caveat；如实标注）。 */
   const H = mutOf('A1-5') ? 7 : 14
-  if (mutOf('A1-5')) mutApplied.add(mutOf('A1-5'))
   const anchors = [
     ['decay(0)', decay(0, H), 1.0],
     ['decay(14)', decay(14, H), 0.5],
     ['decay(90)', decay(90, H), 0.011609],
   ]
+  /**
+   * 自证变异的**注入证据**：核真的被换过时，`decay(14)` 会算成 0.25（半衰期 7 天）
+   * 而不是判据锚点的 0.5 —— 这里读的是**算出来的数**，不是"请求了变异"这个标志。
+   * 反例（本腿要抓的缺陷）：若哪天有人把锚点写成 `decay(14, 14)`（忽略 H）或换掉核，
+   *   变异仍是"请求过"的、A1-5 仍会绿，但本登记不会发生 ⇒ 自证腿报「变异未真正注入」。
+   */
+  if (mutOf('A1-5') && !near(anchors[1][1], 0.5)) selfApplied.add(mutOf('A1-5'))
   const bad = anchors.filter(([, got, want]) => !near(got, want)).map(([n, got, want]) => `${n}=${got}（应 ${want}）`)
   // 实时扫描实现者：导出名像衰减核的函数/常量
   const impls = []
@@ -599,11 +653,20 @@ function runCases(file, cases) {
 {
   const id = 'A1-14'
   const title = 'A1-14 fail-closed 不得吞掉「未判」：不注入 **且** 仍留痕（两条都要真）'
-  const r = runCases(W3_TESTS.gate, ['P5 A1-14', 'P6 A1-14'])
-  if (r.failed.length === 0 && r.passed.length === 2) {
-    pass(id, title, '无候选/降级两条路径：注入块 == 0 **且** inject_log 均新增对应枚举行（只满足前者即静默）', '判据表 docs/mana-rollout-plan.md:474；G8「降级必须落显式字段」')
+  // ⚠ 本轮（S7）修的**夹具自证**：此前本批只取 P5 + P6，其中
+  //   · P5 是"候选池空"（不是 JEV 降级面）；
+  //   · **P6 是测试自己用 `core.writeInjectLog()` 直写降级行**（服务面直写），
+  //     它自认"这里用服务面直写验证落点契约" ⇒ **没有真正制造判决链降级**。
+  //   ⇒ 两项都是绿的时候，A1-14 的"造一次 JEV 不可用"其实一次都没造过。
+  //   真用例**本来就在同一个文件里**：`P13 判定链降级`（boot({judgeProbability:null}) ⇒
+  //   判定链桩恒返回 degraded:true ⇒ 门控真走 `degraded_unavailable` 并留痕），
+  //   且它已被 A1-13 的批调用。故本批改为 P5 + P6 + P13（**不新写用例**）。
+  const cases = ['P5 A1-14', 'P6 A1-14', 'P13 判定链降级']
+  const r = runCases(W3_TESTS.gate, cases)
+  if (r.failed.length === 0 && r.passed.length === cases.length) {
+    pass(id, title, `${cases.length} 条用例全绿：无候选 / 服务面直写 / **真判定链降级**三条路径：注入块 == 0 **且** inject_log 均新增对应枚举行（只满足前者即静默）`, '判据表 docs/mana-rollout-plan.md:474；G8「降级必须落显式字段」；P13 经真 agent/pre-step 分发触发判定链降级（非测试直写）')
   } else {
-    fail(id, title, r.failed.length ? `挂的用例：${r.failed.join(' / ')}` : `本项用例未全绿（passed=${r.passed.length}/2）`, '回 Injection Gate 的留痕路径')
+    fail(id, title, r.failed.length ? `挂的用例：${r.failed.join(' / ')}` : `本项用例未全绿（passed=${r.passed.length}/${cases.length}）`, '回 Injection Gate 的留痕路径')
   }
 }
 
@@ -659,9 +722,38 @@ function runCases(file, cases) {
   if (stale.length) parts.push(`过期：${stale.join(' · ')}`)
   if (!parts.length) pass(id, title, '13 包逐个比 src/lib 最新 mtime：无过期、无缺产物', '')
   else {
-    const detail = `${parts.join('；')}｜⚠ 过期产物**不改变任何判据的绿**（r0 的按包名装配、本脚本的解析腿都会吃到旧实现）`
+    /**
+     * ⚠ **文案与标题必须同义**（本仓 2026-09-25 实测的自相矛盾）：
+     *   此前的 detail 写「过期产物**不改变任何判据的绿**」，而标题同一行写着
+     *   「过期产物**会让**「按包名解析」的判据测到旧代码」—— 读者相信哪一句取决于读到哪。
+     *   两句话各对一半，合成一个假象：**必须说准"什么变、什么不变"**：
+     *     · **不变**：本报告自己的绿/红（本项是挂账态，判据腿照旧跑、照旧判）；
+     *     · **变**：**按包名解析到 `lib/` 的那些判据**测的是旧实现 ⇒ 它们的绿不再证明"真源正确"。
+     *   故下面**点名受影响 id**，而不是留一句含糊的"都会吃到旧实现"。
+     *
+     * 受影响面由 S7 席本轮按**静态解析路径**逐批复核（不是引用他席结论）：
+     *   · chain-e2e / injection-gate / assembly / ui 装配腿：`ctx.loader.create({name})` +
+     *     `baseUrl` ⇒ 按包名 → `package.json main` → `lib/index.js` ⇒ **受影响**；
+     *   · W2-5：`import.meta.resolve(pkg)` + `await import(pkg)`（a1-check.mjs:471/477）⇒ **受影响**；
+     *   · 仓外 `tools/r0-assembly-check.mjs`（`:217` 按包名装全 13 包）⇒ **受影响**；
+     *   · lexical-audit 直 `import('../src/index.ts')`（`:29`）、a1-check 的 A1-4/11/12 腿直
+     *     `import(packages/<pkg>/src/<file>.ts)`（`SRC` 常量 `:80`）⇒ **不受影响**（白盒）。
+     * ⚠ 本段**不得出现星号加斜杠**的字符组合（哪怕在注释里）：它会提前终止块注释、
+     *   把后面的释义变成代码（本轮实测踩到，`ReferenceError: src is not defined`）。
+     */
+    const detail =
+      `${parts.join('；')}｜⚠ 后果要说准：过期产物**不改变本报告的绿/红**（本项是挂账态，判据腿照旧），` +
+      `但**会让"按包名解析到 lib/"的判据测到旧实现** —— 那时它们的绿不构成"真源正确"的证据。` +
+      `受影响（解析型：按包名 → package.json main → lib/index.js）：A1-1 / A1-2 / A1-6 / A1-13 / A1-14 / P5-UI / W2-5，` +
+      `外加仓外 tools/r0-assembly-check.mjs（13 包装配面）；` +
+      `不受影响（白盒型：直 import packages/*/src/*.ts）：A1-4 / A1-8 / A1-9 / A1-10 / A1-11 / A1-12；` +
+      `A1-5 = NONE（无实现者，**不是 PASS**）、W-1..3 与 lib 无关（判的是 sqlite-vec 扩展语义）。`
+    const evidence =
+      '挂账≠通过：本项不改判任何绿，但**必须有人看** —— 受影响面清单由 S7 席按**静态解析路径**逐批复核' +
+      '（chain-e2e / injection-gate / assembly 装配腿用 ctx.loader.create(baseUrl) 按包名加载；' +
+      'W2-5 走 import.meta.resolve + import(pkg)；a1-check 的 SRC 腿与 lexical-audit 直指 src ⇒ 不在受影响面）'
     if (REQUIRE_FRESH) fail(id, title, detail, '跑一次工作区 build 后复跑；或本项保持挂账并显式记录')
-    else hang(id, title, detail, '挂账≠通过：本项不改判任何绿，但**必须有人看**（r0 6/6 与本脚本 W2-5 都建立在它之上）')
+    else hang(id, title, detail, evidence)
   }
 }
 
@@ -704,7 +796,24 @@ if (MUTATES.size) {
     const mt = MUTATORS[m]
     if (!mt) continue
     const tgt = results.find((r) => r.id === mt.target)
-    const injected = mt.selfKernel ? mutApplied.has(m) : mutApplied.has(m)
+    /**
+     * 「变异是否真被注入」——**两条判定路径本就不同**（本仓 2026-09-25 实测：
+     * 此前这里写的是 `mt.selfKernel ? mutApplied.has(m) : mutApplied.has(m)`，
+     * 两个分支字面相同 ⇒ 自证分支是**死功能**，分支形式还在，语义已经丢了）。
+     *
+     * · **判据内联核变异**（`selfKernel:true`，当前只有 `a1-5`）：变异打在**本脚本自己的
+     *   内联核**上（A1-5 仓内无实现者）。这条路径**不经 `loadCloned()`** ⇒ 它不依赖
+     *   `mutApplied` 登记，判定基准是"锚点是否真改了核"：`mutOf()` 认得出它 ⇒ 已生效。
+     * · **实现变异**（其余全部）：必须经 `loadCloned()` 真读源文件、真替换、真写克隆副本，
+     *   并在成功后把 mutId 记进 `mutApplied`。锚点未命中会在 `loadCloned()` 里抛错，
+     *   若那条错误被吞掉，就会走到这里 ⇒ **不检查登记等于把"没注入"读成"注入了"**。
+     *
+     * ⇒ 两条路径的判据分别是「`mutOf()` 认得出该 selfKernel 变异」与「`mutApplied` 有登记」，
+     *   不是同一个条件（这正是原死分支想表达而没写成的东西）。
+     * ⚠ 登记是**全局**的：同一个变异器若出现在两处、第二处被锚点过期弄失败，
+     *   全局登记仍为真 ⇒ 这一腿只能证明"至少注入过一次"，故另有下面的重复变异器闸（exit 2）。
+     */
+    const injected = mt.selfKernel ? selfApplied.has(m) : mutApplied.has(m)
     if (!injected) selfCheck.push(`${m}：变异**未真正注入**（锚点未命中或未加载克隆体）⇒ 本次运行不能作为自证`)
     if (tgt && tgt.state !== 'FAIL') selfCheck.push(`${m}：被注入的 ${mt.target} 实测 ${tgt.state}（**应 FAIL**）⇒ 该项判据无牙`)
     for (const r of results) {
@@ -714,7 +823,7 @@ if (MUTATES.size) {
   if (selfCheck.length) harnessFail = true
 }
 
-// ── 输出 ────────────────────────────────────────────────────────────────────
+// ── 输出（用法闸已在文件头部执行：走到这里说明参数合法）───────────────────────
 const order = { FAIL: 0, HANG: 1, NONE: 2, PASS: 3 }
 results.sort((a, b) => order[a.state] - order[b.state] || a.id.localeCompare(b.id))
 const n = { PASS: 0, FAIL: 0, HANG: 0, NONE: 0 }
@@ -781,28 +890,10 @@ if (JSON_OUT) {
   console.log(`\n${gateOk ? '✅ 门通过' : `❌ 门不通过：${gateWhy.join(' + ')}`}`)
 }
 
-// 未知变异器**必须显式失败**（静默忽略 = 变异自证变假绿）
-const dupTargets = Object.entries(
-  [...MUTATES].reduce((acc, m) => {
-    const t = MUTATORS[m]?.target
-    if (t) (acc[t] ??= []).push(m)
-    return acc
-  }, {}),
-).filter(([, ms]) => ms.length > 1)
-const unknownMut = [...MUTATES].filter((m) => !MUTATORS[m])
-if (unknownMut.length) {
-  console.error(`✗ 未知变异器：${unknownMut.join(', ')}（可用：${Object.keys(MUTATORS).join(', ')}）`)
-  process.exitCode = 2
-} else if (dupTargets.length) {
-  console.error(
-    `✗ 同一判据被注入多个变异器：${dupTargets.map(([t, ms]) => `${t}←${ms.join('+')}`).join('，')}` +
-      `（一次只判一个缺陷，否则"哪条腿有牙"不可分辨）`,
-  )
-  process.exitCode = 2
-} else {
-  // 退出码口径：项集等式红 / 有 FAIL ⇒ 1；变异自证腿不过 ⇒ 3（判据无牙 = 比判据红更坏的形态）
-  process.exitCode = harnessFail ? 3 : !itemSetOk || results.some((r) => r.state === 'FAIL') ? 1 : 0
-}
+// ── 退出码 ──────────────────────────────────────────────────────────────────
+// 用法错 ⇒ 2（在文件头 fail-fast，**不跑判据腿、不产生报告**）；
+// 变异自证腿不过 ⇒ 3（判据无牙 = 比判据红更坏的形态）；项集等式红 / 有 FAIL ⇒ 1；否则 0。
+process.exitCode = harnessFail ? 3 : !itemSetOk || results.some((r) => r.state === 'FAIL') ? 1 : 0
 
 // 收尾：删本次创建的临时克隆目录（逐个删；本脚本不写仓内任何文件）
 for (const d of createdDirs) {
