@@ -50,6 +50,33 @@ import { spawnSync } from 'node:child_process'
 const HERE = dirname(fileURLToPath(import.meta.url))
 const ROOT = join(HERE, '..')
 const P = (...p) => join(ROOT, ...p)
+
+/**
+ * 递归收集 `dir` 下所有 `.ts` 文件（**必须递归**，本仓 2026-09-25 实测的漏检事实）。
+ *
+ * ⚠ 为什么不能只 `readdirSync(dir)`：
+ *   `packages/ui/src/client/` 是**子目录**，其 `index.ts`/`host.ts` 是 client 半区的真源码。
+ *   旧实现只扫 `src/` 顶层 ⇒ 改动 `src/client/index.ts` 后，`ARTIFACTS` 腿**不报 ui 过期**，
+ *   而 `ui` 的 `lib/` 正是由这些子目录源码经 `scripts/build-client.mjs` 产出的
+ *   ⇒ 「装了旧码」这件事在判据上不可见（本会议 `[env] 产物新鲜度` 那条教训的同一形态）。
+ *   实测复现（本机）：`touch packages/ui/src/client/index.ts`（08:00）后，
+ *   旧实现仍只报 core/user-model/vector，**不含 ui**。
+ *
+ * 排除 `node_modules` 与 `lib`：前者非本源、后者是产物（比产物自己比产物会平凡成立）。
+ */
+function collectTsFiles(dir) {
+  const out = []
+  const walk = (cur) => {
+    for (const e of readdirSync(cur, { withFileTypes: true })) {
+      if (e.name === 'node_modules' || e.name === 'lib') continue
+      const full = join(cur, e.name)
+      if (e.isDirectory()) walk(full)
+      else if (e.name.endsWith('.ts')) out.push(full)
+    }
+  }
+  if (existsSync(dir)) walk(dir)
+  return out
+}
 const SRC = P('packages/vector/src')
 const url = (f) => pathToFileURL(f).href
 
@@ -401,12 +428,16 @@ const fixed = (x, n = 6) => Number(x).toFixed(n)
       bad.push(`${pkg}: import 失败 ${error.code ?? error.message}`)
     }
     // 产物新鲜度：产物比源文件旧 ⇒ 解析到的是**过期实现**（判据绿但测的不是真源）
+    // ⚠ 递归收集（含 `src/client/` 这类子目录）—— 见 collectTsFiles 注释里的漏检实测。
     const srcDir = P('packages', dir, 'src')
     const libEntry = P('packages', dir, 'lib/index.js')
     let fresh = null
     if (existsSync(libEntry) && existsSync(srcDir)) {
-      const maxSrc = Math.max(...readdirSync(srcDir).filter((f) => f.endsWith('.ts')).map((f) => statSync(join(srcDir, f)).mtimeMs))
-      fresh = statSync(libEntry).mtimeMs >= maxSrc
+      const srcFiles = collectTsFiles(srcDir)
+      if (srcFiles.length) {
+        const maxSrc = Math.max(...srcFiles.map((f) => statSync(f).mtimeMs))
+        fresh = statSync(libEntry).mtimeMs >= maxSrc
+      }
     }
     if (fresh === false) bad.push(`${pkg}: lib/index.js 早于 src ⇒ 解析到的是过期产物`)
     lines.push(`${pkg} → ${resolved} [${keys.join(',')}]${fresh === false ? ' ⚠过期' : ''}`)
@@ -608,13 +639,15 @@ function runCases(file, cases) {
     const srcDir = P('packages', pkg, 'src')
     const libEntry = P('packages', pkg, 'lib')
     if (!existsSync(srcDir)) continue
-    const srcs = readdirSync(srcDir).filter((f) => f.endsWith('.ts'))
+    // ⚠ 递归收集（含 `src/client/` 这类子目录）—— 旧的非递归实现会漏掉它们，
+    //    实测：`touch packages/ui/src/client/index.ts` 后本项不报 ui 过期（见 collectTsFiles 注释）。
+    const srcs = collectTsFiles(srcDir)
     if (!srcs.length) continue
     if (!existsSync(join(libEntry, 'index.js'))) {
       missing.push(`packages/${pkg}`)
       continue
     }
-    const maxSrc = Math.max(...srcs.map((f) => statSync(join(srcDir, f)).mtimeMs))
+    const maxSrc = Math.max(...srcs.map((f) => statSync(f).mtimeMs))
     if (statSync(join(libEntry, 'index.js')).mtimeMs < maxSrc) {
       stale.push(
         `packages/${pkg}（src ${new Date(maxSrc).toISOString().slice(11, 19)} → lib ${new Date(statSync(join(libEntry, 'index.js')).mtimeMs).toISOString().slice(11, 19)}）`,
