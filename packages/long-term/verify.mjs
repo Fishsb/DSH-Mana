@@ -33,6 +33,9 @@ const HERE = fileURLToPath(new URL('.', import.meta.url))
 const TEST_FILES = [
   ['tests/skeleton.test.mjs', 8],
   ['tests/activation.test.mjs', 9],
+  // ⚠ **S21 席（A2-6 / A2-7 软删除面）新增，必须在此登记**：
+  //   不登记 ⇒ 本文件被清空成 0 字节时，外部防线**压根不看它** ⇒ 假绿复发（见本档开头那条教训）。
+  ['tests/retirement.test.mjs', 7],
 ]
 
 const fails = []

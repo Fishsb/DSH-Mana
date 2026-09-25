@@ -7,12 +7,20 @@
  * 尚未实现（仍属后续批次，**不得**读作已完成）：三道门控（B3.2）、三路混合检索（B3.2）、
  *   落库写入（`base_level_activation` 列的写者）、`S` 的 Pavlik–Anderson 更新（B4.2）。
  *
- * ── 实现面（`src/`，判据在 `tests/activation.test.mjs`）────────────────────────────
+ * ── 实现面（`src/`，判据在 `tests/activation.test.mjs`；软删除面在 `tests/retirement.test.mjs`）
  *  · `params.ts`      —— 5 个工程参数 + 1 个派生量 `s` 的**唯一出处**（C14 唯一写者）
  *  · `decay.ts`       —— 时间衰减核 `decay(t,h)`，**A1-5 的实现者**（此前该项在
  *                        `tools/a1-check.mjs` 里报 NONE「无实现者」⇒ 本文件出现后转 HANG）
  *  · `activation.ts`  —— `baseLevel`(A2-1) / `retrievalProbability`+`latencyMs`(A2-2) / `noiseTerm`
+ *  · `retirement.ts`  —— 软删除/恢复原语 + 退休过滤检索，**A2-6 / A2-7 的实现者**
+ *                        （此前这两条在落地册里"已写但无实现者"）。**只改 `retired` 位、永不删行**。
  * 公式与判据原文见各文件头；`baseLevel` 的 `t_j` 单位是**秒**、`decay` 的是**天**，不可相乘。
+ *
+ * ⚠ **两条实现面各有各的清单，不合并**（`IMPLEMENTED_EXPORTS` = ACT-R 面；
+ *   `IMPLEMENTED_RETIREMENT_EXPORTS` = 软删除面）：合并会让 `skeleton.test.mjs:87`
+ *   的「清单长度 == 逐名对照集合长度」**与 `activation.test.mjs:232` 的逐名 deepEqual
+ *   同时失效** —— 那两条断言是**既有判据**，本席不得为了放下新实现而去改它们。
+ *   加一张独立清单 = 新面独立可检，旧面一个字不动。
  *
  * ── 历史记录（P1 骨架期，保留原文）─────────────────────────────────────────────────
  * ⚠ **本骨架曾是"诚实的空壳"，且"没有行为"本身是机检事实**（R2 订正）：
@@ -55,6 +63,7 @@
  */
 import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-agent'
+import type { DatabaseSync } from 'node:sqlite'
 import { registerPassThroughPreStep, type ManaCoreService } from 'dsh-mana-core'
 import { ACTR_PARAMS } from './params.ts'
 import { decay } from './decay.ts'
@@ -66,6 +75,27 @@ import {
   noiseTerm,
   retrievalProbability,
 } from './activation.ts'
+import {
+  assertNoRetiredLeak,
+  contentBytes,
+  countMemories,
+  leakedRetiredIds,
+  listRetiredIds,
+  LIVE_SEARCH_SQL,
+  LIVE_SELECT_SQL,
+  probeFtsIndex,
+  readMemoryRow,
+  RETIRED_FILTER_CLAUSE,
+  restoreMemory,
+  retireMemory,
+  searchLiveMemories,
+  selectLiveMemoryById,
+  sha256Hex,
+  type LiveSearchResult,
+  type MemoryCounts,
+  type MemoryRow,
+  type SoftDeleteOutcome,
+} from './retirement.ts'
 
 export const name = 'mana-long-term'
 
@@ -88,6 +118,35 @@ export const IMPLEMENTED_EXPORTS = [
   'latencyMs',
 ] as const
 
+/**
+ * **软删除面**的实现清单（A2-6 / A2-7）——与 `IMPLEMENTED_EXPORTS` **并列不合并**。
+ *
+ * 为什么另起一张而不是往上面那张里加：上面那张被**两条既有判据**逐名钉死
+ * （`skeleton.test.mjs:87` 长度相等、`activation.test.mjs:232` 逐名 deepEqual）。
+ * 往它里面加名字会让**既有判据红**，而"改判据让它变绿"正是本仓禁止的动作。
+ * ⇒ 新面独立清单 + 新面独立判据文件，旧面零改动。
+ *
+ * ⚠ 它是**一等判据面**：`tests/retirement.test.mjs` ① 逐个断言"是函数/是串"，
+ *   把实现搬走/改名而判据不同步 ⇒ 必红（反"实现被挖空"的同一条腿）。
+ *   `LIVE_SEARCH_SQL` / `LIVE_SELECT_SQL` / `RETIRED_FILTER_CLAUSE` 三个 SQL 常量**不在
+ *   本清单里**（它们不是函数），但同样被 `tests/retirement.test.mjs` ① 直接断言
+ *   —— 过滤腿是**被判据按字面量点名的导出**，不是躺在函数体里等人删的一行字符串。
+ */
+export const IMPLEMENTED_RETIREMENT_EXPORTS = [
+  'retireMemory',
+  'restoreMemory',
+  'searchLiveMemories',
+  'selectLiveMemoryById',
+  'readMemoryRow',
+  'countMemories',
+  'listRetiredIds',
+  'probeFtsIndex',
+  'leakedRetiredIds',
+  'assertNoRetiredLeak',
+  'sha256Hex',
+  'contentBytes',
+] as const
+
 /** ACT-R 纯函数面（只读）。**派生量唯一写者**在此：`A`/`B`/`decay` 只在本包计算。 */
 export interface ManaLongTermActivation {
   /** 冻结参数快照（含派生量 `s = √3σ/π`）。 */
@@ -108,6 +167,48 @@ export interface ManaLongTermActivation {
   decay(t: number, halfLifeDays?: number): number
 }
 
+/**
+ * 软删除 / 恢复面 —— **A2-6 / A2-7 的服务侧落点**（实现在 `retirement.ts`）。
+ *
+ * ⚠ 与 `ManaLongTermActivation` 并列，**不并入**它：两者判据文件不同、失效模式也不同
+ *   （前者算错值，后者丢数据/漏行）。合成一个面会让"ACT-R 面绿"掩盖"检索漏行"。
+ *
+ * ⚠ **库句柄是显式入参**（`db`），不是本包持有的状态：`apply` 仍然不 `openManaDb`、
+ *   不注册 effect ⇒ 本包"零行为"的形态面判据（⑦⑧）继续成立。
+ */
+export interface ManaLongTermRetirement {
+  /** **软删除**：置 `retired=1`。只改位，**不发 DELETE、不删行**（§8.3）。 */
+  retire(db: DatabaseSync, id: string): SoftDeleteOutcome
+  /** **恢复**：置 `retired=0`。`content` 逐字节不动。 */
+  restore(db: DatabaseSync, id: string): SoftDeleteOutcome
+  /** **生产检索**：FTS 命中 ∩ `retired=0`（A2-7）。 */
+  search(db: DatabaseSync, rawQuery: string, limit?: number): LiveSearchResult
+  /** 按 id 读**未退休**记忆（带过滤腿的 id 通道）。 */
+  selectById(db: DatabaseSync, id: string): MemoryRow | null
+  /** 按 id 读任意行（**不过滤**，软删除原语自身取证用）。 */
+  readRow(db: DatabaseSync, id: string): MemoryRow | null
+  /** 库内计数三态（total / live / retired 分列）。 */
+  counts(db: DatabaseSync): MemoryCounts
+  /** 全部已退休 id（供**外部复核**结果里有没有退休行）。 */
+  retiredIds(db: DatabaseSync): string[]
+  /** ⚠ **诊断探针，不是检索入口**：直查 FTS 索引，证"退休行仍在索引里"。 */
+  probeIndex(db: DatabaseSync, rawQuery: string, limit?: number): string[]
+  /** 命中 ∩ 退休 id 集 —— A2-7 的外部复核口径。 */
+  leaked(hits: readonly { id: string }[], retiredIds: ReadonlySet<string> | readonly string[]): string[]
+  /** 检出泄漏即抛错（生产路径用：宁可炸，不可静默交出退休行）。 */
+  assertNoLeak(hits: readonly { id: string }[], retiredIds: ReadonlySet<string> | readonly string[]): void
+  /** `content` 的 utf8 sha256（A2-6 字节级取证原语）。 */
+  hash(text: string): string
+  /** `content` 的 utf8 字节数。 */
+  bytes(text: string): number
+  /** 生产检索 SQL 原文（**含过滤腿**；测试按此断言"腿还在"）。 */
+  readonly liveSearchSql: string
+  /** 按 id 读的未退休 SQL 原文。 */
+  readonly liveSelectSql: string
+  /** 过滤腿字面量。 */
+  readonly filterClause: string
+}
+
 export interface ManaSvc {
   readonly plugin: string
   /**
@@ -121,6 +222,14 @@ export interface ManaSvc {
   status(): { plugin: string; wired: boolean; behavior: 'skeleton' | 'active' }
   /** B3.1 新增：ACT-R 纯函数面（只读，见 `ManaLongTermActivation`）。 */
   readonly activation: ManaLongTermActivation
+  /**
+   * **软删除 / 恢复面**（A2-6 / A2-7）。见 `ManaLongTermRetirement`。
+   *
+   * ⚠ 服务面**不持有库句柄**：库由调用方（core 服务）注入。
+   *   本包仍是"纯函数 + 显式入参"的形态 —— 不新增 effect、不开库、不注册监听器
+   *   （`skeleton.test.mjs` ⑦ 的 effect 恰好 3 条因此**不受本批影响**，实测保持 3）。
+   */
+  readonly retirement: ManaLongTermRetirement
 }
 
 declare module '@deepseek-ai/cordis' {
@@ -143,6 +252,32 @@ function makeActivation(): ManaLongTermActivation {
   })
 }
 
+/**
+ * 装配软删除 / 恢复面（A2-6 / A2-7）。
+ *
+ * **同样不写库、不注册业务监听器**：每个方法都接显式 `db` 入参，本包不持有库句柄
+ * ⇒ `skeleton.test.mjs` ⑦ 的 effect 面精确计数（3 条）不受影响。
+ */
+function makeRetirement(): ManaLongTermRetirement {
+  return Object.freeze({
+    retire: retireMemory,
+    restore: restoreMemory,
+    search: searchLiveMemories,
+    selectById: selectLiveMemoryById,
+    readRow: readMemoryRow,
+    counts: countMemories,
+    retiredIds: listRetiredIds,
+    probeIndex: probeFtsIndex,
+    leaked: leakedRetiredIds,
+    assertNoLeak: assertNoRetiredLeak,
+    hash: sha256Hex,
+    bytes: contentBytes,
+    liveSearchSql: LIVE_SEARCH_SQL,
+    liveSelectSql: LIVE_SELECT_SQL,
+    filterClause: RETIRED_FILTER_CLAUSE,
+  })
+}
+
 export function apply(ctx: Context): void {
   const core: ManaCoreService | undefined = ctx.get('mana-core')
   if (!core) throw new Error('mana-long-term: 缺少 mana-core 服务（inject 未满足）')
@@ -151,6 +286,7 @@ export function apply(ctx: Context): void {
     plugin: name,
     status: () => ({ plugin: name, wired: true, behavior: 'active' }),
     activation: makeActivation(),
+    retirement: makeRetirement(),
   }
 
   ctx.effect(() => {
@@ -173,3 +309,22 @@ export {
   noiseTerm,
   retrievalProbability,
 } from './activation.ts'
+// 软删除 / 恢复面（A2-6 / A2-7）—— 公共导出，供其它包**只读**消费。
+export {
+  assertNoRetiredLeak,
+  contentBytes,
+  countMemories,
+  leakedRetiredIds,
+  listRetiredIds,
+  LIVE_SEARCH_SQL,
+  LIVE_SELECT_SQL,
+  probeFtsIndex,
+  readMemoryRow,
+  restoreMemory,
+  RETIRED_FILTER_CLAUSE,
+  retireMemory,
+  searchLiveMemories,
+  selectLiveMemoryById,
+  sha256Hex,
+} from './retirement.ts'
+export type { LiveSearchResult, MemoryCounts, MemoryRow, SoftDeleteOutcome } from './retirement.ts'
