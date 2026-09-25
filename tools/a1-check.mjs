@@ -20,7 +20,7 @@
  *   node tools/a1-check.mjs --require-fresh-artifacts   # 把「产物过期」挂账升级为 FAIL
  *
  * ── 纪律（与 a0-check 同口径）─────────────────────────────────────────────
- *  ① 退出码：0 = 无 FAIL 且项集等式通过且变异自证腿通过（可含挂账）；1 = 有 FAIL 或项集等式不等；
+ *     2 = 用法错（未知变异器 / 同一判据被注入多个变异器）；3 = 变异自证腿不过。
  *     2 = 用法错（未知变异器 / 同一判据被注入多个变异器）；3 = 变异自证腿不过。
  *     **不得用管道取退出码**
  *     （`node x.mjs | tail` 的 `$?` 是 tail 的）。
@@ -32,8 +32,12 @@
  *  ③ 每条判据都必须能**真跑出红**：`--mutate <id>` 是它的自证开关，且**跑完由脚本自己核验**
  *     「注入项确实红了、别的项没被误伤」（预注册 + 机检，见文末「变异自证腿」）。只做字符串常量比对、
  *     或断言「函数存在」，只能证明文件在长，不能证明行为对 —— 那类写法本脚本不收。
- *  ④ 本脚本另带两条**不会自己变绿**的腿：`ARTIFACTS`（产物新鲜度，挂账态，可用
+ *  ④ 本脚本另带两条**不会自己变绿**的腿：`ARTIFACTS`（产物**内容级**判定，挂账态，可用
  *     `--require-fresh-artifacts` 升级为 FAIL）与 `A1-5` 的「无实现者」态 —— 都不许被读成 PASS。
+ *     ⚠ ARTIFACTS 的**主判定已从 mtime 改为内容**（F-04a，2026-09-25）：原腿只比 mtime，
+ *       而 mtime 可被 `cp`（不带 -p）/`touch` 任意伪造 —— 旧产物 cp 回来即报「新鲜」（假绿），
+ *       内容同步却 touch 成旧值即报「过期」（假红）。现把当前 src **重新编译**后与 lib **逐字节**比。
+ *       档位语义**不变**：仍为挂账态，仍可被 `--require-fresh-artifacts` 升级为 FAIL。
  *
  * ⚠ **变异为纯内存注入**（本脚本的一条硬纪律）：
  *   变异时把被测源文件**原文读进内存**、替换锚点、写进临时目录的**克隆副本**再 import
@@ -41,14 +45,17 @@
  *   理由：`packages/vector/**` 是他席写面（且在途改动未提交）⇒ 判据不得为了自证去改它。
  *   取证：变异跑前/跑后 `git status --porcelain packages/vector packages/jev` 逐字相同。
  */
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, relative } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
-import { spawnSync } from 'node:child_process'
+import { execFileSync, spawnSync } from 'node:child_process'
+import { createHash } from 'node:crypto'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const ROOT = join(HERE, '..')
+/** 本脚本自身路径：探针模式**重新起同一份脚本**（同一个实现，不另写探针文件 ⇒ 不会两处漂移）。 */
+const HERE_ENTRY = fileURLToPath(import.meta.url)
 const P = (...p) => join(ROOT, ...p)
 
 /**
@@ -108,7 +115,9 @@ const MUTATES = (() => {
 
 const results = []
 /** state: 'PASS' | 'FAIL' | 'HANG'（挂账：本项无仓内实现可测，或环境性缺口）| 'NONE'（无实现者，见 A1-5） */
-const record = (id, title, state, detail, evidence = '') => results.push({ id, title, state, detail, evidence })
+const record = (id, title, state, detail, evidence = '') =>
+  // ⚠ detail 统一追加取数坐标（F-06）：16 项**每项**都带，避免「有的项带、有的项不带」的漂移。
+  results.push({ id, title, state, detail: withCoord(detail), evidence })
 const pass = (id, t, d, e) => record(id, t, 'PASS', d, e)
 const fail = (id, t, d, e) => record(id, t, 'FAIL', d, e)
 const hang = (id, t, d, e) => record(id, t, 'HANG', d, e)
@@ -196,6 +205,192 @@ if (usageErrorEarly) {
   console.error('（用法错 ⇒ 本次运行不跑判据腿、不产生报告；修正参数后重跑，避免把上一次的全绿当成本次结论）')
   process.exit(2)
 }
+// ── 嵌入可达性探针模式（A1-12 的网络腿：把「不可达」与「可达但超时」分开）─────────
+/**
+ * ⚠ 为什么必须是**子进程**：undici 的 EnvHttpProxyAgent 在进程启动时读环境变量，
+ *   本进程内改 process.env 不会改变已建好的 dispatcher ⇒ 「两态对照」只能靠重新起进程。
+ *   `env -u NODE_USE_ENV_PROXY` 与 `delete env.NODE_USE_ENV_PROXY` 是同一件事。
+ *
+ * 输出：**单行 JSON**（stdout）。判据只读这一行，不解析人话 —— 人话是给人看的。
+ *
+ * ⚠ 本模式**不改任何超时**（F-07a 明确禁止「调大 timeout 当修法」）：
+ *   超时值由调用方传入并**原样打印**，供读报告的人判断「这次红是服务真不可达，还是被拖慢」。
+ */
+if (argv.includes('--embed-reach-probe')) {
+  const getArg = (name, def) => {
+    const i = argv.indexOf(name)
+    return i >= 0 && argv[i + 1] !== undefined ? argv[i + 1] : def
+  }
+  const baseUrl = getArg('--base-url', 'http://127.0.0.1:11434/v1')
+  const timeoutMs = Number(getArg('--timeout-ms', '30000'))
+  const text = getArg('--text', '向量适配判据探针')
+  const connTimeoutMs = Math.min(2000, timeoutMs)
+  const { connect } = await import('node:net')
+  const u = new URL(baseUrl)
+  const host = u.hostname
+  const port = Number(u.port || (u.protocol === 'https:' ? 443 : 80))
+  /** TCP 层可达性：**与嵌入请求分开测** —— 这是把「连不上」与「连上了但慢」分开的唯一实证。 */
+  const connT0 = Date.now()
+  const conn = await new Promise((resolve) => {
+    let settled = false
+    const done = (v) => { if (!settled) { settled = true; resolve(v) } }
+    const sock = connect({ host, port, timeout: connTimeoutMs })
+    sock.once('connect', () => { sock.destroy(); done({ ok: true, kind: 'connected', ms: Date.now() - connT0 }) })
+    sock.once('timeout', () => { sock.destroy(); done({ ok: false, kind: 'timeout', ms: Date.now() - connT0 }) })
+    sock.once('error', (e) => done({ ok: false, kind: String(e.code ?? e.name ?? 'error'), ms: Date.now() - connT0 }))
+  })
+  let embed = { ok: false, degraded: null, ms: null, reason: '(未执行)' }
+  /**
+   * ⚠ **不能只看 embed.ts 的 reason**（本仓 2026-09-25 实测踩到）：
+   *   embed.ts 的 catch 只存 `${error.name}: ${error.message}` ⇒ undici 的包装错
+   *   把真因藏在 **cause 链**里，外面看到的恒为 `TypeError: fetch failed`。
+   *   实测三例（`node -e` 直测）：端口 45999 → cause.message=`ECONNREFUSED`；
+   *   端口 65500 → cause.code=`UND_ERR_CONNECT_TIMEOUT`；端口 1/9 → cause.name=`Error`
+   *   （**连 cause 都没有**，因为 undici 对「低端口」直接以 `bad port` 拒绝，不发起连接）。
+   *   ⇒ 归因改用**独立的** raw fetch 探针读 cause 链；那一路**不经过 embed.ts**，
+   *     但**用的是同一份环境**（同在探针进程内），故「两态」对照的变量仍是干净的。
+   */
+  const causeChain = async (u) => {
+    const parts = []
+    try {
+      await fetch(`${baseUrl}/embeddings`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}', signal: AbortSignal.timeout(timeoutMs) })
+      parts.push('（raw fetch 未抛）')
+    } catch (error) {
+      parts.push(`${error.name}: ${error.message}`)
+      let c = error.cause
+      for (let i = 0; c && i < 5; i++) {
+        parts.push(`${c.code ?? c.name ?? 'cause'}: ${String(c.message ?? '').slice(0, 80)}`)
+        c = c.cause
+      }
+    }
+    void u
+    return parts.join(' <- ')
+  }
+  const rawCause = await causeChain(baseUrl)
+  try {
+    const { embedTexts } = await import(url(join(SRC, 'embed.ts')))
+    const out = await embedTexts({ enabled: true, baseUrl, model: 'bge-m3', dim: 1024, timeoutMs }, [text])
+    embed = { ok: !out.degraded, degraded: out.degraded, ms: out.ms, reason: out.reason, dim: out.vectors?.[0]?.length ?? null }
+  } catch (error) {
+    embed = { ok: false, degraded: null, ms: null, reason: `探针加载/执行失败：${error.message}` }
+  }
+  /**
+   * 归因：**reason 字符串 + cause 链 + TCP 实测**三者合看 —— 只看 reason 会把两类事混成一种红
+   *（F-07a 的原缺陷正是这个）。类别与判据：
+   *   · REFUSED      = 连接被拒（`ECONNREFUSED`）：端口上真没服务；
+   *   · DNS          = 主机名解析不了；
+   *   · TIMEOUT_AFTER_CONNECT = **TCP 已连上**却在 timeoutMs 内没答完 ⇒ 服务在、就是慢；
+   *   · TIMEOUT_BEFORE_CONNECT = TCP 没连上且没拿到明确拒绝 ⇒ 「慢」与「不可达」**不可分辨**；
+   *   · LOWPORT      = undici 以 `bad port` 直接拒绝（**低端口**实测形态，不发起连接）——
+   *                    与「服务不可达」不是一类：那是在**判据刚起步**就被客户端挡下；
+   *   · OTHER / OK。
+   * ⚠ 本仓实测（2026-09-25）：**TCP 对低端口（1/9/80/443/8080）实测 1.5s 静默超时**
+   *   （无监听也不回 RST；只有 4 万以上的高位端口才给 ECONNREFUSED）。故 TCP 腿的 `timeout`
+   *   **不能**读成「不可达」—— 必须如实标注不可分辨，而不是替读者下结论。
+   */
+  const r = String(embed.reason ?? '')
+  const causeText = `${rawCause} ${r}`
+  let kind = 'OK'
+  if (embed.degraded) {
+    if (/bad port/i.test(causeText)) kind = 'LOWPORT'
+    else if (/缺 apiKey|嵌入已禁用|未配置嵌入模型|未配置嵌入端点/.test(r)) kind = 'CONFIG'
+    else if (/ENOTFOUND|EAI_AGAIN|ERR_INVALID_URL/.test(causeText) || /ENOTFOUND|EAI_AGAIN/.test(String(conn.kind))) kind = 'DNS'
+    else if (/ECONNREFUSED/.test(causeText)) kind = 'REFUSED'
+    else if (/TimeoutError|AbortError|ETIMEDOUT|UND_ERR_CONNECT_TIMEOUT|fetch failed/.test(causeText)) kind = conn.ok ? 'TIMEOUT_AFTER_CONNECT' : 'TIMEOUT_BEFORE_CONNECT'
+    else kind = 'OTHER'
+  }
+  const attribution = {
+    OK: `可达（dim=${embed.dim}，嵌入耗时 ${embed.ms}ms，TCP ${conn.ms}ms）`,
+    REFUSED: `**连接被拒**（端口 ${port} 无监听；cause=${causeText}）—— 是服务没在跑，不是被拖慢`,
+    DNS: `**无法解析主机** ${host}（TCP 层 kind=${conn.kind}，${conn.ms}ms；cause=${causeText}）—— 不是超时`,
+    CONFIG: `**配置面失败、请求根本没发出**（${r.slice(0, 120)}）—— 与「服务不可达」「服务慢」都不同类，先看配置`,
+    TIMEOUT_AFTER_CONNECT: `**已连接但超时**（TCP 连接 ${conn.ms}ms 成功 ⇒ 服务在本端口上；嵌入请求在 timeoutMs=${timeoutMs} 内未返回，实测 ${embed.ms}ms）—— 与「服务不可达」不是一类`,
+    TIMEOUT_BEFORE_CONNECT: `**连接阶段超时或不可达**（TCP ${connTimeoutMs}ms 内未建立连接，kind=${conn.kind}；cause=${causeText}）—— 本探针**无法分辨**「服务慢」与「服务不可达」，如实标注`,
+    LOWPORT: `**被客户端按「bad port」挡下**（端口 ${port}；cause=${causeText}）—— 请求**根本没发出**，因此这不是「服务不可达」，也不是「服务慢」`,
+    OTHER: `其他失败（自定义归因缺省；cause=${causeText}）：${r.slice(0, 200)}`,
+  }[kind]
+  const envKeys = ['NODE_USE_ENV_PROXY', 'no_proxy', 'NO_PROXY', 'HTTP_PROXY', 'HTTPS_PROXY']
+  const env = Object.fromEntries(envKeys.map((k) => [k, process.env[k] === undefined ? null : process.env[k]]))
+  console.log(
+    JSON.stringify({
+      phase: 'embed-reach',
+      at: new Date().toISOString(),
+      baseUrl,
+      host,
+      port,
+      timeoutMs,
+      connect: conn,
+      rawCause,
+      embed,
+      kind,
+      attribution,
+      env,
+    }),
+  )
+  process.exit(0)
+}
+// ══ 单实例锁（并发纪律 §1 的机器落点；F-05b，主持人拍板口径 A）════════════════
+//
+// ⚠ 为什么必须「非零退出 + 打印持有者」而不是「静默排队」：并发实例会互相把对方的在途码
+//   读进自己的读数（会议期间 ps 实拍三方并发跑同一 checker ⇒ 同 HEAD 下红绿互异、
+//   _freeze.head 被写→回滚）。排队会把「两个实例同时在跑」变成不可见 —— 那正是要防的形态。
+//
+// ⚠ 锁对象含 `--record-baseline`（本脚本虽无该开关，但**同一台机上 a0 的录基线**与 a1 的判据
+//   也会争抢同一工作树；故锁文件的 `mode` 字段如实标注本次模式，便于读报告的人判断冲突性质）。
+// ⚠ 本闸在**任何判据腿之前**跑失败；退出码 3 = 拿不到锁（与既有 0/1/2 三态不混，见文件头）。
+let lockRelease = null
+/**
+ * `--held-lock <token>`：**父进程已持有 a1 锁**时的「校验型」入口。
+ *
+ * ⚠ 为什么需要它（不是为方便，是为了让**覆盖关系**可机检）：
+ *   a0-check 的 A1 腿会 spawn 本脚本。若子 a1 也去**获取**锁，a0 跑的同时另一个席跑 a1
+ *   就会让 A1 腿报红 —— 而那是**并发冲突**，不是判据挂（本席实拍过这个形态）。
+ *   ⇒ a0 同时持有 a0-lock 与 a1-lock，并把 token 传下来；子 a1 **只校验**：
+ *     锁文件存在、pid 是父进程、token 逐字相等。校验不过一律按「拿不到锁」处理（exit 4）。
+ *   ⚠ 这不是「给子进程开后门」：token 由**当次运行**的 randomUUID 生成，
+ *     外部无法先猜到并伪造；校验失败即退出，不会出现「两个实例都跑起来」。
+ */
+const HELD_LOCK = (() => {
+  const i = argv.indexOf('--held-lock')
+  return i >= 0 ? String(argv[i + 1] ?? '') : null
+})()
+try {
+  const { acquireLock, processStartToken, lockPathFor, lockStatus } = await import('./checker-lock.mjs')
+  const lp = lockPathFor(ROOT, 'a1-check')
+  if (HELD_LOCK !== null) {
+    const st = lockStatus(lp)
+    const h = st.holder ?? {}
+    const okHeld = st.held && h.token === HELD_LOCK && h.pid === process.ppid
+    if (!okHeld) {
+      console.error('✗ --held-lock 校验失败：锁并非由本进程的父进程持有（token/pid 不符）')
+      console.error(`  期望 pid=${process.ppid} token=${HELD_LOCK?.slice(0, 8)}…；锁内 pid=${h.pid ?? '?'} token=${String(h.token ?? '').slice(0, 8)}… 存在=${st.held}`)
+      console.error(`  锁文件：${lp}`)
+      process.exit(4)
+    }
+  } else {
+    lockRelease = acquireLock(lp, {
+      pid: process.pid,
+      startedAt: new Date().toISOString(),
+      commit: (() => { try { return execFileSync('git', ['rev-parse', '--short', 'HEAD'], { cwd: ROOT, encoding: 'utf8' }).trim() } catch { return '?' } })(),
+      argv: process.argv.slice(2).join(' ') || '(无参数)',
+      checker: 'tools/a1-check.mjs',
+      mode: MUTATES.size ? `mutate:${[...MUTATES].join(',')}` : JSON_OUT ? 'judge(--json)' : 'judge',
+      startToken: processStartToken(process.pid),
+    })
+  }
+} catch (error) {
+  if (error.name === 'LockHeldError') {
+    const h = error.holder ?? {}
+    console.error('✗ 另一个 a1-check 实例正在运行 —— 本实例拒绝启动（**不排队**）')
+    console.error(`  持有者：pid=${h.pid} 起始时刻=${h.startedAt} commit=${h.commit} 模式=${h.mode} 参数=${h.argv}`)
+    console.error(`  锁文件：${error.lockPath}`)
+    console.error('  为什么拒绝排队：并发实例会互相把对方的在途码读进读数，判据红绿不可归因（并发纪律 §1）')
+    console.error('  处置：等它跑完，或确认它已死（kill -9 后残留的锁会在下一次运行时被**留痕接管**）')
+    process.exit(4)
+  }
+  throw error
+}
+process.on('exit', () => { try { lockRelease?.release() } catch { /* ignore */ } })
 
 /** 变异生效登记：克隆体**真的**与真源不同才记（锚点未命中 ⇒ 不许当成"变异成功"）。 */
 const mutApplied = new Set()
@@ -249,6 +444,202 @@ async function vecModule(file, mutId) {
   return mod
 }
 
+
+// ══ 产物**内容腿**（F-04a：把 ARTIFACTS 从「比 mtime」升级为「比内容」）══════════
+/**
+ * ⚠ 为什么必须有这一腿（**两个独立席位的隔离对照**实证，不是推测）：
+ *   ARTIFACTS 原腿只比 lib/index.js 与 src 最新文件的 **mtime**。mtime 是**代理指标**，
+ *   cp（不带 -p）/ touch 都能任意摆布它 ⇒ 结构上同时存在两种假象：
+ *     · **假绿**：旧产物 cp 回来（mtime = NOW，比 src 新）⇒ 原腿报「新鲜」，
+ *       而现实里所有「按包名解析到 lib/」的判据都在测**旧实现**；
+ *     · **假红**：内容同步但 mtime 被改成很旧 ⇒ 原腿报「过期」。
+ *   隔离对照（S9 席，/tmp 整仓副本，唯一变量 = lib 内容）：换回旧 lib ⇒
+ *     A1-2 / A1-13 / A1-14 **三项 FAIL**；换回新 lib ⇒ 全 PASS。
+ *   ⇒ 判据必须落在**内容**上：把**当前 src 重新编译一遍**，与 lib 产物**逐字节**比对。
+ *     这是「lib 是不是由当前 src 产出的」的直接证据，**不需要任何缓存/基线文件**——
+ *     落一个指纹文件反而引入「该文件自己会过期」的新一代代理指标（本仓已吃过这个亏）。
+ *
+ * ⚠ 为什么能被判定、且**不会**被 tsc 的无关波动误伤：
+ *   比较对象恒为「**同一份 src 现编出来的产物**」，不是「某个历史指纹」⇒
+ *   注释/空白/时间戳的改动只会在 src 与产物**真的**不同步时才让两者不等；
+ *   tsc 的 emit 是确定性的（本机实测：12 个 tsc 包、42 个 .js 逐个 sha256 相同 ⇒
+ *   与仓内 lib 逐字节相等，见 handoff 的负向对拍记录）。故「不等」只有一个含义：
+ *   **产物不是当前 src 编出来的**（过期，或构建口径不同）。
+ *   ⚠ 不用「按包名 import 后比导出符号」当主判据：导出面对**方法级**改动无感 ——
+ *     本仓的实证恰是 writeInjectLog（packages/core/src/index.ts:271，**服务方法**，
+ *     ManaCoreService 的成员）与 gate 分支，它们不改变任何模块导出名。
+ *     那一路只作辅助信息（导出面差分），主判据是字节比对。
+ *
+ * ⚠ 只读：重编译写进 mkdtemp 临时目录（--outDir 覆盖），**绝不**写仓内 lib。
+ */
+const TS_BIN = P('node_modules/typescript/bin/tsc')
+const HAS_TS = existsSync(TS_BIN)
+/**
+ * 由**真 builder 脚本**产出、而非 tsc 的产物（ui 的单产物契约 A5-5）。
+ * ⚠ 重放必须跑**真脚本本体**（拷进临时目录跑，import.meta.url 相对路径自洽），
+ *   不得在判据器里二次实现那个文本变换 —— 那会造出**两个真源**，改一处漏一处即漂移。
+ */
+const BUILT_BY_SCRIPT = {
+  ui: { out: 'lib/client.js', script: 'scripts/build-client.mjs', inputs: ['src/client/index.ts', 'src/client/host.ts'] },
+}
+/** 递归收集 dir 下指定扩展名的文件，返回**相对 base 的路径**。 */
+function walkFiles(dir, exts, base = dir, out = []) {
+  if (!existsSync(dir)) return out
+  for (const e of readdirSync(dir, { withFileTypes: true })) {
+    const full = join(dir, e.name)
+    if (e.isDirectory()) {
+      if (e.name === 'node_modules' || e.name === 'types') continue
+      walkFiles(full, exts, base, out)
+    } else if (exts.some((x) => e.name.endsWith(x))) out.push(relative(base, full))
+  }
+  return out
+}
+
+/** 每个包的产物判定缓存（同一轮内只算一次：ARTIFACTS 与 W2-5 都取它）。 */
+const artifactVerdicts = new Map()
+/**
+ * 重放「由脚本产出」的那件产物，返回逐字节比对结论。
+ * 跑真脚本（拷到临时目录，相对布局照抄）⇒ 产物出自当前脚本源码，判据不另写一份变换。
+ */
+function replayScriptArtifact(pkg, dir) {
+  const spec = BUILT_BY_SCRIPT[pkg]
+  const tmp = mkdtempSync(join(tmpdir(), 'mana-artb-'))
+  createdDirs.push(tmp)
+  try {
+    const scriptBase = spec.script.split('/').pop()
+    mkdirSync(join(tmp, 'scripts'), { recursive: true })
+    copyFileSync(join(dir, spec.script), join(tmp, 'scripts', scriptBase))
+    for (const inp of spec.inputs) {
+      mkdirSync(dirname(join(tmp, inp)), { recursive: true })
+      copyFileSync(join(dir, inp), join(tmp, inp))
+    }
+    const r = node([join(tmp, 'scripts', scriptBase)], { cwd: tmp })
+    const fresh = join(tmp, spec.out)
+    const actual = join(dir, spec.out)
+    if (!existsSync(fresh)) return { ok: false, why: '重放未产出 ' + spec.out + '（exit=' + r.code + '）：' + (r.err || r.out).slice(0, 160) }
+    if (!existsSync(actual)) return { ok: false, why: 'lib 缺 ' + spec.out }
+    return readFileSync(fresh).equals(readFileSync(actual))
+      ? { ok: true, why: spec.out + ' 复放逐字节一致（' + statSync(actual).size + ' B）' }
+      : { ok: false, why: spec.out + ' 与真 builder 复放结果**不一致**（产物非当前脚本所出）' }
+  } catch (error) {
+    return { ok: false, why: '重放失败：' + error.message }
+  }
+}
+
+/**
+ * 判定一个包的产物是否**真由当前 src 产出**（内容级）。返回：
+ *   { state: 'PASS' | 'FAIL' | 'unknown', identical, differing[], missingInLib[], extraInLib[], unknown, ms, note }
+ * unknown 是**一等状态**：判不了就如实报「未判定」，**不得读成一致**
+ *（本仓纪律：挂账/无实现者都不是 PASS，同源）。
+ */
+function artifactVerdict(pkg) {
+  const cached = artifactVerdicts.get(pkg)
+  if (cached) return cached
+  const dir = P('packages', pkg)
+  const libDir = join(dir, 'lib')
+  const tsconfig = join(dir, 'tsconfig.json')
+  const v = { pkg, state: 'PASS', identical: 0, differing: [], missingInLib: [], extraInLib: [], unknown: '', ms: 0, note: '', files: 0 }
+  artifactVerdicts.set(pkg, v) // 先登记：异常路径也不会被重复计算
+  const t0 = Date.now()
+  if (!HAS_TS) {
+    v.state = 'unknown'
+    v.unknown = '仓内无 node_modules/typescript/bin/tsc ⇒ 内容腿**未判定**（不得读成一致）'
+    return v
+  }
+  if (!existsSync(tsconfig)) {
+    v.state = 'unknown'
+    v.unknown = '无 ' + relative(ROOT, tsconfig) + ' ⇒ 无「重新编译」的可执行口径'
+    return v
+  }
+  const outRoot = mkdtempSync(join(tmpdir(), 'mana-art-'))
+  createdDirs.push(outRoot)
+  // ⚠ --outDir/--declarationDir 只覆盖**本次临时重编译**的输出位置；tsconfig 本体不动，
+  //   故「编译口径」与构建时逐字相同（这正是能逐字节比对的前提）。
+  const r = node([TS_BIN, '-p', tsconfig, '--outDir', outRoot, '--declarationDir', join(outRoot, 'types')])
+  const emitted = walkFiles(outRoot, ['.js'], outRoot)
+  v.ms = Date.now() - t0
+  if (!emitted.length) {
+    v.state = 'unknown'
+    v.unknown = 'tsc 未产出任何 .js（exit=' + r.code + '）：' + String((r.err || r.out) || '').trim().split('\n').slice(0, 2).join(' / ').slice(0, 200)
+    return v
+  }
+  for (const rel of emitted) {
+    const libFile = join(libDir, rel)
+    if (!existsSync(libFile)) {
+      v.missingInLib.push(rel)
+      continue
+    }
+    if (readFileSync(libFile).equals(readFileSync(join(outRoot, rel)))) v.identical += 1
+    else v.differing.push(rel)
+  }
+  // 反向：lib 里存在、而当前 src 已编不出来的 .js（src 删了/改名了，产物没清）
+  const scriptOuts = new Set(BUILT_BY_SCRIPT[pkg] ? [BUILT_BY_SCRIPT[pkg].out] : [])
+  const emittedSet = new Set(emitted)
+  for (const rel of walkFiles(libDir, ['.js'], libDir)) {
+    if (scriptOuts.has(join('lib', rel)) || emittedSet.has(rel)) continue
+    v.extraInLib.push(rel)
+  }
+  // 由脚本产出的那件（ui client）：跑真脚本重放后逐字节比
+  if (BUILT_BY_SCRIPT[pkg]) {
+    const rep = replayScriptArtifact(pkg, dir)
+    if (rep.ok) v.identical += 1
+    else {
+      v.differing.push(BUILT_BY_SCRIPT[pkg].out)
+      v.note = rep.why
+    }
+  }
+  if (v.differing.length || v.missingInLib.length || v.extraInLib.length) v.state = 'FAIL'
+  v.files = v.identical + v.differing.length + v.missingInLib.length
+  return v
+}
+
+/** 内容腿的人类可读摘要（ARTIFACTS 与 W2-5 共用同一实现，避免两处口径漂移）。 */
+function contentBad(v) {
+  if (v.state === 'unknown') return '未判定（' + v.unknown + '）'
+  return [
+    v.differing.length ? '与重编译产物不一致：' + v.differing.join(', ') : '',
+    v.missingInLib.length ? 'lib 缺产物：' + v.missingInLib.join(', ') : '',
+    v.extraInLib.length ? 'lib 多出当前 src 编不出的产物：' + v.extraInLib.join(', ') : '',
+    v.note,
+  ]
+    .filter(Boolean)
+    .join('；')
+}
+
+/**
+ * 取数坐标（并发纪律 §3 的机器落点；F-06）——**每条 detail 都要带**。
+ *
+ * ⚠ 为什么：会议期间 **HEAD 移动 3 次**、本脚本项数 15→16，而该变化**不是机器报警发现的，
+ *   是人工比对发现的**。同一工作树 30 分钟内 A0 全量可翻转 ⇒ 没有 commit + checker 指纹的
+ *   读数**无法复现也无法归因**。四元组 = commit / checker-md5 / 关键环境变量 / 时刻。
+ */
+const COORD = (() => {
+  const md5 = (p) => {
+    try { return createHash('md5').update(readFileSync(p)).digest('hex') } catch { return '?' }
+  }
+  const envKeys = ['NODE_USE_ENV_PROXY', 'no_proxy', 'NO_PROXY', 'HTTP_PROXY', 'HTTPS_PROXY']
+  return {
+    commit: (() => { try { return execFileSync('git', ['rev-parse', '--short', 'HEAD'], { cwd: ROOT, encoding: 'utf8' }).trim() } catch { return '?' } })(),
+    /** checker 自身 md5（含它依赖的锁模块）—— 判据器改了而报告不变，是同一类不可归因。 */
+    checkers: Object.fromEntries(
+      ['tools/a1-check.mjs', 'tools/a0-check.mjs', 'tools/checker-lock.mjs'].map((f) => [f, md5(P(f))]),
+    ),
+    node: process.version,
+    env: Object.fromEntries(envKeys.map((k) => [k, process.env[k] === undefined ? null : process.env[k]])),
+    at: new Date().toISOString(),
+  }
+})()
+/** 给任何 detail 追加取数坐标（统一一处实现，避免各处格式漂移）。 */
+const withCoord = (detail) =>
+  `${detail}｜取数坐标 commit=${COORD.commit} checker-md5=${COORD.checkers['tools/a1-check.mjs']?.slice(0, 12)} ` +
+  `node=${COORD.node} NODE_USE_ENV_PROXY=${COORD.env.NODE_USE_ENV_PROXY ?? '(未设)'} at=${COORD.at}`
+
+/**
+ * ⚠ **stdout 必须只承载结论**（F-06 的硬要求，实测踩到）：
+ *   Node 22 的 undici 会在进程启动/退出时往 **stderr** 打 `[UNDICI-EHPA] Warning: ...`；
+ *   本脚本会 spawn 子进程 ⇒ 那些告警会出现在子进程 stderr 里。处置：
+ *   **stdout 只留 JSON**，人读输出一律走 `if (!JSON_OUT)` 分支，子进程 stderr 不转发到 stdout。
+ */
 const EPS = 1e-6
 const near = (got, want, eps = EPS) => Math.abs(got - want) <= eps
 const fixed = (x, n = 6) => Number(x).toFixed(n)
@@ -417,11 +808,42 @@ const fixed = (x, n = 6) => Number(x).toFixed(n)
     if (!assertDim(null, 1024)) bad.push('null 输入未给原因')
     if (!assertDim(Float32Array.from([1, NaN]), 2)) bad.push('含 NaN 未给原因')
 
-    // 真机面（本机 Ollama bge-m3）：不可达即红，不静默跳过
+    // ══ 真机面（本机 Ollama bge-m3）：**两态可分辨**（F-07a）══════════════════
+    /**
+     * ⚠ 上一版把两类完全不同的事**混成同一种红**（实测形态）：
+     *   ① 本地服务真的不可达（连接被拒 / 解析不了）；
+     *   ② 服务可达但**被环境拖慢到超时**。
+     *   两者原先都走 `probe.degraded` 一条 `bad.push`，report 上只有一句「Ollama 必须可达」
+     *   ⇒ 读报告的人**无法判断该去查服务还是查环境**。
+     *
+     * 现改为：**A 腿（主判定，同进程）**判「能不能真取到 1024 维向量」；
+     *   **B 腿（归因与留档，子进程探针）**给出 TCP 层实测 + 归因类别 + 两态读数。
+     * ⚠ 超时值**原样记录**、**不得调大当修法**（判据表 F-07a 明禁）：本处与探针都用 30000，
+     *   与 packages/vector/src/embed.ts 的本地缺省一致 —— 改它就是把测量条件改掉。
+     */
     const cfg = { enabled: true, baseUrl: OLLAMA, model: 'bge-m3', dim: 1024, timeoutMs: 30000 }
     const probe = await embedTexts(cfg, ['向量适配判据探针'])
-    if (probe.degraded) bad.push(`本机 Ollama 必须可达（测量条件）：${probe.reason}`)
-    else {
+    /** 跑一次子进程探针（两态：原样 env / 去掉 NODE_USE_ENV_PROXY）。NaN = 探针没跑成。 */
+    const reachProbe = (extraEnv) => {
+      const r = node([HERE_ENTRY, '--embed-reach-probe', '--base-url', OLLAMA, '--timeout-ms', '30000'], extraEnv ? { env: extraEnv } : {})
+      try {
+        return JSON.parse((r.out ?? '').trim().split('\n').pop())
+      } catch {
+        return { kind: 'PROBE_FAILED', attribution: `探针输出不可解析（exit=${r.code}）：${((r.err || r.out) || '').slice(0, 200)}` }
+      }
+    }
+    const envDefault = reachProbe(null)
+    const envNoProxy = reachProbe({ ...process.env, NODE_USE_ENV_PROXY: undefined })
+    const bothStates =
+      `两态留档：默认态=${envDefault.kind}（TCP ${envDefault.connect?.ms ?? '?'}ms / 嵌入 ${envDefault.embed?.ms ?? '?'}ms）· ` +
+      `env -u NODE_USE_ENV_PROXY=${envNoProxy.kind}（TCP ${envNoProxy.connect?.ms ?? '?'}ms / 嵌入 ${envNoProxy.embed?.ms ?? '?'}ms）`
+    if (probe.degraded) {
+      // ⚠ 报错文本必须**点名延迟来源**（归因由子进程探针的 TCP 实测给出），且**带实测耗时**。
+      bad.push(
+        `本机 Ollama 不可达/未按期应答（测量条件）—— 归因=${envDefault.kind}：${envDefault.attribution}｜` +
+          `实测：嵌入 ${probe.ms}ms（timeoutMs=${cfg.timeoutMs}）、TCP ${envDefault.connect?.ms ?? '?'}ms｜原始 reason：${probe.reason}｜${bothStates}`,
+      )
+    } else {
       if (probe.vectors.length !== 1) bad.push(`vectors.length=${probe.vectors.length}（应 1）`)
       else if (probe.vectors[0].length !== 1024) bad.push(`dim=${probe.vectors[0].length}（应 1024）`)
       const again = await embedTexts(cfg, ['向量适配判据探针'])
@@ -440,7 +862,7 @@ const fixed = (x, n = 6) => Number(x).toFixed(n)
         `[B 档 只作测量条件说明] 同文 cos=${fixed(simSame)} · 改写句 cos=${fixed(simOther)} · 无关句 cos=${fixed(simUnrelated)} · ` +
         `改写−无关=${fixed(simOther - simUnrelated)} · ⚠ 判据表第二条腿「改写−无关 ≥ 0.2」**未验证**（仓内无标定夹具；两个探针句由本脚本自拟）· ` +
         `耗时 ${probe.ms}/${again.ms}/${other.ms}/${unrelated.ms}ms`
-      const detail = `纯函数面 4/4 · 真机 dim=${probe.vectors[0].length} · ${bNote}`
+      const detail = `纯函数面 4/4 · 真机 dim=${probe.vectors[0].length} · ${bothStates} · ${bNote}`
       if (bad.length) fail(id, title, `不符：${bad.join('；')}`, '回嵌入适配步骤（packages/vector/src/embed.ts / adapt.ts）')
       else pass(id, title, detail, '判据表 docs/mana-rollout-plan.md:462；阈值分档见 docs/contract/threshold-discipline.md')
     }
@@ -494,7 +916,12 @@ const fixed = (x, n = 6) => Number(x).toFixed(n)
       }
     }
     if (fresh === false) bad.push(`${pkg}: lib/index.js 早于 src ⇒ 解析到的是过期产物`)
-    lines.push(`${pkg} → ${resolved} [${keys.join(',')}]${fresh === false ? ' ⚠过期' : ''}`)
+    // 内容腿（见文件上部 artifactVerdict 的注释）：mtime 是代理指标，可被 cp/touch 伪造 ⇒
+    // 「新鲜」不等于「产物出自当前 src」。只作**附加**证据，不改变本项的既有判定面。
+    const cv = artifactVerdict(dir)
+    if (cv.state === 'FAIL') bad.push(`${pkg}: 内容腿红 —— ${contentBad(cv)}`)
+    const cNote = cv.state === 'PASS' ? '内容=✓' : cv.state === 'unknown' ? '内容=未判定' : '内容=✗'
+    lines.push(`${pkg} → ${resolved} [${keys.join(',')}] mtime=${fresh === false ? '⚠过期' : '✓'} ${cNote}${cv.state === 'FAIL' ? ' ⚠' + contentBad(cv) : ''}`)
   }
   if (bad.length) fail(id, title, `不符：${bad.join('；')}｜${lines.join(' | ')}`, '回构建步骤（npm run build --workspace dsh-mana-<pkg>）')
   else pass(id, title, lines.join(' | '), '判据表 docs/session-allocation.md W2-5；「文件在长」不算通过 —— 断言到导出符号与产物新鲜度')
@@ -698,6 +1125,11 @@ function runCases(file, cases) {
   const title = '全仓 lib 产物新鲜度（过期产物会让「按包名解析」的判据测到旧代码）'
   const stale = []
   const missing = []
+  const contentFail = []
+  const contentUnknown = []
+  const contentOk = []
+  let contentMs = 0
+  let contentFiles = 0
   for (const pkg of readdirSync(P('packages'))) {
     const srcDir = P('packages', pkg, 'src')
     const libEntry = P('packages', pkg, 'lib')
@@ -716,20 +1148,40 @@ function runCases(file, cases) {
         `packages/${pkg}（src ${new Date(maxSrc).toISOString().slice(11, 19)} → lib ${new Date(statSync(join(libEntry, 'index.js')).mtimeMs).toISOString().slice(11, 19)}）`,
       )
     }
+    /**
+     * ⚠ **主判定是内容腿，不是上面那条 mtime 腿**（F-04a，本仓「代理指标非判据」的落点）：
+     *   mtime 腿保留为**快速提示**（它便宜、能在报告里直读时刻），但它**无牙** ——
+     *   `cp`（不带 -p）把旧产物换回来会让 mtime = NOW ⇒ mtime 腿报「新鲜」而现实是旧实现。
+     *   内容腿把当前 src **重新编译**一遍再逐字节比 ⇒ 伪造 mtime 不再能改变结论。
+     */
+    const cv = artifactVerdict(pkg)
+    contentMs += cv.ms
+    contentFiles += cv.files
+    if (cv.state === 'FAIL') contentFail.push(`packages/${pkg}：${contentBad(cv)}`)
+    else if (cv.state === 'unknown') contentUnknown.push(`packages/${pkg}：${contentBad(cv)}`)
+    else contentOk.push(pkg)
   }
   const parts = []
   if (missing.length) parts.push(`无产物：${missing.join(', ')}`)
-  if (stale.length) parts.push(`过期：${stale.join(' · ')}`)
-  if (!parts.length) pass(id, title, '13 包逐个比 src/lib 最新 mtime：无过期、无缺产物', '')
+  if (stale.length) parts.push(`mtime 腿报过期：${stale.join(' · ')}`)
+  if (contentFail.length) parts.push(`内容腿红：${contentFail.join(' · ')}`)
+  if (contentUnknown.length) parts.push(`内容腿未判定（**不是一致**）：${contentUnknown.join(' · ')}`)
+  const contentSummary =
+    `内容腿：${contentOk.length}/13 包逐字节一致（${contentFiles} 个产物文件；重编 ${contentMs}ms，仓内 lib 零写入）` +
+    (contentFail.length ? `｜**${contentFail.length} 包不一致**` : '')
+  if (!parts.length) pass(id, title, `${contentSummary}；mtime 腿同为新鲜（无过期、无缺产物）`, '')
   else {
     /**
      * ⚠ **文案与标题必须同义**（本仓 2026-09-25 实测的自相矛盾）：
      *   此前的 detail 写「过期产物**不改变任何判据的绿**」，而标题同一行写着
      *   「过期产物**会让**「按包名解析」的判据测到旧代码」—— 读者相信哪一句取决于读到哪。
-     *   两句话各对一半，合成一个假象：**必须说准"什么变、什么不变"**：
+     *   两句话各对一半，合成一个假象：**必须说准「什么变、什么不变」**，且**按内容腿的
+     *   实际状态**说（F-04a 之后主判定是内容腿，不是那条会被 cp/touch 摆布的 mtime 腿）：
      *     · **不变**：本报告自己的绿/红（本项是挂账态，判据腿照旧跑、照旧判）；
-     *     · **变**：**按包名解析到 `lib/` 的那些判据**测的是旧实现 ⇒ 它们的绿不再证明"真源正确"。
-     *   故下面**点名受影响 id**，而不是留一句含糊的"都会吃到旧实现"。
+     *     · **变**：**按包名解析到 `lib/` 的那些判据**测的是旧实现 ⇒ 它们的绿不再证明「真源正确」。
+     *     · **内容腿绿而 mtime 腿报旧**：那是 **mtime 的假红** —— 不得据此说「产物过期」
+     *       （内容层证据强于 mtime；这正是把主判定改成内容的原因）。
+     *   故下面**点名受影响 id**，而不是留一句含糊的「都会吃到旧实现」。
      *
      * 受影响面由 S7 席本轮按**静态解析路径**逐批复核（不是引用他席结论）：
      *   · chain-e2e / injection-gate / assembly / ui 装配腿：`ctx.loader.create({name})` +
@@ -741,13 +1193,16 @@ function runCases(file, cases) {
      * ⚠ 本段**不得出现星号加斜杠**的字符组合（哪怕在注释里）：它会提前终止块注释、
      *   把后面的释义变成代码（本轮实测踩到，`ReferenceError: src is not defined`）。
      */
-    const detail =
-      `${parts.join('；')}｜⚠ 后果要说准：过期产物**不改变本报告的绿/红**（本项是挂账态，判据腿照旧），` +
-      `但**会让"按包名解析到 lib/"的判据测到旧实现** —— 那时它们的绿不构成"真源正确"的证据。` +
-      `受影响（解析型：按包名 → package.json main → lib/index.js）：A1-1 / A1-2 / A1-6 / A1-13 / A1-14 / P5-UI / W2-5，` +
-      `外加仓外 tools/r0-assembly-check.mjs（13 包装配面）；` +
-      `不受影响（白盒型：直 import packages/*/src/*.ts）：A1-4 / A1-8 / A1-9 / A1-10 / A1-11 / A1-12；` +
-      `A1-5 = NONE（无实现者，**不是 PASS**）、W-1..3 与 lib 无关（判的是 sqlite-vec 扩展语义）。`
+    const affectedNote =
+      '解析型受影响面：A1-1 / A1-2 / A1-6 / A1-13 / A1-14 / P5-UI / W2-5 + 仓外 tools/r0-assembly-check.mjs；' +
+      '白盒型（直 import packages/*/src/*.ts）不受影响：A1-4 / A1-8 / A1-9 / A1-10 / A1-11 / A1-12；' +
+      'A1-5 = NONE（无实现者，**不是 PASS**）、W-1..3 与 lib 无关'
+    const consequence = contentFail.length
+      ? '内容腿红 = 产物**不是当前 src 编出来的**（不是「旧」这种代理读数，是字节不等）⇒ 那时按包名解析到 lib/ 的判据测的是旧实现、它们的绿不构成「真源正确」的证据。' + affectedNote
+      : contentUnknown.length
+        ? '内容腿**未判定** ⇒ 「产物是否出自当前 src」**未知**（不得读成一致；逐包原因见上）。' + affectedNote
+        : '内容腿全一致 ⇒ 产物确由当前 src 产出；上面 mtime 腿报的「过期」是 **mtime 的假红**（mtime 是代理指标，内容层证据更强），本轮**不存在**产物过期这回事。' + affectedNote
+    const detail = `${contentSummary}｜${parts.join('；')}｜⚠ 后果要说准：本项**仍是挂账态**（档位语义不变，判据腿照旧）—— ${consequence}`
     const evidence =
       '挂账≠通过：本项不改判任何绿，但**必须有人看** —— 受影响面清单由 S7 席按**静态解析路径**逐批复核' +
       '（chain-e2e / injection-gate / assembly 装配腿用 ctx.loader.create(baseUrl) 按包名加载；' +
@@ -834,6 +1289,7 @@ if (JSON_OUT) {
     JSON.stringify(
       {
         at: new Date().toISOString(),
+        coord: COORD,
         mutates: [...MUTATES],
         itemSet: { expected: EXPECTED_IDS, actual: ids, ok: itemSetOk, problems: itemSetProblems },
         mutationSelfCheck: { ok: !harnessFail, problems: selfCheck },

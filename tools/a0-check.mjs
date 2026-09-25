@@ -19,7 +19,7 @@
  *  · **退出码语义表（三态，互不可混）**：
  *      `0` = 16 项判据无 FAIL（可含挂账）**且**（若带 `--record-baseline`）基线记录成功；
  *      `1` = 有判据 FAIL（无论基线记录成功与否 —— 判据结果不被记录动作掩盖）；
- *      `2` = 判据无 FAIL，但 `--record-baseline` **记录失败**（= 基线仍是旧值或缺失）。
+ *      `3` = **另一个 a0-check 实例正在运行**（单实例锁，并发纪律 §1）—— 本实例**不排队**、
  *    ⚠ 记录失败**不混进那 16 项**：一旦混进去，「判据绿但基线没记」与「判据真红」
  *      就不可分辨了 —— 那是另一种不可观测。两者必须能分开读（见文件末 `[baseline status]`）。
  *  · 「挂账」是**一等状态**，不等于通过（G14 挂账到阶段 1）。
@@ -31,6 +31,7 @@
  *   纪律见 `docs/contract/concurrency-discipline.md` §6：改 checker 须写明期望项数变化。
  */
 import { execFileSync } from 'node:child_process'
+
 import { appendFileSync, existsSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
@@ -58,6 +59,7 @@ const EXPECT = (() => {
   return out.filter(Boolean)
 })()
 /** `--accept-dirty "<理由>"`：允许在**脏树**上记录（收工录本批最终态用）。理由为空即拒绝 —— 空理由等于静默绕过。 */
+const RECORD_MODE_ARG = argv.includes('--record-baseline')
 const ACCEPT_DIRTY = argv.includes('--accept-dirty')
 const ACCEPT_DIRTY_REASON = (() => {
   const i = argv.indexOf('--accept-dirty')
@@ -67,7 +69,8 @@ const ACCEPT_DIRTY_REASON = (() => {
 const results = []
 /** 记一条判据结果。state: 'PASS' | 'FAIL' | 'HANG'（挂账） */
 function record(id, title, state, detail, evidence = '') {
-  results.push({ id, title, state, detail, evidence })
+  // ⚠ detail 统一追加取数坐标（F-06）：16 项**每项**都带，避免「有的项带、有的项不带」的漂移。
+  results.push({ id, title, state, detail: withCoord(detail), evidence })
 }
 const pass = (id, t, d, e) => record(id, t, 'PASS', d, e)
 const fail = (id, t, d, e) => record(id, t, 'FAIL', d, e)
@@ -101,6 +104,90 @@ function evalJson(scriptPath) {
 }
 const want = (id) => !ONLY || ONLY.has(id)
 
+// ══ 单实例锁（并发纪律 §1 的机器落点；F-05b，主持人拍板口径 A）════════════════
+//
+// ⚠ 为什么必须「非零退出 + 打印持有者」而不是「静默排队」：并发实例会互相把对方的在途码
+//   读进自己的读数（会议期间 ps 实拍三方并发跑同一 checker ⇒ 同 HEAD 下红绿互异、
+//   _freeze.head 被写→回滚）。排队会把「两个实例同时在跑」变成不可见 —— 那正是要防的形态。
+//
+// ⚠ 锁对象含 `--record-baseline`：判据跑与录基线**互斥**（口径 A 的明确要求）。
+// ⚠ 本闸在**任何判据腿之前**跑失败，避免把「拿不到锁」拖到最后才说。
+// ⚠ 退出码语义**不变**（0/1/2 三态见文件头）；拿不到锁走 **3**（新形态，与既有三态不混）。
+let lockRelease = null
+/**
+ * ⚠ **a0 两把锁一起拿**（本席实测踩到的一个真交互，不是想当然）：
+ *   a0-check 的 A1 腿会 **spawn 一个 a1-check**（见下面 `if (want('A1'))` 段）。
+ *   若 a0 只锁自己，跑 a0 的同时另一个席跑 a1 ⇒ 子进程 a1 拿不到锁、
+ *   A1 腿**报红**，而 a0 自己会打印「可含挂账」之类别的字样 —— 读者会把
+ *   「有人并发跑 a1」误读成「A1 判据真的挂了」（本席实拍：第一次对拍 D 正是这个形态）。
+ *   ⇒ a0 必须**同时**持有 a0-lock 与 a1-lock；它 spawn 的子 a1 通过 `--held-lock <token>`
+ *     证明「锁是父进程持有的」，从而**只校验、不重复获取**（见 a1 的锁段）。
+ *   顺序固定（先 a0 后 a1）以避免两个方向各拿一把造成死锁；拿不到第二把则回退释放第一把。
+ */
+const LOCK_TOKEN = randomUUID()
+try {
+  const { acquireLock, processStartToken, lockPathFor } = await import('./checker-lock.mjs')
+  const meta = {
+    pid: process.pid,
+    startedAt: new Date().toISOString(),
+    commit: (() => { try { return execFileSync('git', ['rev-parse', '--short', 'HEAD'], { cwd: ROOT, encoding: 'utf8' }).trim() } catch { return '?' } })(),
+    argv: process.argv.slice(2).join(' ') || '(无参数)',
+    checker: 'tools/a0-check.mjs',
+    mode: RECORD_MODE_ARG ? 'record-baseline' : 'judge',
+    startToken: processStartToken(process.pid),
+  }
+  const l0 = acquireLock(lockPathFor(ROOT, 'a0-check'), meta)
+  let l1 = null
+  try {
+    l1 = acquireLock(lockPathFor(ROOT, 'a1-check'), { ...meta, checker: 'tools/a0-check.mjs(A1 腿)', token: LOCK_TOKEN })
+  } catch (error) {
+    l0.release()
+    throw error
+  }
+  lockRelease = { release() { try { l1.release() } catch { /* ignore */ } try { l0.release() } catch { /* ignore */ } } }
+} catch (error) {
+  if (error.name === 'LockHeldError') {
+    const h = error.holder ?? {}
+    const who = String(h.checker ?? '').includes('a0') ? 'a0-check' : 'a1-check'
+    console.error(`✗ 另一个 ${who} 实例正在运行 —— 本实例拒绝启动（**不排队**）`)
+    console.error(`  持有者：pid=${h.pid} 起始时刻=${h.startedAt} commit=${h.commit} 模式=${h.mode} 参数=${h.argv}`)
+    console.error(`  锁文件：${error.lockPath}`)
+    console.error('  为什么拒绝排队：并发实例会互相把对方的在途码读进读数，判据红绿不可归因（并发纪律 §1）')
+    console.error('  处置：等它跑完，或确认它已死（kill -9 后残留的锁会在下一次运行时被**留痕接管**）')
+    process.exit(3)
+  }
+  throw error
+}
+// 正常路径与异常路径都要释放锁（否则一次崩溃会把后续全部挡死 —— 虽有接管兜底，也应及时释放）
+process.on('exit', () => { try { lockRelease?.release() } catch { /* ignore */ } })
+
+
+// ══ 取数三元组（并发纪律 §3 的机器落点；F-06）══════════════════════════════════
+//
+// ⚠ 为什么每条 detail 都要带它：会议期间 **HEAD 移动 3 次**、a1-check 项数 15→16，
+//   而该变化**不是机器报警发现的，是人工比对发现的**。同一工作树 30 分钟内 A0 全量可翻转 ⇒
+//   没有 commit + checker 指纹的读数**无法复现也无法归因**。
+// 四元组：commit / checker-md5 / 关键环境变量 / 时刻（缺任一项即「浮动读数」）。
+const COORD = (() => {
+  const md5 = (p) => {
+    try { return createHash('md5').update(readFileSync(p)).digest('hex') } catch { return '?' }
+  }
+  const envKeys = ['NODE_USE_ENV_PROXY', 'no_proxy', 'NO_PROXY', 'HTTP_PROXY', 'HTTPS_PROXY']
+  return {
+    commit: (() => { try { return execFileSync('git', ['rev-parse', '--short', 'HEAD'], { cwd: ROOT, encoding: 'utf8' }).trim() } catch { return '?' } })(),
+    /** checker 自身的 md5（含本文件与它依赖的锁模块）—— 判据器改了而报告不变，是同一类不可归因。 */
+    checkers: Object.fromEntries(
+      ['tools/a0-check.mjs', 'tools/a1-check.mjs', 'tools/checker-lock.mjs'].map((f) => [f, md5(P(f))]),
+    ),
+    node: process.version,
+    env: Object.fromEntries(envKeys.map((k) => [k, process.env[k] === undefined ? null : process.env[k]])),
+    at: new Date().toISOString(),
+  }
+})()
+/** 给任何 detail 追加取数坐标（统一一处实现，避免各处格式漂移）。 */
+const withCoord = (detail) =>
+  `${detail}｜取数坐标 commit=${COORD.commit} checker-md5=${COORD.checkers['tools/a0-check.mjs']?.slice(0, 12)} ` +
+  `node=${COORD.node} NODE_USE_ENV_PROXY=${COORD.env.NODE_USE_ENV_PROXY ?? '(未设)'} at=${COORD.at}`
 // ══ 共享小工具：单仓 git 探针 / 磁盘指纹 / 三件套路径 ═══════════════════════════
 //
 // ⚠ A0-10 与 A0-12 共用「同一时刻的同一取数面」——两处各写一份会立刻漂移，
@@ -854,7 +941,8 @@ if (want('A0-14')) {
 //   ⇒ 改为**从 a1-check 输出里读它自己声明的期望项数**，交叉核对三方一致（报告/声明/实测）；
 //     a0 不另存一份清单。
 if (want('A1')) {
-  const r = node([P('tools/a1-check.mjs')])
+  // ⚠ 把 a0 持有的 a1 锁 token 传给子进程：子 a1 只**校验**、不重复获取（见 a0 锁段的长注释）
+  const r = node([P('tools/a1-check.mjs'), '--held-lock', LOCK_TOKEN])
   const out = r.out ?? ''
   const gate = /✓ 判据腿：无 FAIL/.test(out) && /✓ 项集腿：期望 == 实测/.test(out)
   const countM = /共 (\d+) 项：PASS/.exec(out)
@@ -877,7 +965,10 @@ if (want('A1')) {
     fail(
       'A1',
       'A1 判据入口（a1-check 已进自动门链）',
-      `ok=${r.ok} 门判定两腿=${gate} 报告项数=${countM?.[1] ?? '?'} / 声明=${Number.isFinite(declared) ? declared : '?'} / 实测=${Number.isFinite(measured) ? measured : '?'}｜${tail.slice(0, 300)}`,
+      (r.code === 4
+        ? '⚠ **未能判定**：子进程 a1-check 因**单实例锁被占**（exit=4）未运行 ⇒ 这不是判据 FAIL，是并发冲突（读法见 stderr）。' +
+          `持有者信息见子进程 stderr｜${tail.slice(0, 240)}`
+        : `ok=${r.ok} 门判定两腿=${gate} 报告项数=${countM?.[1] ?? '?'} / 声明=${Number.isFinite(declared) ? declared : '?'} / 实测=${Number.isFinite(measured) ? measured : '?'}｜${tail.slice(0, 300)}`),
       '回 tools/a1-check.mjs；若项集腿红 ⇒ 判据块被删或期望集未同步',
     )
   }
@@ -901,7 +992,8 @@ const order = { FAIL: 0, HANG: 1, PASS: 2 }
 results.sort((a, b) => order[a.state] - order[b.state] || a.id.localeCompare(b.id))
 
 if (JSON_OUT) {
-  console.log(JSON.stringify({ at: new Date().toISOString(), results }, null, 2))
+  // ⚠ 顶层也带坐标：只读 results 的人能逐项归因，顶层给一个『这份报告是什么时候/在哪个 commit 下出的』
+  console.log(JSON.stringify({ at: new Date().toISOString(), coord: COORD, results }, null, 2))
 } else {
   const n = { PASS: 0, FAIL: 0, HANG: 0 }
   for (const r of results) n[r.state] += 1
