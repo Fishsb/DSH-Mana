@@ -735,6 +735,54 @@ if (want('A0-12')) {
       }
     }
     const anchorOk = !ledgerBad && anchorBadAt === null
+
+    // ── 新腿 ④：锚点跃迁腿（让「提交面」的看守**跨记录存活**）──────────────────
+    //
+    // 为什么需要它（本批实测发现的漏洞）：A0-10 的越界腿用**当前**基线锚点枚举提交区间
+    //   ⇒ 「记录 → 提交 → **再记录**」这个顺序会把提交面的证据洗掉：重新记录后锚点前移到
+    //   提交之后，区间变成空集，越界腿只看得见脏面。而流水是 append-only 的 ⇒
+    //   相邻两条 record 的 head 之间**恰恰就是那批提交**，拿前一条声明的写面（`expect`）去比，
+    //   证据就永久留在流水里，**不因后续重取基线而消失**。
+    // ⚠ 与锚点腿互补：锚点腿判「顺序合法」，本腿判「区间内容合规」。
+    const recordEntries = ledger.entries.filter((e) => e.kind === 'record')
+    const leaps = []
+    for (let i = 1; i < recordEntries.length; i += 1) {
+      const prev = recordEntries[i - 1]
+      const cur = recordEntries[i]
+      // ⚠ 旧条目（本批加 `expect` 字段之前写入的）没有该字段 —— 回退用它同时写的
+      //   `reason`（= `EXPECT.join(',')`，内容相同）。**不回填历史条目**：流水是 append-only，
+      //   改写已落盘的历史就毁了它作为证据的价值。回退状态在明细里**显式标注**，不静默。
+      const legacyFace = typeof prev.reason === 'string' && prev.reason.trim() ? prev.reason.split(',').map((s) => s.trim()).filter(Boolean) : []
+      const face = Array.isArray(prev.expect) ? prev.expect : legacyFace
+      const faceSource = Array.isArray(prev.expect) ? 'expect' : legacyFace.length ? 'reason（旧条目回退）' : '缺失'
+      if (!prev.head || !cur.head) continue
+      let files = null
+      try {
+        files = execFileSync('git', ['diff', '--name-only', `${prev.head}..${cur.head}`], {
+          cwd: ROOT,
+          encoding: 'utf8',
+          stdio: ['ignore', 'pipe', 'pipe'],
+        })
+          .split('\n')
+          .map((l) => l.trim())
+          .filter(Boolean)
+          .filter((p) => !FREEZE_OWN.includes(p))
+      } catch {
+        leaps.push({ from: String(prev.head).slice(0, 7), to: String(cur.head).slice(0, 7), note: '区间不可枚举（锚点已被抛弃）' })
+        continue
+      }
+      const out = face.length ? files.filter((p) => !face.some((pre) => p.startsWith(pre))) : files
+      if (files.length) leaps.push({ from: String(prev.head).slice(0, 7), to: String(cur.head).slice(0, 7), files, out, face, faceSource })
+    }
+    const leapBad = leaps.filter((l) => (l.note ? true : l.out.length > 0))
+    const leapOk = leapBad.length === 0
+    const leapDetail = !leaps.length
+      ? '无跨记录提交区间可核（≤1 条 record）'
+      : leapOk
+        ? `${leaps.length} 段区间全部 ⊆ 各段声明写面（共 ${leaps.reduce((s, l) => s + l.files.length, 0)} 件提交；写面来源：${[...new Set(leaps.map((l) => l.faceSource))].join('/')}）`
+        : `${leapBad.length} 段越界：${leapBad
+            .map((l) => (l.note ? `${l.from}→${l.to} ${l.note}` : `${l.from}→${l.to} 越界 ${JSON.stringify(l.out.slice(0, 4))}（声明写面 ${JSON.stringify(l.face)}，来源 ${l.faceSource}）`))
+            .join('；')}`
     const anchorDetail = anchorBadAt
       ? `锚点**回退**（${anchorBadAt}）⇒ 有人记录过更早的 HEAD`
       : anchors.length >= 2
@@ -746,11 +794,11 @@ if (want('A0-12')) {
       `清单腿=${listOk ? `一致（${canonList.length} 件）` : `漂移：多 ${hashOnlyAdd.length}/少 ${hashOnlyDel.length} 件`}` +
       `${listOk ? '' : ` ⇒ 多=${JSON.stringify(hashOnlyAdd.slice(0, 3))} 少=${JSON.stringify(hashOnlyDel.slice(0, 3))}`}；` +
       `HEAD 腿=${headOk ? `快照锚点仍是祖先（存 ${String(storedHead).slice(0, 7)} ⊑ 现 ${actualHead.slice(0, 7)}）` : `锚点不在历史中：存 ${String(storedHead).slice(0, 7)} 不是现 ${actualHead.slice(0, 7)} 的祖先`}；` +
-      `流水腿=${ledgerDetail}（另有 ${incidentCount} 条人工 incident 注解，不参与指纹比对）；锚点腿=${anchorDetail}；时序腿=${timeDetail}；${mtimeHint}`
-    if (hashOk && listOk && headOk && ledgerOk && anchorOk && timeOk) {
-      pass('A0-12', '契约快照三件套已存且已核', detail, `六条腿都必须被机检真读 —— 只存不验等于漂移不可见；**写了又回滚**由流水腿 + 时序腿（docs/contract/concurrency-discipline.md §二）承接`)
+      `流水腿=${ledgerDetail}（另有 ${incidentCount} 条人工 incident 注解，不参与指纹比对）；锚点腿=${anchorDetail}；时序腿=${timeDetail}；跃迁腿=${leapDetail}；${mtimeHint}`
+    if (hashOk && listOk && headOk && ledgerOk && anchorOk && timeOk && leapOk) {
+      pass('A0-12', '契约快照三件套已存且已核', detail, `七条腿都必须被机检真读 —— 只存不验等于漂移不可见；**写了又回滚**由流水腿 + 时序腿（docs/contract/concurrency-discipline.md §二）承接`)
     } else {
-      const which = [!hashOk && '哈希腿', !listOk && '清单腿', !headOk && 'HEAD 腿', !ledgerOk && '流水腿', !anchorOk && '锚点腿', !timeOk && '时序腿'].filter(Boolean).join('+')
+      const which = [!hashOk && '哈希腿', !listOk && '清单腿', !headOk && 'HEAD 腿', !ledgerOk && '流水腿', !anchorOk && '锚点腿', !timeOk && '时序腿', !leapOk && '跃迁腿'].filter(Boolean).join('+')
       fail('A0-12', '契约快照三件套已存且已核', `${which}漂移；${detail}`, '比对上一版并记录差异（旧值存档不覆盖）；若属记录后又被改写 ⇒ 查并发写者，勿只重取基线覆盖证据')
     }
   }
@@ -987,6 +1035,7 @@ if (RECORD_MODE) {
       kind: 'record',
       actor: 'tools/a0-check.mjs --record-baseline（唯一基线席）',
       reason: EXPECT.join(','),
+      expect: EXPECT,
       acceptDirtyReason: ACCEPT_DIRTY ? ACCEPT_DIRTY_REASON : null,
       head: execFileSync('git', ['rev-parse', 'HEAD'], { cwd: ROOT, encoding: 'utf8' }).trim(),
       headShort: execFileSync('git', ['rev-parse', '--short', 'HEAD'], { cwd: ROOT, encoding: 'utf8' }).trim(),
