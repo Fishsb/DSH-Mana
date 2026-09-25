@@ -529,6 +529,7 @@ export function apply(ctx: Context, config: Config): void {
              FROM memory_items_fts f
              JOIN memory_items m ON m.rowid = f.rowid
             WHERE memory_items_fts MATCH ?
+              AND m.retired = 0
             LIMIT ?`,
         )
         .all(checked.query, limit) as { id: string; content: string; summary: string | null }[]
