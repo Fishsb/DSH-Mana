@@ -52,7 +52,11 @@ async function negativeControl(name, mutation, run) {
 test('N1 摘掉 reset 写入点 ⇒ 该类不可达（G1-⑤/G1-⑥ 必红）', async () => {
   const finding = await negativeControl(
     'N1',
-    { replace: [["finish('reset')", "finish('skip_no_candidate')"]] },
+    // ⚠ 锚点随实现改名（G1 重派席修 D1 时，reset 那一类的写入点由 `finish('reset')`
+    //   变为 `finish('reset', { reset: true, blockId })`）—— **语义逐条不变**：
+    //   仍是「把 reset 那一类的写入点改成另一个枚举」⇒ 该类不可达 ⇒ G1-⑤/G1-⑥ 必红。
+    //   ⚠ 同步登记：`packages/attention/verify.mjs` 的 MUTATION_ANCHORS（闸⑥ 逐字比对）。
+    { replace: [["finish('reset', { reset: true,", "finish('skip_no_candidate', {"]] },
     async ({ ctx, store }) => {
       perceive(ctx, { content: '候选·N1', requestId: 'req-n1' })
       await firePreStep(ctx, { turn: 1 }) // 真注入

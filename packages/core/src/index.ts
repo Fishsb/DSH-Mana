@@ -419,6 +419,12 @@ export function apply(ctx: Context, config: Config): void {
       //   —— 那正是「让失败不可观测」（gate 已声明降级，落库却说没降级）。
       //   降级是**客观事实**，不是调用方可选的标注。
       const degraded = entry.degraded === true || entry.gate === 'degraded_unavailable'
+      // 同形防呆（G1 席 · D2）—— 与上面一条**逐条同形**，理由也一样：
+      //   `gate` 是枚举真源（生产侧写死），`reset` 只是**与它配对的显式位**。
+      //   若调用方漏传，按 `reset=1` 的查询（如"还有多少块已离开上下文"）会**静默归零** ——
+      //   而本仓实测该列此前**零生产者**（gate 说 reset、列说 0，同一事实两处读数互相矛盾）。
+      //   用 `||` 而非 `??`：`gate='reset'` **蕴含** `reset=1`，调用方传 `false` 不能抹掉它。
+      const reset = entry.reset === true || entry.gate === 'reset'
       const stmt = opened.db.prepare(
         `INSERT INTO inject_log
            (session_id, turn_id, request_id, memory_id, block_id, injected_at,
@@ -436,7 +442,7 @@ export function apply(ctx: Context, config: Config): void {
         degraded ? 1 : 0,
         entry.localScore ?? null,
         entry.jevProb ?? null,
-        entry.reset ? 1 : 0,
+        reset ? 1 : 0,
       )
       return Number(info.lastInsertRowid)
     },

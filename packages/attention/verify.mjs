@@ -54,7 +54,10 @@ const TEST_FILES = [
 
 /** 闸⑥ 的锚点登记：必须与 `tests/negatives.test.mjs` 里的变异锚点**逐字一致**。 */
 const MUTATION_ANCHORS = [
-  ["finish('reset')", 'N1 摘掉 reset 写入点'],
+  // ⚠ 2026-09-25 G1 重派席：实现把 reset 那一类的写入点改为带显式位的形态
+  //   （`finish('reset', { reset: true, blockId })`，修 D1/D2）⇒ 本锚点随真源改名，
+  //   **语义不变**（仍由 negatives.test.mjs 的 N1 摘掉该类写入点）。两处必须逐字一致。
+  ["finish('reset', { reset: true,", 'N1 摘掉 reset 写入点'],
   ['if (!judge || judge.degraded === true) {', 'N2a fail-closed 闸（降级）'],
   ['if (prob === null || prob < config.jevThreshold) {', 'N2b fail-closed 闸（未过阈）'],
   ['const downstream = await next();', 'N3 摘掉 next()'],

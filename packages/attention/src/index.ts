@@ -145,11 +145,15 @@ export function apply(ctx: Context, config: Config): void {
   /** 已注入过的 requestId（I2：每条记忆每 session 最多注入一次）。 */
   const injectedRequests = new Set<string>()
   /**
-   * 已注入、但**是否仍在上下文中**尚未核对的块（`reset` 检测用）。
+   * 已注入、但**是否仍在上下文中**尚未逐块核对的块（`reset` 检测用）——**有序表**。
    *
-   * ⚠ 存的是 blockId 集合；内容不进这里（A1-9：审计不泄内容，内存态同理）。
+   * ⚠ 身份 = 宿主给块消息分配的 `id`（**结构位置**），**不是**块内水印：
+   *   块内容里**不得留可反查的标识**（A1-9：审计不泄内容 —— 审计行不泄、上下文里泄，同样是泄漏）。
+   * ⚠ 为什么是**有序表**而不是 `Set`（G1 席 D1 修复）：集合只答得了「上下文里**还有没有**块」，
+   *   答不了「**这一块**还在不在」⇒ 多块时旧块的 `injected` 行会永久标着已注入（假账）。
+   *   表按注入顺序排列，逐条核对时顺序也在（宿主注入为尾部追加 ⇒ 表中次序 == 上下文里出现次序）。
    */
-  const injectedBlocks = new Set<string>()
+  const injectedBlocks: { blockId: string; messageId: string }[] = []
   let injections = 0
   let lastGate: InjectionGate | null = null
   /**
@@ -256,9 +260,12 @@ export function apply(ctx: Context, config: Config): void {
      * | `skip_no_candidate` | null | 候选池空 / 宿主已 reject / 门控关闭 ⇒ **没有任何记忆**参与 |
      * | `skip_below_threshold` | null | 候选是确定的，但**未注入** ⇒ 按 core 定义填 null；填了会让 A1-3 假红（见上） |
      * | `degraded_unavailable` | null | 判定链不可用 ⇒ 没有可指的记忆；降级事实由 `degraded` 列承载 |
-     * | `reset` | null | 本行记的是**事件**（块已离开上下文）而非一次注入；回填会把同一记忆记成两次注入 |
+     * | `reset` | null | 本行记的是**事件**（块已离开上下文）而非一次注入；回填会把同一记忆记成两次注入。⚠ 本行的 `reset` **列**必须为 1（显式位，见本函数写入点），`block_id` 指出**是哪一块**离开（结构位置 = 宿主消息 id，非内容水印） |
      */
-    const finish = (gate: InjectionGate, extra: { memoryId?: string | null; blockId?: string | null } = {}) => {
+    const finish = (
+      gate: InjectionGate,
+      extra: { memoryId?: string | null; blockId?: string | null; reset?: boolean } = {},
+    ) => {
       lastGate = gate
       try {
         core.writeInjectLog({
@@ -268,6 +275,11 @@ export function apply(ctx: Context, config: Config): void {
           gate,
           memoryId: extra.memoryId ?? null,
           blockId: extra.blockId ?? null,
+          // ⚠ `reset` 是 core 定义的**显式位**（「与 gate='reset' 配对的显式位」）。
+          //   此前生产侧**从未传过**它 ⇒ 该列零生产者：gate 说 reset、列说 0，同一事实两处读数
+          //   互相矛盾，且按 reset=1 的任何查询**静默归零**（本仓首位缺陷类：让失败不可观测）。
+          //   core 侧另有一处与 `degraded` **同形**的防呆（gate='reset' 蕴含本列），两层都真才算对。
+          reset: extra.reset === true,
           // ⚠ 概率取**本轮判定链**的真读数：判过就记，没判/降级留 null（不得用 0 冒充）。
           //   此前恒传 null ⇒ inject_log.jev_prob 这一列在库上**永远为空**，
           //   而 A1-12/A2-2 的读数面包含它 ⇒ 「有列无值」是让失败不可观测的形态。
@@ -317,22 +329,38 @@ export function apply(ctx: Context, config: Config): void {
     // ⚠ **为什么必须显式记 `reset`**：块"悄悄消失"与"从未注入"表面完全同形。
     //   若不检测，`inject_log` 里那行 `injected` 会**永久标着已注入**，而上下文里
     //   其实早没了 —— 「注入审计」就成了假账（本仓首位缺陷类：让失败不可观测）。
-    // ⚠ 判定口径：用**块自身的 wrapper 特征**（`<mana-memory>`）在当前消息里找。
-    //   不用 blockId 是因为块内容里**不得留可反查的标识**（A1-9 要求审计不泄内容）。
+    // ⚠ 判定口径（**逐块**）：块身份取宿主消息 id（`createUserMessage` 分配的**结构位置**），
+    //   并用**块自身的 wrapper 特征**（`<mana-memory>`）复认这条消息里装的确实是本包的块。
+    //   不用内容水印（往块里塞可反查标识）是因为 A1-9 要求审计不泄内容 —— 审计行不泄、
+    //   上下文里泄，同样是泄漏；故「是哪一块」只能由结构位置回答。
+    // ⚠ 为什么不是「上下文里还有没有**任意**一块」（**本批修的 D1 缺陷**）：
+    //   `msgs.some(含 wrapper)` 把**块级有序表**当**单个布尔**用 ⇒ 连续注入两块后只丢最老那块时
+    //   仍读到「还有块在」⇒ **不记 reset**，而旧块那行 `injected` 从此永久标着已注入（假账）。
+    //   也**不是**「只看最近一块」—— 那只是把同样的假账挪到下一块那行 `injected` 上。
     // ⚠ `PreStepDecision` 是**联合类型**：`reject` 分支没有 `messages` 字段
     //   ⇒ 必须先按 `kind` 收窄，否则连 `messages` 都取不到（编译期报 TS2339 —— 这是**正确报错**，
     //     不要用 `as any` 压掉，那会把"拒绝分支没有消息"这个事实变成不可见）。
-    if (injectedBlocks.size > 0 && downstream?.kind === 'enter') {
+    if (injectedBlocks.length > 0 && downstream?.kind === 'enter') {
       const msgs = Array.isArray(downstream.messages) ? downstream.messages : []
-      const stillThere = msgs.some((m) =>
-        (Array.isArray(m?.content) ? m.content : []).some(
-          (b) => typeof b?.text === 'string' && b.text.includes('<mana-memory>'),
-        ),
-      )
-      if (!stillThere) {
-        injectedBlocks.clear()
-        // memoryId 政策：null（本行是「块离开上下文」这一**事件**，不是注入；见 finish 政策表）。
-        finish('reset')
+      /** 这一块还在上下文里吗（身份 = 消息 id；再核一次 wrapper：id 撞车或内容被换都不算「还在」）。 */
+      const stillInContext = (messageId: string): boolean =>
+        msgs.some((m) => {
+          if (String(m?.id ?? '') !== messageId) return false
+          return (Array.isArray(m?.content) ? m.content : []).some(
+            (b) => typeof b?.text === 'string' && b.text.includes('<mana-memory>'),
+          )
+        })
+      /** 本轮核对为「已离开」的那些块（**只摘这些**，其余继续跟踪，下一轮再核）。 */
+      const gone = injectedBlocks.filter((blk) => !stillInContext(blk.messageId))
+      if (gone.length > 0) {
+        for (const blk of gone) injectedBlocks.splice(injectedBlocks.indexOf(blk), 1)
+        /**
+         * **逐块**记一行 reset：丢掉的是**哪一块**由 `block_id` 指出
+         * ⇒ 「两块里只丢了最老那块」与「两块都丢了」在审计上可分辨（A1-13/A1-14 的读数是**行级**的）。
+         * `reset: true` 是显式位（core 的列语义）；行级留痕的数量与「本轮发现几块离开」一致。
+         * memoryId 政策：null（本行是「块离开上下文」这一**事件**，不是注入；见 finish 政策表）。
+         */
+        for (const blk of gone) finish('reset', { reset: true, blockId: blk.blockId })
         return downstream
       }
     }
@@ -475,8 +503,9 @@ export function apply(ctx: Context, config: Config): void {
     pending.length = 0
     injections += 1
     const blockId = `blk-${injections}`
-    // 记入"待核对是否仍在上下文"的集合：下次 pre-step 若找不到它 ⇒ 记 gate='reset'。
-    injectedBlocks.add(blockId)
+    // 记入「待**逐块**核对是否仍在上下文」的有序表：身份取宿主给这条块消息的 `id`（结构位置）。
+    // 下次 pre-step 若**这一块**找不到 ⇒ 记 gate='reset'（只丢最老那块时也能被点名，见 D1 修复）。
+    injectedBlocks.push({ blockId, messageId: String(injected.id) })
     finish('injected', { blockId, memoryId: injectedMemoryId })
     return {
       ...downstream,
