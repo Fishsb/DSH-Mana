@@ -19,6 +19,7 @@ import type {} from '@deepseek-ai/dsh-agent'
 import Schema from '@deepseek-ai/schemastery'
 import { registerPassThroughPreStep, type ManaCoreService } from 'dsh-mana-core'
 import { CRITERIA_VERSION, thresholdValue, thresholdParam, splitLawOf } from './criteria.ts'
+import { createProfileIndex, type ProfileIndex, type ProfileVerdictOf } from './profile-index.ts'
 
 export const name = 'mana-metacognition'
 
@@ -59,6 +60,15 @@ export interface ManaMetacognitionService {
   thresholdParam(id: string, key: string, fallback: unknown): unknown
   /** 分裂律 R/K 读口。 */
   splitLaw(): { R: number; K: number }
+  /**
+   * 双画像（AGENT.md / USER.md）的**统一写入口**（L-04 · v10 §17.2）。
+   *
+   * `null` = 本插件装配时 **mana-user-model 尚不在位** ⇒ 退场判定无实现（不静默降级出
+   * 一份本地判定来顶替：那正是"同一条判据两处实现"）。
+   * 生产路径上两插件同批装配（`inject` 只声明 mana-core，故 user-model 可能后到；
+   * 宿主按需调用 `profileIndex()` 取用，拿到什么就是什么）。
+   */
+  profileIndex(): ProfileIndex | null
 }
 
 declare module '@deepseek-ai/cordis' {
@@ -82,6 +92,18 @@ export function apply(ctx: Context, config: Config): void {
     threshold: (id, fallback) => thresholdValue(id, fallback),
     thresholdParam: (id, key, fallback) => thresholdParam(id, key, fallback),
     splitLaw: () => splitLawOf(),
+    /**
+     * 每次调用当场解析（**不缓存**）：user-model 可能在本插件之后才装上，
+     * 缓存一个 null 会把"暂时没有"变成"永远没有"，而这在读数上与"没装"同形。
+     * 代价是每次两下 `ctx.get`（O(1) 查表），换来的是「装配顺序不影响可用性」。
+     */
+    profileIndex: () => {
+      const um = ctx.get('mana-user-model') as { injectionVerdict?: unknown } | undefined
+      if (um && typeof um.injectionVerdict === 'function') {
+        return createProfileIndex(core, um.injectionVerdict as ProfileVerdictOf, config.confidenceTarget ?? null)
+      }
+      return null
+    },
   }
 
   ctx.effect(() => {
