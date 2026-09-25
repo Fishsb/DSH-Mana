@@ -9,11 +9,17 @@
  *   node tools/a0-check.mjs                  # 全量
  *   node tools/a0-check.mjs --json           # 机读输出
  *   node tools/a0-check.mjs --only A0-3,A0-8 # 只跑指定项（也可 --only A1 / R0）
+ *   node tools/a0-check.mjs --record-baseline # 重取基线（A0-10 与 A0-12 的快照三件套）
  *
  * ⚠ 纪律：
  *  · **不得用管道取退出码**（`node x.mjs | tail` 的 `$?` 是 tail 的）。要判真值须
  *    `node x.mjs >out 2>err; echo $?`。
- *  · 退出码：0 = 无 FAIL（可含挂账）；1 = 有 FAIL。
+ *  · **退出码语义表（三态，互不可混）**：
+ *      `0` = 16 项判据无 FAIL（可含挂账）**且**（若带 `--record-baseline`）基线记录成功；
+ *      `1` = 有判据 FAIL（无论基线记录成功与否 —— 判据结果不被记录动作掩盖）；
+ *      `2` = 判据无 FAIL，但 `--record-baseline` **记录失败**（= 基线仍是旧值或缺失）。
+ *    ⚠ 记录失败**不混进那 16 项**：一旦混进去，「判据绿但基线没记」与「判据真红」
+ *      就不可分辨了 —— 那是另一种不可观测。两者必须能分开读（见文件末 `[baseline status]`）。
  *  · 「挂账」是**一等状态**，不等于通过（G14 挂账到阶段 1）。
  *  · **A1 腿**（`A1`）把 `tools/a1-check.mjs` 接进本链：建了却没被任何入口跑到的判据，
  *    等于没建（本会议实测：加 `check:a1` 之前它零调用者）。
@@ -535,8 +541,33 @@ if (JSON_OUT) {
   console.log(`\n${n.FAIL === 0 ? '✅ 无 FAIL' : `❌ 有 ${n.FAIL} 项 FAIL`}${n.HANG ? `（另有 ${n.HANG} 项挂账）` : ''}`)
 }
 
-// 基线记录辅助（A0-10 / A0-12）
-if (argv.includes('--record-baseline')) {
+// ══ 基线记录辅助（A0-10 / A0-12）════════════════════════════════════════════
+//
+// ⚠ **记录动作的成功/失败必须可观测**（本会议 f5 修的缺陷，实测形态）：
+//   旧实现在 `catch` 里只 `console.error('基线记录失败: …')`，**不改退出码** ⇒
+//   `chmod 444 tools/.a0-10-baseline.json && node tools/a0-check.mjs --record-baseline`
+//   打印「✅ 无 FAIL」并 **exit 0**，而基线根本没写成。后果不是"少一个文件"：
+//   A0-10 的语义是「与本批开工前实测值相等」⇒ **记录失败却被读成成功，会让后续所有
+//   「不碰既有件」的门在错误基线上继续判绿**。同一形态本仓已修过多次（判据绿但没生效）。
+//
+// 处置（**甲+乙 并用**，理由见下）：
+//   · 甲：记录失败 ⇒ 退出码 **2**（与判据 FAIL 的 **1** 区分开）—— 机器可判；
+//   · 乙：失败时打印**机器可读标记行** `[baseline FAILED] …`，且**绝不**打印
+//     `[baseline recorded]`；顺序保证「记录状态」行出现在总结段。
+//   为什么不只用乙：CI/脚本读的是退出码，只靠人看标记仍会"沉默地成功"。
+//   为什么不只用甲：退出码只有一位信息，读日志的人分不清"基线没记"与"判据真红"。
+//   ⚠ **不把记录失败混进那 16 项判据** —— 那会让「判据绿但基线没记」与「判据真红」
+//     不可分辨，是另一种不可观测（本会议 g8 一条纪律：两者要能分辨）。
+//
+// 退出码语义（**三态可分辨**，见文件头）：
+//   0 = 判据无 FAIL 且（若带 --record-baseline）记录成功
+//   1 = 有判据 FAIL（无论记录是否成功）
+//   2 = 判据无 FAIL，但 --record-baseline **记录失败**（基线仍可能是旧值/缺失）
+const RECORD_MODE = argv.includes('--record-baseline')
+let recordFailed = false
+/** 记录动作的产物清单（用于失败时精确指出**哪一步**没写成，而不是笼统一句"失败"）。 */
+const recordSteps = []
+if (RECORD_MODE) {
   const { writeFileSync } = await import('node:fs')
   const SAMPLE = '/home/lk/dsh-src/dsh-plugin-roundtable'
   try {
@@ -545,11 +576,20 @@ if (argv.includes('--record-baseline')) {
       .split('\n').filter((l) => l.trim()).length
     execFileSync('mkdir', ['-p', P('tools')])
     writeFileSync(P('tools/.a0-10-baseline.json'), JSON.stringify({ head, dirty, recordedAt: new Date().toISOString() }, null, 2))
+    recordSteps.push('tools/.a0-10-baseline.json')
     const { createHash } = await import('node:crypto')
     const now = ['packages/core/src/event-types.ts', 'packages/core/src/domain.ts']
       .map((f) => `${createHash('sha256').update(readFileSync(P(f))).digest('hex')}  ${f}`)
       .join('\n')
-    execFileSync('mkdir', ['-p', P('contract')])
+    // ⚠ 此处原为 `execFileSync('mkdir', ['-p', P('contract')])` —— 指向**仓根** `contract/`，
+    //   而下面三行写的全是 `docs/contract/*`。取证（2026-09-25）：
+    //     ① `git ls-files contract/ | wc -l` = **0**（仓根该目录从未入库、也无人跟踪）；
+    //     ② 全仓搜 `P('contract')` 只命中这一行自身（无任何读取方）；
+    //     ③ 真目标 `docs/contract/` 是入库目录（9 件）且由下面三行直接写。
+    //   ⇒ 它是**死代码**：`mkdir -p` 幂等地造出一个无人使用的空目录（实测跑一次后
+    //     `ls -d contract` 真的出现了该目录，纯污染 —— 且会让 `git status` 多一个未跟踪项）。
+    //   处置：**删除**（不改成 `P('docs/contract')`：真目标目录已入库存在，
+    //     且 `docs/contract/` 缺失属契约面异常，应由 A0-12 报红而不是被静默 mkdir 补上）。
     writeFileSync(P('docs/contract/_freeze.sha256'), now + '\n')
     // ⚠ 三件套必须**一起重取**：只更哈希腿而清单腿/HEAD 腿留旧值，就是让判据三腿互相矛盾。
     const list = execFileSync('bash', ['-lc', "find packages -name '*.ts' -not -path '*/node_modules/*' -not -path '*/lib/*' | sort"], {
@@ -557,13 +597,33 @@ if (argv.includes('--record-baseline')) {
     })
     writeFileSync(P('docs/contract/_freeze.files.txt'), list)
     writeFileSync(P('docs/contract/_freeze.head'), execFileSync('git', ['rev-parse', 'HEAD'], { cwd: P('.'), encoding: 'utf8' }))
+    recordSteps.push('docs/contract/_freeze.{sha256,files.txt,head}')
     console.log(
       `\n[baseline recorded] sample HEAD=${head} dirty=${dirty}；契约快照三件套已重取` +
         `（sha256 / files.txt ${list.split('\n').filter(Boolean).length} 件 / head）`,
     )
   } catch (error) {
+    recordFailed = true
+    // 机器可读标记行（固定前缀，便于 grep/CI 判读）+ 精确到「哪一步没写成」。
+    console.error(
+      `[baseline FAILED] ${error.message}｜已写成 ${recordSteps.length ? recordSteps.join(' + ') : '（无）'}` +
+        `｜⚠ 基线**未**完整记录：A0-10 下次运行将按旧值/缺失判，不得当作本次已记录`,
+    )
     console.error('基线记录失败:', error.message)
   }
+  // 总结段之后的**单列状态行**（stdout，故「只读 stdout」的人也看得到）：
+  // ⚠ 必须与上面的判据总结**分开**呈现 —— 判据腿与记录腿是两件事，合并即不可分辨。
+  // ⚠ 不得在这里写死「退出码 2」：判据也红时真实退出码是 **1**（判据优先，不被记录掩盖）。
+  //   写死会造出一句**与事实不符**的自述 —— 本仓一路在防的形态。故按实际组合陈述。
+  const judgeFailed = results.some((r) => r.state === 'FAIL')
+  console.log(
+    `\n[baseline status] ${
+      recordFailed
+        ? `✗ FAILED —— 基线**未完整记录**（真实退出码 ${judgeFailed ? '1 = 判据红优先；记录失败虽已发生但未取 2' : '2 = 判据绿、仅记录失败'}；` +
+          `上面那句判据结论只针对判据项，不代表基线已记）`
+        : '✓ OK —— 基线已记录'
+    }`,
+  )
 }
 
-process.exitCode = results.some((r) => r.state === 'FAIL') ? 1 : 0
+process.exitCode = results.some((r) => r.state === 'FAIL') ? 1 : recordFailed ? 2 : 0
