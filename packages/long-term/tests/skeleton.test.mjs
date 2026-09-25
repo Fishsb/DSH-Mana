@@ -57,15 +57,36 @@ async function probeChain(ctx) {
   return { sentinel, inner, r }
 }
 
-test('① behavior 由运行时服务面机检（填了实现在忘改 ⇒ 必红）', async () => {
+test('① behavior 由运行时服务面机检（填了实现在忘改 ⇒ 必红）+ 反方向补牙', async () => {
   ran += 1
-  const { ctx } = await mount()
+  const { ctx, mod } = await mount()
   const svc = ctx.get('mana-long-term')
   assert.ok(svc, 'mana-long-term 服务必须可读（未 provide = 插件没真跑起来）')
   const st = svc.status()
-  assert.equal(st.behavior, 'skeleton', `本包尚无行为 ⇒ behavior 必须为 'skeleton'，实测 ${st.behavior}`)
+  // ── B3.1（S14 席）：本包已填实现（ACT-R 激活方程 + 时间衰减），故期望值由 'skeleton' 改 'active'。
+  //    这条判据**按设计红了**（它抓的就是「填了实现而忘记交代」）—— 本席是被它叫醒的，不是绕过它。
+  assert.equal(st.behavior, 'active', `B3.1 已填实现 ⇒ behavior 必须为 'active'，实测 ${st.behavior}`)
   assert.equal(st.wired, true)
   assert.equal(typeof st.behavior, 'string', 'behavior 不得为 undefined（undefined 会被 JSON 静默丢键）')
+  /**
+   * ── **反方向补牙**（B3.1 新增 · 对文件头「反向不可机检」那条残留盲区的部分修复）──
+   * 原文承认：「填了真行为却把 behavior 留成 'skeleton' ⇒ 判据必红」**原句是空的**，
+   * 反向（自称 'active' 而背后无事）**无判据**。上面改成 'active' 之后，这个盲区就正对着本判据。
+   * 故此处并列断言 **'active' 必须有实现面背书**：服务面可读、7 个实现导出逐个是函数。
+   * ⇒ 若有人把实现搬走/改名/挖空而 behavior 仍写 'active'，本判据**报红**。
+   * ⚠ **仍未覆盖**（如实记，不许读成已全覆盖）：实现**还在**、behavior 却手写回 'skeleton'
+   *   —— 那一条仍然只靠下面 ⑦⑧ 间接抓，本补牙没有解决它。
+   */
+  const A = svc.activation
+  assert.ok(A && typeof A === 'object', 'behavior=active 必须有实现面背书：service.activation 不得缺席')
+  const face = ['decay', 'baseLevel', 'associativeActivation', 'activation', 'noiseTerm', 'retrievalProbability', 'latencyMs']
+  for (const n of face) {
+    assert.equal(typeof A[n], 'function', `behavior=active 必须有实现面背书：service.activation.${n} 必须是函数`)
+  }
+  assert.ok(
+    Array.isArray(mod.IMPLEMENTED_EXPORTS) && mod.IMPLEMENTED_EXPORTS.length === face.length,
+    '实现面清单 IMPLEMENTED_EXPORTS 必须与上面逐名对照的集合等长（防「清单少列一项即恒绿」）',
+  )
 })
 
 test('② 本包真在 agent/pre-step 链上：effect 面出现监听器 + 卸载后消失', async () => {

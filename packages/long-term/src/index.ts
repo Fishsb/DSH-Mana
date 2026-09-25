@@ -1,10 +1,21 @@
 /**
- * `dsh-mana-long-term` —— Mana 长时记忆：编码 + ACT-R 激活方程 + 三路混合检索（P1 骨架）
+ * `dsh-mana-long-term` —— Mana 长时记忆：编码 + ACT-R 激活方程 + 三路混合检索
  *
- * ⚠ **本轮（B2.2）只立骨架，不填实现**：`册:743` C12 的设计意图是
- *   「13 个空壳同批装配后面板上分不出哪几个真有行为」⇒ P1 分批建、骨架与实现分开交付。
+ * ── 当前状态：**B3.1 已填实现**（本条与下面的历史记录并列，不覆盖）─────────────────────
+ * 本包曾长期是 74 行"诚实的空壳"。B3.1 落地了 **ACT-R 激活方程 + 时间衰减**，
+ * 故 `status().behavior` 由 `'skeleton'` 改为 **`'active'`**（改为据实现事实回报，见下 §行为面）。
+ * 尚未实现（仍属后续批次，**不得**读作已完成）：三道门控（B3.2）、三路混合检索（B3.2）、
+ *   落库写入（`base_level_activation` 列的写者）、`S` 的 Pavlik–Anderson 更新（B4.2）。
  *
- * ⚠ **本骨架是"诚实的空壳"，且"没有行为"本身是机检事实**（R2 订正）：
+ * ── 实现面（`src/`，判据在 `tests/activation.test.mjs`）────────────────────────────
+ *  · `params.ts`      —— 5 个工程参数 + 1 个派生量 `s` 的**唯一出处**（C14 唯一写者）
+ *  · `decay.ts`       —— 时间衰减核 `decay(t,h)`，**A1-5 的实现者**（此前该项在
+ *                        `tools/a1-check.mjs` 里报 NONE「无实现者」⇒ 本文件出现后转 HANG）
+ *  · `activation.ts`  —— `baseLevel`(A2-1) / `retrievalProbability`+`latencyMs`(A2-2) / `noiseTerm`
+ * 公式与判据原文见各文件头；`baseLevel` 的 `t_j` 单位是**秒**、`decay` 的是**天**，不可相乘。
+ *
+ * ── 历史记录（P1 骨架期，保留原文）─────────────────────────────────────────────────
+ * ⚠ **本骨架曾是"诚实的空壳"，且"没有行为"本身是机检事实**（R2 订正）：
  *   它**不写任何 `mana_trace` 行** ⇒ 「卸载后同一触发不再产生新行」这条反证判据在本包上
  *   **平凡通过**（成立的原因是"它从来没生效过"，G11）。故 `status()` **显式**回报
  *   `behavior: 'skeleton'`，并由 `tests/skeleton.test.mjs` **读运行时服务面**断言该值，
@@ -27,26 +38,89 @@
  *      一枚配置就能静默取消 next() 纪律，正是本仓最要防的那类失败。
  *   ② 对一个零行为的空壳，可"关掉"的东西只剩服务提供面本身 ⇒ `enabled=false` 的形态与
  *      "插件根本没装/装失败"**同形**，等于新增一条静默通道。空壳本就够小，无需灰度旋钮。
+ *   ⚠ **B3.1 未推翻这条**：新增能力全是**纯函数**（无 IO、无监听器、无定时器），
+ *   仍然没有真旋钮可关 ⇒ 依旧不导出 `Config`（`skeleton.test.mjs` 判据⑤ 继续有效）。
  *
  * ⚠ 硬结构约束（G9 / `册:318`）：`apply` 必须注册一条 waterfall 监听器并调 `next()`，
  *   走 core 的 `registerPassThroughPreStep`（唯一写点）。漏调的后果**不报错**：
  *   本仓实测上游不调 `next()` ⇒ 下游哨兵 reached=0、返回 undefined、全程无异常。
  *
- * 阶段 2 的 B3.1 在此填实现（激活方程 d=0.5/τ=-2.0/σ=0.3 派生量**唯一写者**在此包）。
+ * ── 行为面（B3.1 的覆盖边界，如实声明）─────────────────────────────────────────────
+ * B3.1 的交付是**纯计算**：不写 `mana_trace`、不落库、不注册业务监听器。
+ * 故 `skeleton.test.mjs` 判据⑦（effect 面恰好 3 条）与 ⑧（`mana_trace` 0 行）**仍然成立**，
+ * 无需改动 —— 见 `docs/handoff/S14.md` §4 对"⑦⑧要不要改"的逐条判断。
+ * ⚠ 诚实边界：`behavior: 'active'` 目前**没有任何判据强制它**（这正是 R2b 说的"反向不可机检"）。
+ *   本包新增了 `tests/activation.test.mjs` 判据⑥：**导出面被挖空即红** —— 它覆盖的是
+ *   "实现被搬走"，**不**覆盖"实现还在而 behavior 写回 skeleton"。后者仍是盲区，未修。
  */
 import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-agent'
 import { registerPassThroughPreStep, type ManaCoreService } from 'dsh-mana-core'
+import { ACTR_PARAMS } from './params.ts'
+import { decay } from './decay.ts'
+import {
+  activation,
+  associativeActivation,
+  baseLevel,
+  latencyMs,
+  noiseTerm,
+  retrievalProbability,
+} from './activation.ts'
 
 export const name = 'mana-long-term'
 
-/** 依赖 core（方案 §9.1）。方案 §9.1 写 `core, jev, vector`；本轮只立骨架 ⇒ 先只声明 core，接线期再追加（避免装配期停 waiting）。 */
+/** 依赖 core（方案 §9.1）。方案 §9.1 写 `core, jev, vector`；本轮仍未接线 ⇒ 先只声明 core，接线期再追加（避免装配期停 waiting）。 */
 export const inject: string[] = ['mana-core']
+
+/**
+ * 本包的**实现面**（导出名的机检清单）。
+ *
+ * ⚠ 它是一等判据面，不是文档：`tests/activation.test.mjs` 判据⑥ 逐个断言"是函数"，
+ *   把实现搬走/改名而判据不同步 ⇒ 必红（一条反"实现被挖空"的腿）。
+ */
+export const IMPLEMENTED_EXPORTS = [
+  'decay',
+  'baseLevel',
+  'associativeActivation',
+  'activation',
+  'noiseTerm',
+  'retrievalProbability',
+  'latencyMs',
+] as const
+
+/** ACT-R 纯函数面（只读）。**派生量唯一写者**在此：`A`/`B`/`decay` 只在本包计算。 */
+export interface ManaLongTermActivation {
+  /** 冻结参数快照（含派生量 `s = √3σ/π`）。 */
+  readonly params: typeof ACTR_PARAMS
+  /** `B = ln(Σ_j t_j^(-d))`，`t_j` 单位**秒**。 */
+  baseLevel(practiceTimes: readonly number[], d?: number): number
+  /** `S = Σ_k W_k·S_kj`。 */
+  associativeActivation(sources?: readonly { weight: number; strength: number }[]): number
+  /** `A = B + S + P + ε`（ε 缺省 0 = 期望值口径）。 */
+  activation(opts: Parameters<typeof activation>[0]): number
+  /** `ε ~ Logistic(0, s)`；`rng` 显式传入以便可复现。 */
+  noiseTerm(rng?: () => number): number
+  /** `P = 1/(1+exp(-(A-τ)/s))`。 */
+  retrievalProbability(a: number, tau?: number, s?: number): number
+  /** `lat`（毫秒）；`A < τ` 时按公式**钳到 τ**（`lat(-3) === lat(-2)`）。 */
+  latencyMs(a: number, tau?: number): number
+  /** 时间衰减核 `exp(-t·ln2/h)`，`t` 单位**天**。 */
+  decay(t: number, halfLifeDays?: number): number
+}
 
 export interface ManaSvc {
   readonly plugin: string
-  /** 'skeleton' = 本包**尚无行为**（由 tests 读运行时服务面机检）；'active' = 已填实现。 */
+  /**
+   * `'skeleton'` = 本包**尚无行为**；`'active'` = 已填实现。
+   *
+   * B3.1 起为 `'active'`：本包已导出 7 个可复算的 ACT-R 纯函数
+   * （`IMPLEMENTED_EXPORTS`，由 `tests/activation.test.mjs` 判据⑥ 逐个断言）。
+   * ⚠ 仍**不**写 `mana_trace`、仍**不**落库 ⇒ "active" 的边界是「真实现存在且可机检」，
+   *   **不是**「已在生产链路上生效」。把本值读成后者是误读。
+   */
   status(): { plugin: string; wired: boolean; behavior: 'skeleton' | 'active' }
+  /** B3.1 新增：ACT-R 纯函数面（只读，见 `ManaLongTermActivation`）。 */
+  readonly activation: ManaLongTermActivation
 }
 
 declare module '@deepseek-ai/cordis' {
@@ -55,13 +129,28 @@ declare module '@deepseek-ai/cordis' {
   }
 }
 
+/** 装配纯函数面。**不写库、不注册业务监听器**（见文件头 §行为面）。 */
+function makeActivation(): ManaLongTermActivation {
+  return Object.freeze({
+    params: ACTR_PARAMS,
+    baseLevel,
+    associativeActivation,
+    activation,
+    noiseTerm,
+    retrievalProbability,
+    latencyMs,
+    decay,
+  })
+}
+
 export function apply(ctx: Context): void {
   const core: ManaCoreService | undefined = ctx.get('mana-core')
   if (!core) throw new Error('mana-long-term: 缺少 mana-core 服务（inject 未满足）')
 
   const service: ManaSvc = {
     plugin: name,
-    status: () => ({ plugin: name, wired: true, behavior: 'skeleton' }),
+    status: () => ({ plugin: name, wired: true, behavior: 'active' }),
+    activation: makeActivation(),
   }
 
   ctx.effect(() => {
@@ -72,3 +161,15 @@ export function apply(ctx: Context): void {
   // G9：waterfall 直通 + next()。**无条件注册**（不得由任何配置门控，见文件头）。
   registerPassThroughPreStep(ctx, name)
 }
+
+// 公共导出面（供其它包**只读**消费；派生量写者仍只在本包）。
+export { ACTR_PARAMS, HALF_LIFE_DAYS } from './params.ts'
+export { decay } from './decay.ts'
+export {
+  activation,
+  associativeActivation,
+  baseLevel,
+  latencyMs,
+  noiseTerm,
+  retrievalProbability,
+} from './activation.ts'
