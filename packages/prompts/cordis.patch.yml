@@ -1,0 +1,6 @@
+# dsh-mana-prompts bundle patch：挂进 profile 组合。
+# ⚠ 本插件**不依赖**任何 Mana 服务（`inject` 为空：它不注册监听器、不读服务、不写库），
+#   故装配位次无先后约束 —— 与其余包不同，这里没有「必须在 core 之后」的理由。
+- insert:
+    - id: mana-prompts
+      name: 'dsh-mana-prompts'
