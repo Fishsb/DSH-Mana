@@ -46,6 +46,27 @@ function degradedRecall(query: string, reason: string, items: FusedItem[] = []):
 }
 
 /**
+ * ── **大环路递归检索（v10 §12.5/§14.7）在这条检索路径上的位置**（E2 接线席）──────────
+ *
+ * 接线点**不在本函数体内**，而是**包在本函数的出口上**（`index.ts` 的 `recall()` 实现体）：
+ * `recallVector` 之后 ⇒ 可选的大环路（`Config.bigLoop`，**缺省关**）。
+ * 三条理由，逐条可判：
+ *
+ * 1. **契约面**：`RecallOutcome` 的 `channel`/`rankBy`/`degraded`/`hitCount`/`items` 是
+ *    A1-11 与 `b11-vector.test.mjs` 的机检锚点。大环路若在这里改 `items`，就必须同时改
+ *    `rankBy` 的口径（它现在恒是 `'rrf'` = "本结果按 RRF 排序"）—— 那是**册面**的决策，
+ *    不是接线席能自己定的。⇒ 本函数**一个字节都不动**，大环路只带读数（`applied:false`）。
+ * 2. **它需要的东西这里没有**：大环路的入口要 `core`（词法腿 `recallLexical` + 图腿的 db 句柄）
+ *    与**本次召回已命中的键**（种子）。前者只有 `index.ts` 的 `apply()` 拿得到，后者就是
+ *    本函数的返回值 —— 两个前提都在**出口**而非**内部**。
+ * 3. **缺省关 + 递归**：它是多轮检索（`maxRounds` 缺省 6），闸门开在函数体内会让
+ *    "跑一次向量召回"与"跑一场递归检索"在**每一次**调用上绑定；接在出口上则一次配置即可关掉，
+ *    且关掉时**一次检索都不发**（`bigloop.ts` 的 `disabled` 腿）。
+ *
+ * ⇒ 接线形态、代价与读数面：`bigloop-wiring.ts`（旋钮与缺省）/ `retrieve-port.ts`（真实检索端口
+ *   的实现），调用点与载荷字段：`index.ts` 的 recall 出口。本文件只留这段**指路**，
+ *   不承担调用（"接线 = 生产调用方真的调它"由 `tests/bigloop-wiring.test.mjs` 的桩计数取证）。
+ *
  * 向量召回。
  *
  * 返回的 `channel` 三态与**触发条件**（可枚举，便于判据直接断言）：

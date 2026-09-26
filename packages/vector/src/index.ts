@@ -54,6 +54,13 @@ import {
   type RecallGraphKnobs,
   type RecallGraphReadout,
 } from './graph.ts'
+import {
+  DEFAULT_BIGLOOP_WIRING,
+  bigLoopReadout,
+  runBigLoopWiring,
+  type BigLoopReadout,
+  type BigLoopWiringKnobs,
+} from './bigloop-wiring.ts'
 
 export const name = 'mana-vector'
 
@@ -93,6 +100,17 @@ export interface Config {
    *   取舍与代价逐条写在 `graph.ts` 文件头（含"为什么不折进 items"）。
    */
   recallGraph: RecallGraphKnobs
+  /**
+   * **大环路递归检索**（v10 §12.5/§14.7，E2 接线）—— 检索路径上的**可选**递归。
+   *
+   * ⚠ 与 `recallGate`/`recallGraph` **同款形状、不同缺省**：它们缺省开，本项**缺省关**。
+   *   理由见 `bigloop-wiring.ts` 文件头：这里是**递归**（多轮检索 + 多轮线索解码），
+   *   闸门一开就会改变主链的耗时与复杂度，而本仓硬要求是"主链行为不得改变"。
+   * ⚠ 与两条既有腿同处置：旋钮**不改变** `recall()` 的契约字段
+   *   （`channel`/`rankBy`/`degraded`/`hitCount` 仍由向量管道决定），
+   *   它把**大环路的判定读数**（status/stopReason/roundsRun/merged…）作为增量字段带出来。
+   */
+  bigLoop: BigLoopWiringKnobs
 }
 
 export const Config: Schema<Config> = Schema.object({
@@ -127,6 +145,16 @@ export const Config: Schema<Config> = Schema.object({
     hops: Schema.number().default(1),
     scope: Schema.union(['seeds', 'global'] as const).default('seeds'),
   }).default({ enabled: true, hops: 1, scope: 'seeds' }),
+  // ⚠ 与上面两处同形（**嵌套 Schema.object 而不是拍平**：拍平会让"这四个键是一组"在类型上消失），
+  //   缺省值取自 `DEFAULT_BIGLOOP_WIRING`（**唯一真源**）的**显式字面量**（schemastery 的
+  //   default 参与结构推导，直接塞冻结对象会让类型面与运行面各存一份值）。
+  // ⚠ **`enabled` 的缺省是 `false`**（本仓唯一一个缺省关的检索腿）：改它 = 改主链行为。
+  bigLoop: Schema.object({
+    enabled: Schema.boolean().default(false),
+    maxRounds: Schema.number().default(6),
+    lexicalLimit: Schema.number().default(50),
+    topK: Schema.number().default(50),
+  }).default({ enabled: false, maxRounds: 6, lexicalLimit: 50, topK: 50 }),
 })
 
 export interface ManaVectorService {
@@ -182,6 +210,16 @@ export interface ManaVectorService {
    *   `ran=false` + `unwiredReason` 的事；两者必须分开）。
    */
   lastRecallGraph(): RecallGraphReadout | null
+  /**
+   * **最近一次检索的大环路读数**（E2 接线面的即时可观测出口）。
+   *
+   * ⚠ 与上面两条同处置：返回的 `BigLoopReadout` **与 `mana/recall` 载荷里挂的读数是同一个
+   *   形状**（同一转换函数 `bigLoopReadout`）⇒ 服务面查到的与审计里看到的不可能漂开。
+   *   进程内、**只保留最近一次**。
+   * `null` ⇔ 本进程还没走过 `recall()`（**不得读成"大环路没接"** —— 那是
+   *   `enabled=false` / `unwiredReason` 的事；三种取值互不冒充）。
+   */
+  lastBigLoop(): BigLoopReadout | null
 }
 
 /** `recall()` 的会话信封：给了就 emit `mana/recall`（A1-11 的字段断言读它）。 */
@@ -237,6 +275,8 @@ export function apply(ctx: Context, config: Config): void {
   let lastGate: RecallGateReadout | null = null
   /** **最近一次检索的图腿读数**（与 `lastGate` 同处置：只留最近一次、进程内）。 */
   let lastGraph: RecallGraphReadout | null = null
+  /** **最近一次检索的大环路读数**（与 `lastGate` 同处置：只留最近一次、进程内）。 */
+  let lastLoop: BigLoopReadout | null = null
 
   const service: ManaVectorService = {
     plugin: name,
@@ -324,11 +364,46 @@ export function apply(ctx: Context, config: Config): void {
       const graphReadout = recallGraphReadout(graphResult, config.recallGraph.enabled)
       lastGraph = graphReadout
 
+      /**
+       * ── **大环路递归检索接线**（E2 · v10 §12.5/§14.7）：递归检索的**唯一**生产调用方 ────
+       * 接线前全仓 `packages/<pkg>/src` 里 `runBigLoop` 的调用方 = 0（D2 席自报"未接线"）。
+       * 取舍与代价逐条写在 `bigloop-wiring.ts` 文件头；此处只写**接线决策**：
+       *
+       * ① **种子 = `outcome.items` 的键**（与门控/图腿**同一份**候选面）⇒ 不存在"这边检索、
+       *    那边另编一份"；它们只作**第 1 轮的起点**，带出的线索才决定后面问什么；
+       * ② **无信封时也跑**：读数面是返回值（`lastBigLoop()`），若只在有信封时跑，
+       *    「大环路到底跑了没有」就会退化成"取决于调用方给没给信封"（不可判）；
+       * ③ `baseQuery` = 本次查询串。⚠ `bigloop.ts` 对空串是**抛**（入参契约），
+       *    而接线层**不以空查询为起点跑一轮**（那会把"起点缺失"读成"起点存在但没结果"）
+       *    ⇒ 空白串时**显式不跑**并报明原因（`BIGLOOP_WIRING_EMPTY_QUERY_REASON`，
+       *    见 `bigloop-wiring.ts`）——措辞与"显式关闭""检索腿坏了"三者互不冒充；
+       * ④ `outcome`（`RecallOutcome`）**逐字不动**：大环路读数走 `lastBigLoop()` 与
+       *    `mana/recall` 载荷的**契约外增量字段**，`applied:false` 可断言（不是一句注释）；
+       * ⑤ **`enabled=false` 时一次检索都不发**（`bigloop-wiring.ts` 的第一段返回）——
+       *    这就是"缺省关不改变主链行为"的机械落点，判据用桩计数取证。
+       */
+      const loopSeeds = outcome.items.map((it) => it.key)
+      const loopRecord = await runBigLoopWiring({
+        core: { db: core.db, recallLexical: (q, limit) => core.recallLexical(q, limit) },
+        cfg: config.bigLoop,
+        seedKeys: loopSeeds,
+        baseQuery: query,
+        graph: config.recallGraph,
+      })
+      // ⚠ **同一个**读数对象既进服务面又进载荷（`lastLoop` 与下面的 payload 用同一份）
+      //   ⇒ 两处不可能出现"审计说 A、服务面说 B"。
+      const loopReadout = bigLoopReadout(loopRecord, { seedKeys: loopSeeds.length, topK: config.bigLoop.topK })
+      lastLoop = loopReadout
+
       if (envelope) {
         // ⚠ **契约外增量字段**（`ManaRecall` 本身在 `packages/core/src/`，本席只读面 ⇒ 不加字段）：
         //   门控读数挂在同一载荷上，使「这次召回门控跑到哪一步」与召回**同一条审计记录**，
         //   不需要二次查询、也不会与召回行漂开（"事件发了 vs 审计可查"成对发生，同 F-01 口径）。
-        const payload: ManaRecall & { readonly recallGate: RecallGateReadout; readonly recallGraph: RecallGraphReadout } = {
+        const payload: ManaRecall & {
+          readonly recallGate: RecallGateReadout
+          readonly recallGraph: RecallGraphReadout
+          readonly bigLoop: BigLoopReadout
+        } = {
           sessionId: envelope.sessionId,
           turnId: envelope.turnId,
           requestId: envelope.requestId,
@@ -342,6 +417,9 @@ export function apply(ctx: Context, config: Config): void {
           // ⚠ 图腿读数与门控读数**同一条审计记录**（不二次查询、不与之漂开），
           //   同样是**契约外增量字段**：`ManaRecall` 的既有字段一个都没动。
           recallGraph: graphReadout,
+          // ⚠ 大环路读数同样挂在这一条记录上（第三条腿）：`ManaRecall` 的既有字段一个都没动，
+          //   `applied:false` 恒成立（本批只带读数、不改管道排序）。
+          bigLoop: loopReadout,
         }
         // ⚠ A1-1 的 recall 段落点（F-01）：此前本包**只广播、不落库** ⇒
         //   五类里的 'recall' 在 mana_trace 上**永远为空**，判据结构上不可能满足。
@@ -388,6 +466,7 @@ export function apply(ctx: Context, config: Config): void {
     vec0Semantics: () => VEC0_SEMANTICS,
     lastRecallGate: () => lastGate,
     lastRecallGraph: () => lastGraph,
+    lastBigLoop: () => lastLoop,
   }
 
   ctx.effect(() => {
@@ -405,3 +484,64 @@ export function apply(ctx: Context, config: Config): void {
 
 export type { ManaCoreService, EmbedOutcome, RecallOutcome, RecallCandidate, EmbedConfig }
 export { RRF_DEFAULT_K }
+
+/**
+ * ── **大环路递归检索**（v10 §12.5/§14.7）：包外可用的入口与读数面 ──────────────────────
+ *
+ * ⚠ 导出与调用**成对存在**：本包的 `apply()` 的 recall 出口**已经在生产路径上调用它**
+ *   （`bigloop-wiring.ts` 的 `runBigLoopWiring` ⇒ `runBigLoop`）——只 export 不调用
+ *   **不算**接线（本仓口径：接线 = 生产调用方真的调它）。这里导出的是"包外也能用/能断言"的面。
+ */
+export { runBigLoop } from './bigloop.ts'
+export {
+  BIGLOOP_DISABLED_REASON,
+  BIGLOOP_NO_CANDIDATE_REASON,
+  BIGLOOP_REASON_PREFIX,
+  BIGLOOP_RRF_K,
+  BIGLOOP_SAME_QUERY_CEILING,
+  BIGLOOP_TERMINALS,
+  DEFAULT_BIGLOOP_KNOBS,
+  HARD_MAX_ROUNDS,
+  fuseScore,
+  mergeCandidates,
+  overlapRatio,
+  rankAcrossRounds,
+  sumClueGain,
+} from './bigloop.ts'
+export type {
+  BigLoopCandidate,
+  BigLoopKnobs,
+  BigLoopMergedItem,
+  BigLoopObservation,
+  BigLoopOptions,
+  BigLoopOverrides,
+  BigLoopQuery,
+  BigLoopResult,
+  BigLoopRound,
+  BigLoopStatus,
+  BigLoopStopReason,
+  BigLoopTerminalKind,
+} from './bigloop.ts'
+export { BIGLOOP_CLUES_PER_KEY, BIGLOOP_CLUE_MAX_CHARS, DEFAULT_BIGLOOP_RETRIEVE_LIMITS, clueSegments, makeBigLoopRetriever } from './retrieve-port.ts'
+export type {
+  BigLoopLexicalResultLike,
+  BigLoopRetrieveCoreLike,
+  BigLoopRetrieveEvidence,
+  BigLoopRetrieveLimits,
+  BigLoopRetrieveOptions,
+  BigLoopRetrievePort,
+} from './retrieve-port.ts'
+export {
+  BIGLOOP_WIRING_DISABLED_REASON,
+  BIGLOOP_WIRING_EMPTY_QUERY_REASON,
+  DEFAULT_BIGLOOP_WIRING,
+  bigLoopReadout,
+  runBigLoopWiring,
+} from './bigloop-wiring.ts'
+export type {
+  BigLoopReadout,
+  BigLoopSeam,
+  BigLoopWiringKnobs,
+  BigLoopWiringOptions,
+  BigLoopWiringRecord,
+} from './bigloop-wiring.ts'
