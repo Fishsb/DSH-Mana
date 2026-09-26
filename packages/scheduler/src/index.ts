@@ -63,6 +63,17 @@ export interface Config {
   retrievalTopK: number
   /** 单条链一次最多读多少条活记忆（防全表读；夹住时 `capped:true` 可查）。 */
   maxChainItems: number
+  /**
+   * 生成链（§13.5 深睡归纳）是否发起。
+   *
+   * ⚠ 缺省 **true** 的理由与 `driverEnabled` 同源：本次交付的核心就是「给生成层落第一个
+   *   生产消费者」，缺省关掉等于交付一个不生效的开关。
+   * ⚠ 关掉**不是静默**：每回合仍落一行 `generation/skipped`（带非空 reason），
+   *   使「开关关着」与「链没跑」在库里可分辨（见 chains.ts 的 runGeneration）。
+   */
+  generationEnabled: boolean
+  /** 送给生成链的素材上限（字符）；实际长度**原样**进 payload，截断不会被藏起来。 */
+  generationMaterialMaxChars: number
 }
 
 export const Config: Schema<Config> = Schema.object({
@@ -77,6 +88,8 @@ export const Config: Schema<Config> = Schema.object({
   learningBufferMax: Schema.number().default(256),
   retrievalTopK: Schema.number().default(10),
   maxChainItems: Schema.number().default(200),
+  generationEnabled: Schema.boolean().default(true),
+  generationMaterialMaxChars: Schema.number().default(4000),
 })
 
 /** 本插件对外服务面。 */
@@ -160,6 +173,8 @@ export function apply(ctx: Context, config: Config): void {
       learningBufferMax: config.learningBufferMax,
       retrievalTopK: config.retrievalTopK,
       maxChainItems: config.maxChainItems,
+      generationEnabled: config.generationEnabled,
+      generationMaterialMaxChars: config.generationMaterialMaxChars,
     },
     goals,
     takeRuns,

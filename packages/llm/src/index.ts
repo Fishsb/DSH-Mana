@@ -112,11 +112,70 @@ export const Config: Schema<Config> = Schema.object({
   upstreamModel: Schema.string().default(''),
 })
 
+/**
+ * 一次生成请求（**服务面**的入参）。
+ *
+ * ⚠ 消息构造口径被**故意**收成「文本进、文本出」：调用方给文本，宿主消息由本包用官方
+ *   构造函数造（见 `manaUserMessage`）。⇒「唯一出口同时是唯一入口」这条不变量
+ *   由**类型面**强制，不靠调用方自觉。
+ */
+export interface ManaGenerateRequest {
+  /** 渲染好的 system prompt（来自 `dsh-mana-prompts` 的系统模板常量）；省略则不传 system。 */
+  readonly system?: string
+  /** 用户侧文本。 */
+  readonly prompt: string
+  /** 覆盖模型名（省略 = 适配器的 upstreamModel / 上游缺省）。 */
+  readonly model?: string
+  /** 取消信号，原样透传给宿主（宿主契约要求适配器尊重取消）。 */
+  readonly signal?: AbortSignal
+}
+
+/** 生成失败的可枚举归类（G8：降级必须落显式字段，不得只留一句 message）。 */
+export type ManaGenerateDegradation =
+  | 'no-llm-surface'
+  | 'no-upstream'
+  | 'no-model'
+  | 'stream-error'
+  | 'host-error-finish'
+
+/**
+ * 一次生成的结果。
+ *
+ * ⚠ **三态可分辨**（本仓纪律：不得用「空字符串」同时表达三种意思）：
+ *   · `ok:true`  ⇒ `text` 是上游真产出的拼接结果（**可能仍是空串** —— 那是上游的事实，如实记）；
+ *   · `ok:false` ⇒ `reason` 非空且 `degraded` 已归类；
+ *   · `callId` 每次不同，供**调用方**落自己的审计行（本包不做生成侧自证）。
+ */
+export type ManaGenerateResult =
+  | {
+      readonly ok: true
+      readonly text: string
+      readonly callId: string
+      readonly chunks: number
+      readonly finishReason: string | null
+    }
+  | {
+      readonly ok: false
+      readonly text: null
+      readonly callId: string
+      readonly chunks: number
+      readonly reason: string
+      readonly degraded: ManaGenerateDegradation
+    }
+
 /** 本包对外服务面（`ctx.get('mana-llm')`）。 */
 export interface ManaLlmService {
   readonly plugin: string
   /** 注册出的路由名（唯一出口的名字）。 */
   readonly provider: string
+  /**
+   * **生成入口**（服务面）：聚合宿主 `llm.stream()` 的块流为一次结果。
+   *
+   * ⚠ 为什么各包必须走本方法、不许直接用 `ctx.llm`：
+   *   前者使「Mana 的生成都经 `'mana'` 路由」成为**接线事实**（可 grep、可机检）；
+   *   后者会让每个包各自持一份路由名与消息构造方式 —— 那正是本包存在要防的形态。
+   */
+  generate(request: ManaGenerateRequest): Promise<ManaGenerateResult>
   /**
    * 状态面。`wired` 恒为 true（服务已 provide）；
    * `routeRegistered` 才是"路由真的挂上了没"——**这两件事必须能分开读**，
@@ -269,6 +328,8 @@ export function apply(ctx: Context, config: Config): void {
   if (!core) throw new Error('mana-llm: 缺少 mana-core 服务（inject 未满足）')
 
   const upstream = String(config.upstreamProvider ?? '').trim()
+  /** 适配器配置的模型名（服务面的 generate 需要它：宿主不接受空 model，见其注释）。 */
+  const upstreamModel = String(config.upstreamModel ?? '').trim()
   // ⚠ fail fast：自转发不是"配置写错了会慢一点"，而是**必然的进程级故障**（实测 OOM）。
   if (upstream === MANA_PROVIDER) {
     throw new Error(
@@ -282,10 +343,94 @@ export function apply(ctx: Context, config: Config): void {
   let handle: { (): void; replace(providers: string[]): void } | null = null
   let releaseEffect: (() => void) | null = null
 
+  /** 生成调用序号：只用于构造**可区分**的 `callId`，不参与任何判定。 */
+  let generateSeq = 0
+
   const service: ManaLlmService = {
     plugin: name,
     provider: MANA_PROVIDER,
     hasLlm: () => Boolean(ctx.get('llm')),
+    /**
+     * 生成入口。**三条失败路径必须显式**（全部走 `ok:false` + `degraded` 归类）：
+     *   ① 宿主没有 llm 面 ⇒ `no-llm-surface`（本包可以装配成功却无面，见文件头）；
+     *   ② 未配置上游 ⇒ `no-upstream`（适配器也会抛，但那时已是一次流调用，归类会丢）；
+     *   ③ 流中途抛 ⇒ `stream-error`（原样带出 message，不吞）；
+     *   ④ 宿主以 `finish.reason.kind==='error'` 收尾 ⇒ `host-error-finish`（**这是一条
+     *      独立通道**：宿主把适配器错误归一成终态 finish，不抛 ⇒ 不单独看它就会把
+     *      「生成失败」读成「生成结果为空」——本仓最防的「失败不可分辨」形态）。
+     */
+    generate: async (request: ManaGenerateRequest): Promise<ManaGenerateResult> => {
+      generateSeq += 1
+      const callId = 'mana-llm-call-' + String(generateSeq)
+      const llm = ctx.get('llm')
+      if (!llm) {
+        return { ok: false, text: null, callId, chunks: 0, reason: '宿主无 llm 面（本包装配成功但路由不可达）', degraded: 'no-llm-surface' }
+      }
+      if (!upstream) {
+        return { ok: false, text: null, callId, chunks: 0, reason: "未配置 upstreamProvider —— 'mana' 路由是转发层", degraded: 'no-upstream' }
+      }
+      // ⚠ 消息在这里造（唯一入口），调用方只给文本 —— 手搓消息在生产路径上不可能发生。
+      const messages: Parameters<typeof llm.stream>[0]['messages'] = [
+        ...(typeof request.system === 'string' && request.system.length > 0 ? [manaSystemMessage(request.system)] : []),
+        manaUserMessage(request.prompt),
+      ]
+      // ⚠ **model 必须显式取值，且不得传空串/undefined**（本席 2026-09-26 实测，两条都试过）：
+      //   宿主在流入口校验"适配器回的精确模型元数据"，
+      //   `model:''`  ⇒ finish.reason={kind:'error',code:'INVALID_MODEL_INFO'}
+      //   省略 model ⇒ 同上，且 message 里 model 显示 'undefined'
+      //   实测唯一走通的形态 = 传一个**真模型名**（适配器的 upstreamModel 或调用方覆盖）。
+      //   ⚠ 这条**不是**本包能决定的：宿主没给"用缺省模型"的表达方式 ⇒ 未配置 upstreamModel
+      //     时**必须显式失败**，不许拿空串去撞（那会以一条指不到真因的 error finish 收场）。
+      const model = String(request.model ?? upstreamModel).trim()
+      if (!model) {
+        return {
+          ok: false,
+          text: null,
+          callId,
+          chunks: 0,
+          reason:
+            '无可用模型名：调用方未给 model，且适配器的 upstreamModel 为空。' +
+            "宿主不接受空/缺省 model（实测 ⇒ INVALID_MODEL_INFO）⇒ 请配置 upstreamModel 或在请求里给 model",
+          degraded: 'no-model',
+        }
+      }
+      let chunks = 0
+      let text = ''
+      let finishReason: string | null = null
+      let finishFailure: string | null = null
+      try {
+        for await (const chunk of llm.stream({ provider: MANA_PROVIDER, model, messages, ...(request.signal ? { signal: request.signal } : {}) })) {
+          chunks += 1
+          const c = chunk as { type?: unknown; text?: unknown; reason?: { kind?: unknown; failure?: { message?: unknown; code?: unknown } } }
+          if (c.type === 'text-delta' && typeof c.text === 'string') text += c.text
+          if (c.type === 'finish') {
+            finishReason = typeof c.reason?.kind === 'string' ? c.reason.kind : null
+            // ⚠ 归因**两条腿都要**：message 指真因（如 INVALID_MODEL_INFO），code 是可枚举的机器读值。
+            //   只带一句「宿主以 error finish 收尾」会把「模型名不合法」与「上游 500」读成同一件事。
+            const msg = c.reason?.failure?.message
+            const code = c.reason?.failure?.code
+            if (typeof msg === 'string' || typeof code === 'string') {
+              finishFailure = [typeof code === 'string' ? code : null, typeof msg === 'string' ? msg : null]
+                .filter((x) => x !== null)
+                .join(': ')
+            }
+          }
+        }
+      } catch (error) {
+        return { ok: false, text: null, callId, chunks, reason: String((error as Error)?.message ?? error), degraded: 'stream-error' }
+      }
+      if (finishReason === 'error') {
+        return {
+          ok: false,
+          text: null,
+          callId,
+          chunks,
+          reason: '宿主以 error finish 收尾（适配器错误被归一，不抛）' + (finishFailure ? ' · ' + finishFailure : ''),
+          degraded: 'host-error-finish',
+        }
+      }
+      return { ok: true, text, callId, chunks, finishReason }
+    },
     status: () => ({
       plugin: name,
       wired: true,

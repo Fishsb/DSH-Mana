@@ -71,6 +71,14 @@ import { selectTopN, type SelectableMemory, type SpindleSelection } from './sele
 import { ripple, type MergePlan, type NeocortexEntry } from './consolidate.ts'
 import { chunkSequences, type ChunkingPlan, type OperatorRun, type ProductionRuleDraft } from './chunking.ts'
 import { countProductionRules, readProductionRule, writeProductionRules, type WriteRulesResult } from './rules.ts'
+import {
+  renderPromptConstant,
+  resolveSummaryChannel,
+  summarize,
+  SUMMARY_PROMPT_CONSTANT,
+  type SummaryOutcome,
+  type SummaryRequest,
+} from './generation.ts'
 
 export const name = 'mana-consolidation'
 
@@ -149,6 +157,20 @@ export interface ManaSvc {
   writeRules(rules: readonly ProductionRuleDraft[]): WriteRulesResult
   /** 余弦通道解析状态（**显式**——不是静默降级；`ok=false` 时 reason 非空）。 */
   vectorRoute(): { ok: boolean; source: string; reason: string | null }
+  /**
+   * **生成通道解析状态**（§13.5 深睡归纳）。
+   *
+   * ⚠ 与 `vectorRoute()` 同款三态：`ok=false` 时 `reason` 非空且 `missing` 点名缺哪条腿。
+   *   **不得**用「`available:false` 但没人看」的形态 —— 调用方（链驱动者）必须把它写进 trace。
+   */
+  generationRoute(): { ok: boolean; source: string; reason: string | null; missing: readonly string[] }
+  /**
+   * 深睡归纳（§13.5）：用 `mana-prompts` 的 system 模板 + `mana-llm` 的生成入口产一段摘要。
+   *
+   * ⚠ 本方法**不写库、不落 trace**（本包无 trace 写面）；它只回三态结果与 `callId`，
+   *   留痕归调用方。这样「谁发起的一次生成」永远可回查，而本包不新增第二处审计真源。
+   */
+  summarize(request: SummaryRequest): Promise<SummaryOutcome>
   /** 阈值快照（**只读**；证"阈值不是配置文件里的字面量"）。 */
   readonly thresholds: typeof CONSOLIDATION_PARAMS
 }
@@ -215,6 +237,15 @@ export function apply(ctx: Context): void {
     },
     writeRules: (rules) => writeProductionRules(core, rules),
     vectorRoute: () => ({ ok: route.ok, source: route.source, reason: route.ok ? null : route.reason }),
+    // ⚠ 生成通道**每次现解析**（不缓存）：常驻进程里后装配的 prompts/llm 必须能被接上
+    //   （与 scheduler/chains.ts 的 `svc()`、「每次调用时解析，不缓存」同一条既有取舍）。
+    generationRoute: () => {
+      const channel = resolveSummaryChannel(ctx)
+      return channel.ok
+        ? { ok: true, source: channel.source, reason: null, missing: [] as readonly string[] }
+        : { ok: false, source: channel.source, reason: channel.reason, missing: channel.missing }
+    },
+    summarize: (request: SummaryRequest) => summarize(resolveSummaryChannel(ctx), request),
   }
 
   ctx.effect(() => {
@@ -232,6 +263,20 @@ export { selectTopN } from './select.ts'
 export { ripple } from './consolidate.ts'
 export { chunkSequences, isCandidateSequence, signatureOf, fnv1a } from './chunking.ts'
 export { writeProductionRules, readProductionRule, countProductionRules, WRITTEN_COLUMNS, UNMEASURED_COLUMNS } from './rules.ts'
+export {
+  resolveSummaryChannel,
+  renderPromptConstant,
+  summarize,
+  SUMMARY_PROMPT_CONSTANT,
+  SUMMARY_SERVICES,
+} from './generation.ts'
+export type {
+  SummaryChannel,
+  SummaryOutcome,
+  SummaryRequest,
+  SummaryPromptsService,
+  SummaryLlmService,
+} from './generation.ts'
 export type { SelectableMemory, SpindleSelection, SkipReason } from './select.ts'
 export type { MergePlan, NeocortexEntry, RippleVerdict } from './consolidate.ts'
 export type { ChunkingPlan, OperatorRun, ProductionRuleDraft, DropReason } from './chunking.ts'

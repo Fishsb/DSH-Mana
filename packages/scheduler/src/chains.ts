@@ -71,6 +71,13 @@ export const TRACE_EVENTS = Object.freeze({
   forgetting: `${DRIVER_NAMESPACE}/forgetting`,
   /** 学习链：共激活流 ⇒ `learning.store.applyCoActivations`（Hebbian）。 */
   learning: `${DRIVER_NAMESPACE}/learning`,
+  /**
+   * **生成链（§13.5 深睡归纳）**：回合边界 ⇒ `consolidation.summarize`（消费 mana-prompts + mana-llm）。
+   *
+   * ⚠ 与上面六条链**分开一条事件名**是刻意的：生成链的第一消费者若混在 `consolidation` 行里，
+   *   「巩固判定跑没跑」与「生成调没调」就同形 —— 而这次要修的正是「生成零消费者**看不出来**」。
+   */
+  generation: `${DRIVER_NAMESPACE}/generation`,
   /** 覆盖面：每个回合边界把 §18.2 七行的**当下**状态落一行（含 not-driven 的行）。 */
   coverage: `${DRIVER_NAMESPACE}/coverage`,
   /** 链任务抛错（**绝不静默**：`catch` 里不写行就等于把故障吃掉）。 */
@@ -235,6 +242,32 @@ export interface ChainConsolidation {
   }
 }
 
+/**
+ * 巩固包的**生成通道**面（§13.5 深睡归纳；结构接口，不 import 该包）。
+ *
+ * ⚠ `summarize` **不抛**、返回三态 —— 调用方必须把 `ok:false` 的 `degraded`/`reason` 落 trace。
+ *   本驱动者据此把「通道没装配」与「上游生成失败」与「素材为空」**分成三种可读事实**。
+ */
+export interface ChainSummary {
+  summarize(request: { readonly material: string }): Promise<
+    | {
+        readonly ok: true
+        readonly summary: string
+        readonly callId: string
+        readonly promptSection: string
+        readonly materialChars: number
+      }
+    | {
+        readonly ok: false
+        readonly summary: null
+        readonly callId: string | null
+        readonly degraded: string
+        readonly reason: string
+        readonly materialChars: number
+      }
+  >
+}
+
 export interface ChainReconsolidation {
   openWindow(req: {
     memoryId: string
@@ -326,6 +359,16 @@ export interface DriverConfig {
   readonly retrievalTopK: number
   /** 单条链一次最多读多少条记忆（防全表读；被夹住时 `capped:true` 进 payload）。 */
   readonly maxChainItems: number
+  /**
+   * 生成链（§13.5 深睡归纳）是否发起。
+   *
+   * ⚠ 关掉 ≠ 静默：每回合仍落一行 `generation/skipped`（带非空 reason），
+   *   使「开关关着」与「链没跑」在库里**可分辨**（本仓「假旋钮」纪律：
+   *   旋钮必须改变可观测行为，而"关掉后什么行都没有"会让两者同形）。
+   */
+  readonly generationEnabled: boolean
+  /** 送给生成链的素材上限（字符）；超出按此截断并**原样**把实际长度写进 payload。 */
+  readonly generationMaterialMaxChars: number
 }
 
 // ── 运行期状态读数（供 status()/chains() 与判据读）───────────────────────────
@@ -726,6 +769,109 @@ export function createChainDriver(deps: ChainDriverDeps): ChainDriver {
       }
     })
   }
+  /**
+   * 生成链的**异步**收敛段（§13.5 深睡归纳）。
+   *
+   * ⚠ 为什么必须是异步：`consolidation.summarize` 会真的走一次 LLM 往返。本驱动者的
+   *   `onTurnBoundary` 由宿主 `await`（serial 型事件）⇒ **不能**在这里阻塞整条回合边界
+   *   （那会把宿主卡在一次网络调用上）。故**先落一行 dispatched，再去 resolve**：
+   *   两行同 `trigger` 可配对，「发起了但没回来」与「压根没发起」因此**可分辨**
+   *   （只有一行时这两件事同形 —— 本仓最防的失败不可观测）。
+   */
+  const runGeneration = async (ctxInfo: { sessionId: string; turnId: number }, material: string): Promise<void> => {
+    const chars = [...material].length
+    if (!config.generationEnabled) {
+      trace(TRACE_EVENTS.generation, ctxInfo.sessionId, ctxInfo.turnId, {
+        chain: 'generation',
+        phase: 'skipped',
+        assembled: svc<unknown>(CHAIN_SERVICES.consolidation) !== undefined,
+        status: 'disabled',
+        reason: 'generationEnabled=false ⇒ 本回合**未发起**生成（这是开关事实，不是「没有可归纳的」）',
+        materialChars: chars,
+        v10Trigger: '定时任务（深睡段）',
+        substitution: '本仓无定时器 ⇒ 回合边界',
+      })
+      return
+    }
+    const consolidation = svc<ChainSummary>(CHAIN_SERVICES.consolidation)
+    if (consolidation === undefined || typeof consolidation.summarize !== 'function') {
+      trace(TRACE_EVENTS.generation, ctxInfo.sessionId, ctxInfo.turnId, {
+        chain: 'generation',
+        phase: 'dispatched',
+        assembled: false,
+        status: 'unassembled',
+        service: CHAIN_SERVICES.consolidation,
+        reason:
+          '未装配的服务或该服务无 summarize 面：' + CHAIN_SERVICES.consolidation +
+          ' —— 生成链本回合**未执行**（不是「生成结果为空」）',
+        materialChars: chars,
+        v10Trigger: '定时任务（深睡段）',
+      })
+      return
+    }
+    // 先落 dispatched：它是「已发起」的**唯一**证据。缺了它，下面的 failed 行无法与
+    // 「根本没发起」区分 —— 两者都只剩一条 failed 行时，读者无从判断。
+    trace(TRACE_EVENTS.generation, ctxInfo.sessionId, ctxInfo.turnId, {
+      chain: 'generation',
+      phase: 'dispatched',
+      assembled: true,
+      status: 'pending',
+      service: CHAIN_SERVICES.consolidation,
+      materialChars: chars,
+      v10Trigger: '定时任务（深睡段）',
+      substitution: '本仓无定时器 ⇒ 回合边界',
+      source: 'mana-prompts:§13.5 + mana-llm',
+    })
+
+    let outcome: Awaited<ReturnType<ChainSummary['summarize']>>
+    try {
+      outcome = await consolidation.summarize({ material })
+    } catch (error) {
+      // summarize 自身承诺不抛；真抛了说明契约被打破 —— 显式记账，不许让它变成一个
+      // 无人读的 unhandledRejection（本仓对该形态有实测教训）。
+      trace(TRACE_EVENTS.generation, ctxInfo.sessionId, ctxInfo.turnId, {
+        chain: 'generation',
+        phase: 'failed',
+        assembled: true,
+        status: 'threw',
+        service: CHAIN_SERVICES.consolidation,
+        reason: 'summarize 违约抛错（契约要求返回三态而不抛）：' + String((error as Error)?.message ?? error),
+        materialChars: chars,
+      })
+      return
+    }
+    if (!outcome.ok) {
+      trace(TRACE_EVENTS.generation, ctxInfo.sessionId, ctxInfo.turnId, {
+        chain: 'generation',
+        phase: 'failed',
+        assembled: true,
+        status: 'degraded',
+        service: CHAIN_SERVICES.consolidation,
+        degraded: outcome.degraded,
+        reason: outcome.reason,
+        callId: outcome.callId,
+        materialChars: outcome.materialChars,
+        v10Trigger: '定时任务（深睡段）',
+      })
+      return
+    }
+    // ⚠ 成功但**产出为空串**是第三种事实：不折成 failed（那会把「上游返回空」误报成「通道坏了」）。
+    //   故 summaryChars 一律进 payload，判据读它而不是只读 status。
+    trace(TRACE_EVENTS.generation, ctxInfo.sessionId, ctxInfo.turnId, {
+      chain: 'generation',
+      phase: 'settled',
+      assembled: true,
+      status: 'ran',
+      service: CHAIN_SERVICES.consolidation,
+      callId: outcome.callId,
+      promptSection: outcome.promptSection,
+      materialChars: outcome.materialChars,
+      summaryChars: [...outcome.summary].length,
+      v10Trigger: '定时任务（深睡段）',
+      substitution: '本仓无定时器 ⇒ 回合边界；system prompt 来自 mana-prompts:§13.5',
+    })
+  }
+
   // ── 链 3/4/5/6 + 覆盖面：回合边界 ─────────────────────────────────────────
   const onTurnBoundary = async (payload: unknown): Promise<void> => {
     if (!config.driverEnabled) return
@@ -848,6 +994,20 @@ export function createChainDriver(deps: ChainDriverDeps): ChainDriver {
         notPorted: '检索命中 → 间隔重复（FSRS）不移植（C16）',
       }
     })
+
+    // ── 生成链（§13.5 深睡归纳）：本回合**已读入的快照**即素材 ──
+    // ⚠ 素材取自与巩固链**同一次** readLiveItems 的投影（不另做一次读库）：
+    //   两次读库会让「生成用的素材」与「巩固用的素材」成为两份可能不同的真源。
+    // ⚠ 刻意**不 await**：见 runGeneration 的注释（阻塞会把宿主卡在一次网络调用上）。
+    //   该 Promise 自己吞掉一切（内部 try/catch + 三态），不会成为 unhandledRejection。
+    const material = reading.items
+      .map((item) => {
+        const content = typeof item.content === 'string' ? item.content : ''
+        return '[' + String(item.id) + '] ' + content
+      })
+      .join('\n')
+      .slice(0, config.generationMaterialMaxChars)
+    void runGeneration(ctxInfo, material)
 
     // ── 覆盖面：§18.2 七行的**当下**状态（含 not-driven / not-ported 的行）──
     // 每 tick 一行：不落行的话，「某行从未被驱动」在库里与「驱动者没跑」同形。
