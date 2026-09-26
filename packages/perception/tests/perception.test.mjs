@@ -285,9 +285,20 @@ test('P5 ④形态：ctx.effect 注册 1 点、agent/pre-step 直通 1 条且真
     assert.notEqual(st.filterEnabled, true, '裸 config 下不得视为"开"（undefined 不是 true ⇒ 不筛）')
     assert.equal(st.filterEnabled, undefined, '读数必须如实反映传入配置（不得替调用方编一个缺省值）')
     assert.equal(st.tableName, 'builtin', '未注入领域词 ⇒ 表名必须是内置表（"用的哪张表"可查）')
-    assert.ok(
-      Object.keys(st).length === 4,
-      'status() 的键集合变了就必须在此交代（实测键=' + JSON.stringify(Object.keys(st)) + '）',
+    /**
+     * ⚠ **v10 §12.1 第②步解析腿落地后，status() 又多一位**（`parseEnabled`）。
+     *   本条判据**按设计再次变红** —— 它抓的正是"形态变了而没人交代"（本仓明令：
+     *   多一条行为而没人交代即红）。修法同前：**逐字段钉住新键**。
+     * ⚠ 顺带把断言从 `length === N`（只报一个数字，读者看不出多了哪一位）
+     *   改为**键名清单 deepEqual**：这样加键/删键都会红，且红的时候能直接看出差在哪。
+     */
+    assert.notEqual(st.parseEnabled, true, '裸 config 下不得视为"开"')
+    assert.equal(st.parseEnabled, undefined, '读数必须如实反映传入配置（同 filterEnabled 口径）')
+    const keys = Object.keys(st).sort()
+    assert.deepEqual(
+      keys,
+      ['filterEnabled', 'parseEnabled', 'plugin', 'tableName', 'wired'],
+      'status() 的键集合变了就必须在此交代（实测键=' + JSON.stringify(keys) + '）',
     )
 
     const n = svc.perceive({ content: '0123456789ABCDEFGHIJ', sessionId: 's', turnId: 1, requestId: 'r' })

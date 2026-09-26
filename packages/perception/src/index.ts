@@ -17,6 +17,11 @@ import {
   type ManaObservation,
 } from 'dsh-mana-core'
 import { mergeSignalTables, prefilterBySignalWords, type SignalVerdict } from './signal.ts'
+import {
+  createLlmIntentParser,
+  resolveIntentLegs,
+  type IntentReading,
+} from './parse.ts'
 
 export const name = 'mana-perception'
 
@@ -50,6 +55,19 @@ export interface Config {
    * 之前，部署侧至少能经配置补领域词而不必改源码。
    */
   extraSignalWords: string[]
+  /**
+   * ── v10 §12.1 第②步**解析腿**（意图识别，LLM）开关 ──────────────────────────────
+   *
+   * ⚠ **缺省 false —— 设计判断，不是保守**：
+   *   解析要**真出网**（一次 LLM 往返）。缺省开启会让**每条输入**都多一次往返
+   *   （主链延迟上升），且测试环境无 llm 时全走降级 —— 而"没装"与"解析不出"在**粗读**下同形。
+   *   ⇒ 缺省 false（**主链行为一字不变**），需要时显式开。
+   * ⚠ 本条是**上批教训的直接应用**：那批我把只该用于蒸馏的信号词预筛接到主链且缺省 true，
+   *   实测 `npm test` **23 项按设计变红**。新能力默认不扰主链。
+   * ⚠ 关掉**不是静默**：`lastReading().intent` 为 `null`，且 `status().parseEnabled=false`
+   *   ⇒「关着」与「解析不出来（unknown/degraded）」三者可分辨。
+   */
+  parseEnabled: boolean
 }
 
 export const Config: Schema<Config> = Schema.object({
@@ -58,6 +76,8 @@ export const Config: Schema<Config> = Schema.object({
   // 缺省 false：见 Config.signalFilterEnabled 的长注（主链不得被粗筛改变行为）
   signalFilterEnabled: Schema.boolean().default(false),
   extraSignalWords: Schema.array(Schema.string()).default([]),
+  // 缺省 false：见 Config.parseEnabled 的长注（新能力默认不扰主链）
+  parseEnabled: Schema.boolean().default(false),
 })
 
 /** 分块结果（**显式**给出块数，使「切了没切」可断言而不是靠猜）。 */
@@ -105,6 +125,12 @@ export interface PerceiveReading {
   readonly verdicts: readonly SignalVerdict[]
   /** 文本被切成几块（与 `emitted` 分开：切了 3 块只发 1 块是两件事）。 */
   readonly chunks: number
+  /**
+   * ── v10 §12.1 第②步**解析腿**：意图识别读数（2026-09-26 补）──────────────────────
+   * `null` = 解析未启用或未执行（与"解析了但结果 unknown"**必须可分辨**）。
+   * ⚠ 结果**不进 `mana/observation` 载荷**（契约面冻结，见 `parse.ts` 文件头）。
+   */
+  readonly intent: IntentReading | null
 }
 
 export interface ManaPerceptionService {
@@ -130,7 +156,15 @@ export interface ManaPerceptionService {
   lastReading(): PerceiveReading | null
   /** 预筛词表的只读快照（名字 + 词数），使"用的哪张表"可查。 */
   signalTable(): { name: string; size: number }
-  status(): { plugin: string; wired: boolean; filterEnabled: boolean; tableName: string }
+  /**
+   * **直接解析一段文本的意图**（不经 `perceive`，不出事件）—— 供下游按需调用。
+   *
+   * ⚠ 为什么单开一个方法：`perceive` 的结果**不进事件流**（契约面冻结）⇒ 若下游只能
+   *   经 `lastReading()` 取，就会依赖"上一次 perceive 是谁调的"这种**时序耦合**。
+   *   本方法让"我要解析这段"成为一次**显式、无副作用**的调用。
+   */
+  parseIntent(text: string): Promise<IntentReading>
+  status(): { plugin: string; wired: boolean; filterEnabled: boolean; tableName: string; parseEnabled: boolean }
 }
 
 declare module '@deepseek-ai/cordis' {
@@ -151,6 +185,13 @@ export function apply(ctx: Context, config: Config): void {
 
   /** 最近一次采集的读数（`null` = 装配后还没调用过 —— 与"调用过但全挡下"可分辨）。 */
   let lastReading: PerceiveReading | null = null
+  /**
+   * 意图解析器（**装配时按配置建一次**）。
+   * ⚠ 即使 `parseEnabled=false` 也建：关闭只是"不自动解析"，`parseIntent()` 仍可显式调用
+   *   （否则"关掉自动"会连带"手动也不能用"，那是把开关做成了阉割）。
+   */
+  const intentLegs = resolveIntentLegs(ctx)
+  const intentParser = createLlmIntentParser(intentLegs.llm, intentLegs.prompts)
 
   const perceive: ManaPerceptionService['perceive'] = (input) => {
     const { chunks } = chunkText(input.content, config.maxChunkChars, config.chunkOverlapChars)
@@ -184,7 +225,17 @@ export function apply(ctx: Context, config: Config): void {
       ctx.emit('mana/observation', obs)
       emitted += 1
     }
-    lastReading = { emitted, filteredBySignal, filterEnabled: config.signalFilterEnabled, verdicts, chunks: chunks.length }
+    lastReading = {
+      emitted,
+      filteredBySignal,
+      filterEnabled: config.signalFilterEnabled,
+      verdicts,
+      chunks: chunks.length,
+      // ⚠ 解析**不在 perceive 内同步做**（perceive 是同步契约面，而解析要出网）。
+      //   这里恒为 null；要解析请用 parseIntent()（下面）。
+      //   「未解析（null）」与「解析了但 unknown」因此**天然可分辨**。
+      intent: null,
+    }
     // ⚠ 契约面：返回**发出块数**（不是读数对象）。读数走 lastReading()。
     return emitted
   }
@@ -194,7 +245,14 @@ export function apply(ctx: Context, config: Config): void {
     perceive,
     lastReading: () => lastReading,
     signalTable: () => ({ name: table.name, size: table.words.length }),
-    status: () => ({ plugin: name, wired: true, filterEnabled: config.signalFilterEnabled, tableName: table.name }),
+    parseIntent: (text: string) => intentParser.parse(text),
+    status: () => ({
+      plugin: name,
+      wired: true,
+      filterEnabled: config.signalFilterEnabled,
+      tableName: table.name,
+      parseEnabled: config.parseEnabled,
+    }),
   }
 
   ctx.effect(() => {
@@ -208,6 +266,13 @@ export function apply(ctx: Context, config: Config): void {
 }
 
 export { mergeSignalTables, prefilterBySignalWords, BUILTIN_SIGNAL_TABLE } from './signal.ts'
+export {
+  createLlmIntentParser,
+  resolveIntentLegs,
+  INTENT_CLASSES,
+  INTENT_PROMPT_NAME,
+} from './parse.ts'
+export type { IntentClass, IntentValue, IntentReading, IntentParser } from './parse.ts'
 export type { SignalVerdict, SignalWordTable } from './signal.ts'
 export { DEFAULT_SIGNAL_WORDS } from './signal-words.ts'
 
