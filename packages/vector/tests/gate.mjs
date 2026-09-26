@@ -22,10 +22,21 @@ import { dirname, join } from 'node:path'
  * ⚠ 条数按文件分开（W2-C3 起）：全局合计相等只能证明"总数没变"，
  *   一个文件删一条、另一个加一条就抓不到了 —— 逐文件等式才堵得住。
  *   新判据文件必须在此登记；改条数必须**同时**改这里与文件内 ⓪ 的自检（两处同源同值）。
+ * ⚠ 本清单的**变更史**（可审计，别只看现值）：
+ *   · `recall-gate-wiring.test.mjs`（7 条）**此前未登记** —— 它自带的 ⓪ 自检在它自己
+ *     被整份删除时**不再有机会执行**，故那层自检挡不住"删整个文件"；登记进本闸才挡得住。
+ *     本席只补登记，**未动它的任何断言与条数**。
+ *   · `bigloop.test.mjs`（12 条）为 D2 席新增文件，随本次改动一并登记。
  */
 const FILES = [
   { file: 'b11-vector.test.mjs', cases: 15 },
   { file: 'recall-graph.test.mjs', cases: 11 },
+  // W1-4 的接线判据：**此前漏登记**（它有自己的 ⓪ 自检，但闸不认识它 ⇒
+  // 整份文件被删时闸的计数腿不会变色）。⚠ 本席**只登记条数，不改它的任何判据**。
+  { file: 'recall-gate-wiring.test.mjs', cases: 7 },
+  // D2 大环路递归检索（v10 §12.5 / §14.7）：新增文件**必须在此登记**，
+  // 否则"删掉整份判据"这一形态在本闸下不可见（本仓实测过的假绿形态 ②）。
+  { file: 'bigloop.test.mjs', cases: 12 },
 ]
 
 const here = dirname(fileURLToPath(import.meta.url))
