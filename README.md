@@ -5,7 +5,7 @@
 >
 > **JEV 做判断，LLM 做生成，插件做控制。**
 
-Mana 是一套 **DSH 插件集**（16 个 npm workspace 包），把 ACT-R 激活方程、SOAR 目标栈、JEV 判定原语、
+Mana 是一套 **DSH 插件集**（17 个 npm workspace 包 · 23k 行 TypeScript · 660 条判据），把 ACT-R 激活方程、SOAR 目标栈、JEV 判定原语、
 RRF 混合检索与认知链条调度落成可机检的工程实现。
 
 ---
