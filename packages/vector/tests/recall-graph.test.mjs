@@ -15,7 +15,8 @@
  * 2. **退化路径显式且可分辨**：⑤ 把"无关联边 / 有边没扩展 / 列缺失 / 行取不到"四种事实
  *    **并列**跑出来逐条比对（本仓最忌两种事实同形）+ ⑥ 显式关闭与"故障"用不同措辞；
  * 3. **RRF 口径显式且可断言**：③ 优先级公式（种子 > 一跳 > 两跳；入边 > 出边）
- *    + ⑧ 关腿/开腿两次运行的**管道契约字段逐字相同**（`rankBy`/`degraded` 零改动）。
+ *    + ⑧ 关腿/开腿两次运行的**管道契约字段逐字相同**（`rankBy`/`degraded` 零改动）
+ *    + ⑩ **真·非降级路径**上把 `rankBy='rrf'` 钉住（来历见判据⑩的段落）。
  * 另有 ⑦ 双向可达的真实语义差（`scope`）与 ⑨ 负向对拍（同进程 A/B）。
  */
 import { test, after } from 'node:test'
@@ -38,7 +39,7 @@ const UNREACHABLE = 'http://127.0.0.1:1/v1'
  * 期望用例条数（**相等**语义，与 `tests/gate.mjs` 的 EXPECTED_CASES 同源同值）：
  * 少一条即有判据被删走；改条数必须**同时**改这里与 gate.mjs。
  */
-const EXPECTED_CASES = 10
+const EXPECTED_CASES = 11
 
 const settle = (ms = 200) => new Promise((r) => setTimeout(r, ms))
 const dirs = []
@@ -110,7 +111,7 @@ async function recallAndRead(svc, seedKey, envelope) {
 }
 
 // ── 0. 判据自检：本文件必须**真的有判据**（防"空文件也绿"）────────────────────
-test('W2-C3-⓪ 判据自检：本文件 test( 计数**等于** 10，且真源文件路径解析正确', () => {
+test('W2-C3-⓪ 判据自检：本文件 test( 计数**等于** 11，且真源文件路径解析正确', () => {
   const self = fileURLToPath(import.meta.url)
   const src = readFileSync(self, 'utf8')
   const n = (src.match(/^test\(/gm) ?? []).length
@@ -495,3 +496,97 @@ test('W2-C3-⑨ 负向对拍：关掉邻接扩展（hops=0）⇒ 带不出对家
   )
   await ctx.stop?.()
 })
+
+// ── 10. 钉住**非降级路径**的 rankBy='rrf'（此前全仓无判据，是可被静默改动的锚点）─────
+/**
+ * ── 判据⑩的来历（**为什么必须补这一条**）─────────────────────────────────────────
+ * 本任务的硬约束是「`rankBy`/`degraded` 口径**不得静默改变**」。开工时把全仓各包的判据目录
+ * 与机检器对 `rankBy` 的断言扫了一遍（用「rankBy」作检索词扫各包 tests 目录与 tools/a1-check.mjs；
+ * ⚠ 此处不写字面通配路径 —— 本仓在块注释里写「目录通配紧邻斜杠」会**提前终止注释**，
+ * 报出的错指不到真因，已踩过两次），实测结论：
+ *
+ * | 路径 | 取值 | 是否被判据钉住 |
+ * |---|---|---|
+ * | 降级 | `'local_score'` | ✅ 被钉：b11-vector ⑦ / recall-gate-wiring ②⑤ / long-term 两档 / scheduler e2e / a1-check A1-11 |
+ * | **非降级** | `'rrf'`（recall.ts:124） | ❌ **一条断言都没有** —— 全仓 grep 只有 `recall.ts` 自己两处赋值 |
+ *
+ * ⇒ 约束里被点名的那一半（`'rrf'`）**结构上可被改掉而全绿**。这正是本仓最防的形态：
+ *   「口径不得静默改变」这句话，在非降级路径上此前**不可证伪**。本用例把它补成可证伪。
+ *
+ * 驱动方式：**走真·非降级路径**（不是拿夹具骗过降级）。`embedImpl` 只存在于 `EmbedConfig`、
+ *   `index.ts` 不透传 ⇒ 服务面注入不可达；故起一个**本机 stub 嵌入端点**（127.0.0.1 随机端口）
+ *   返回 200 + 合法 1024 维向量，让管道真走到 `channel='vector'` / `rankBy='rrf'`。
+ *   ⚠ 仍是零外网：端点在本进程内、用完即关。
+ */
+test('W2-C3-⑩ 非降级路径的 rankBy 被钉死：真·向量通道下 rankBy===\'rrf\' 且 channel===\'vector\'', async (t) => {
+  const { createServer } = await import('node:http')
+  const DIM = 1024
+  // 确定性夹具向量（不用随机数 ⇒ 逐次同值）
+  const fixture = (seed) => {
+    const v = new Array(DIM)
+    for (let i = 0; i < DIM; i++) v[i] = Math.sin((i + 1) * (seed + 1) * 0.011) * Math.cos(i * 0.017 + seed)
+    return v
+  }
+  let hits = 0
+  const server = createServer((req, res) => {
+    hits += 1
+    let body = ''
+    req.on('data', (c) => (body += c))
+    req.on('end', () => {
+      const input = (() => {
+        try {
+          return JSON.parse(body).input ?? []
+        } catch {
+          return []
+        }
+      })()
+      const data = (Array.isArray(input) ? input : [input]).map((_, i) => ({ embedding: fixture(i + 1) }))
+      res.writeHead(200, { 'content-type': 'application/json' })
+      res.end(JSON.stringify({ data }))
+    })
+  })
+  await new Promise((r) => server.listen(0, '127.0.0.1', r))
+  const port = server.address().port
+  const BASE = `http://127.0.0.1:${port}/v1`
+
+  try {
+    const { ctx, core, svc } = await mount('mana-w2c3-rrf-', { vecConfig: { embedBaseUrl: BASE, embedTimeoutMs: 5000 } })
+    // 造两条**都有常驻向量**的记忆 + 一条关联边：dense 腿必须有命中，否则会走"全未命中"降级
+    linkPair(core, 'r-seed', 'r-other')
+    for (const k of ['r-seed', 'r-other']) {
+      const w = await svc.putMemoryVector(k, Float32Array.from(fixture(1)))
+      assert.equal(w.written, true, `向量必须真写库：${k} → ${w.reason}`)
+    }
+    let payload = null
+    ctx.on('mana/recall', (p) => {
+      payload = p
+    })
+    const { out, graph } = await recallAndRead(svc, 'r-seed', { sessionId: 's-rrf', turnId: 1, requestId: 'w2c3-rrf' })
+    await settle(150)
+
+    // ── 前提断言：必须真走到**非降级**（否则本用例平凡通过 —— 这是最关键的一条）──────
+    assert.equal(hits > 0, true, 'stub 嵌入端点必须真被请求到（hits>0）；实测 ' + hits)
+    assert.equal(out.degraded, false, '前提：本条必须走**非降级**路径（degraded=false）；reason=' + String(out.reason))
+    assert.equal(out.channel, 'vector', "前提：非降级 ⇒ channel 必须是 'vector'")
+    assert.equal(out.reason, null, '非降级时 reason 必须是 null（不得用空串/占位冒充）')
+
+    // ── 靶心：非降级路径的 rankBy ──────────────────────────────────────────────
+    assert.equal(out.rankBy, 'rrf', "非降级路径的 rankBy 必须是 'rrf'（recall.ts 的融合口径；此前全仓无判据）")
+    assert.notEqual(out.rankBy, 'local_score', "非降级**不得**回落 'local_score'（那是降级路径的取值，两者不得同形）")
+    assert.equal(payload.rankBy, out.rankBy, '载荷 rankBy 必须与管道结果一致')
+
+    // 图腿在同一路径上照常只带读数（非降级路径也不许折叠）
+    assert.ok(graph && graph.ran === true, '非降级路径上图腿必须照常跑：' + (graph && graph.unwiredReason))
+    assert.deepEqual(graph.keys, ['r-other'], '非降级路径也必须能把对家带出来：' + JSON.stringify(graph && graph.keys))
+    assert.equal(graph.applied, false, 'applied 必须恒为 false（图腿不改管道结果）')
+
+    t.diagnostic(
+      `[非降级·rankBy 锚点] stub 端点 hits=${hits} · degraded=${out.degraded} channel=${out.channel} rankBy=${out.rankBy} reason=${String(out.reason)} ` +
+        `· items=${out.items.length} 条 keys=${JSON.stringify(out.items.map((i) => i.key))} · 图腿 additions=${graph.additions} keys=${JSON.stringify(graph.keys)}`,
+    )
+    await ctx.stop?.()
+  } finally {
+    await new Promise((r) => server.close(r))
+  }
+})
+

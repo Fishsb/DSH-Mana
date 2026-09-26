@@ -25,7 +25,7 @@ import { dirname, join } from 'node:path'
  */
 const FILES = [
   { file: 'b11-vector.test.mjs', cases: 15 },
-  { file: 'recall-graph.test.mjs', cases: 10 },
+  { file: 'recall-graph.test.mjs', cases: 11 },
 ]
 
 const here = dirname(fileURLToPath(import.meta.url))
