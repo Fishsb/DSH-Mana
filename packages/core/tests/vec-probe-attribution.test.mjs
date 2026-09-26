@@ -173,7 +173,15 @@ test('⑦ vecProbe 当前**零仓内消费者**（除 core 自身）—— 未�
     for (const e of readdirSync(dir, { withFileTypes: true })) {
       const full = join(dir, e.name)
       if (e.isDirectory()) {
-        if (['node_modules', 'lib', '.git', 'types'].includes(e.name)) continue
+        /**
+         * ⚠ **必须排除隔离工作树**（2026-09-26 修，实测假红）：
+         * `.dsh-worktrees/` 是 taskboard 为并行卡建的 **git worktree 副本**——里面是**同一份源码的第二份检出**，
+         * 不是「core 之外的消费者」。不排除它时，只要仓里存在任何一个 worktree，
+         * 本判据就会把副本里的 `core/src/index.ts` 数成消费者 ⇒ **恒红假红**。
+         *
+         * 判据要回答的是「**本仓**有没有别的包调用 vecProbe」——worktree 是同一仓的投影，不构成第二个消费者。
+         */
+        if (['node_modules', 'lib', '.git', 'types', '.dsh-worktrees'].includes(e.name)) continue
         walk(full, depth + 1)
         continue
       }
