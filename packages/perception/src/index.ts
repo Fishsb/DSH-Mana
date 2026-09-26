@@ -16,6 +16,7 @@ import {
   type ManaCoreService,
   type ManaObservation,
 } from 'dsh-mana-core'
+import { mergeSignalTables, prefilterBySignalWords, type SignalVerdict } from './signal.ts'
 
 export const name = 'mana-perception'
 
@@ -26,11 +27,37 @@ export interface Config {
   maxChunkChars: number
   /** 相邻块重叠字符数，避免语义在切点被截断。 */
   chunkOverlapChars: number
+  /**
+   * 信号词预筛开关（v10 §12.3 的「零 LLM 成本」那道门）。
+   *
+   * ⚠ **缺省 false —— 这是设计判断，不是保守**（本席 2026-09-26 实测改过一次）：
+   *   预筛在 v10 里属于**会话蒸馏路径**（§12.3 全句：「空闲 10 分钟 → 信号词预筛 → LLM 裁决 →
+   *   白名单门禁 → …」），**不是**每条输入都过的主链闸。
+   *   我第一版把它接到主链且缺省 true，实测后果：`npm test` **23 项按设计变红**
+   *   （编码链/注入门/工作记忆的端到端判据全用短技术串，逐条被预筛挡下 ⇒ `emitted:0`）。
+   *   那些红**不是缺陷**，而是**判据正确地报告了"主链行为被改了"** —— 只是改的方向错了：
+   *   主链要的是「**进来了就采**」（漏采比多采贵得多），粗筛该发生在**蒸馏**那条路径上。
+   * ⇒ 缺省 false（**主链行为一字不变**），蒸馏路径/需要时显式开。
+   *
+   * ⚠ 关掉**不是静默**：逐条读数仍经 `lastReading()` 与 `status()` 暴露
+   *   （`filterEnabled:false` + `filteredBySignal:0`）⇒ "关着"与"没筛"可分辨。
+   */
+  signalFilterEnabled: boolean
+  /**
+   * 部署注入的**领域信号词**（与内置词表合并；空数组 = 只用内置）。
+   *
+   * 预留此键是为了**不把词表写死在源码里**：接库学词表（v10 的 `distillation_log.signal_words`）
+   * 之前，部署侧至少能经配置补领域词而不必改源码。
+   */
+  extraSignalWords: string[]
 }
 
 export const Config: Schema<Config> = Schema.object({
   maxChunkChars: Schema.number().default(1200),
   chunkOverlapChars: Schema.number().default(120),
+  // 缺省 false：见 Config.signalFilterEnabled 的长注（主链不得被粗筛改变行为）
+  signalFilterEnabled: Schema.boolean().default(false),
+  extraSignalWords: Schema.array(Schema.string()).default([]),
 })
 
 /** 分块结果（**显式**给出块数，使「切了没切」可断言而不是靠猜）。 */
@@ -60,15 +87,50 @@ export function chunkText(text: string, maxChunkChars: number, chunkOverlapChars
   return { chunks, split: chunks.length > 1 }
 }
 
+/**
+ * 一次采集的**完整读数**（v10 §12.3 信号词预筛落地后，返回值不再是裸数字）。
+ *
+ * ⚠ 为什么要把"筛掉了多少"显式返回：本仓 2026-09-26 实测的归因错位正是
+ *   「memory_items 不生长」被读成"系统效果差"，真因却是**上游层级错位**。
+ *   若 `perceive` 只回"发出几块"，则"筛掉了"与"压根没输入"**同形** ⇒ 同一个错会再犯一次。
+ */
+export interface PerceiveReading {
+  /** 实际发出的 `mana/observation` 条数（= 通过预筛的块数）。 */
+  readonly emitted: number
+  /** 被信号词预筛挡下的块数（**0 与"没筛"必须可分辨**：见 `filterEnabled`）。 */
+  readonly filteredBySignal: number
+  /** 预筛开关当时的取值（读数自带语境，免得读者拿错前提解释上面的数）。 */
+  readonly filterEnabled: boolean
+  /** 逐块的预筛判定（含命中词），使"为什么被挡"可复算。 */
+  readonly verdicts: readonly SignalVerdict[]
+  /** 文本被切成几块（与 `emitted` 分开：切了 3 块只发 1 块是两件事）。 */
+  readonly chunks: number
+}
+
 export interface ManaPerceptionService {
   readonly plugin: string
   /**
-   * 采集一条输入：分块后**逐块**发出 `mana/observation`，返回发出的块数。
+   * 采集一条输入：分块 → **逐块过信号词预筛** → 通过的逐块发出 `mana/observation`。
    *
    * 事件用 `ctx.emit`（`mana/observation` 是 emit 型通知，见 `event-types.ts`）。
+   *
+   * ⚠ **返回值恒为「发出块数」（`number`）—— 这是跨包契约面，不得改成对象**
+   *   （本席 2026-09-26 实测教训）：改对象会让全仓 **20 处**消费方连带失败
+   *   （`scheduler/chains.ts:669` + 三个测试文件的 19 处），而那些失败**与被改的功能无关**
+   *   ⇒ 典型的"拆东墙补西墙"。⇒ 读数改走 **`lastReading()`**（见下），契约面一字不动。
    */
   perceive(input: { content: string; sessionId: string; turnId: number; requestId: string; source?: string; at?: string }): number
-  status(): { plugin: string; wired: boolean }
+  /**
+   * **最近一次 `perceive` 的完整读数**（预筛分流情况）。
+   *
+   * ⚠ 为什么单开一个方法而不是改返回值：见 `perceive` 的说明（契约面）。
+   *   `null` = 本次装配后**还没调用过** `perceive` —— 与"调用过但全被挡下"**必须可分辨**
+   *   （前者是"没测"，后者是"测了，结果是筛掉了"）。
+   */
+  lastReading(): PerceiveReading | null
+  /** 预筛词表的只读快照（名字 + 词数），使"用的哪张表"可查。 */
+  signalTable(): { name: string; size: number }
+  status(): { plugin: string; wired: boolean; filterEnabled: boolean; tableName: string }
 }
 
 declare module '@deepseek-ai/cordis' {
@@ -81,10 +143,35 @@ export function apply(ctx: Context, config: Config): void {
   const core = ctx.get('mana-core')
   if (!core) throw new Error('mana-perception: 缺少 mana-core 服务（inject 未满足）')
 
+  /**
+   * 预筛词表**在装配时确定一次**（`extraSignalWords` 是装配期配置；运行期不换表
+   * ⇒ 读数里的 `table` 名字在整个生命周期内稳定，不会出现"同一批观察用了两张表"）。
+   */
+  const table = mergeSignalTables(config.extraSignalWords ?? [])
+
+  /** 最近一次采集的读数（`null` = 装配后还没调用过 —— 与"调用过但全挡下"可分辨）。 */
+  let lastReading: PerceiveReading | null = null
+
   const perceive: ManaPerceptionService['perceive'] = (input) => {
     const { chunks } = chunkText(input.content, config.maxChunkChars, config.chunkOverlapChars)
     const at = input.at ?? new Date().toISOString()
+    const verdicts: SignalVerdict[] = []
+    let emitted = 0
+    let filteredBySignal = 0
     for (const [i, chunk] of chunks.entries()) {
+      /**
+       * ⚠ **预筛在分块之后、逐块之前**（顺序不可反）：分块是为了让每块**各自**可判定，
+       *   若先筛整段再分块，则"长文本里只有一处信号词"会让**整段**通过（含大量无关块）——
+       *   那等于没筛。逐块筛才使"信号密度"真的影响放行量。
+       */
+      const verdict = config.signalFilterEnabled
+        ? prefilterBySignalWords(chunk, table)
+        : ({ state: 'hit', hits: [], score: 0, table: table.name, bypass: true } as unknown as SignalVerdict)
+      verdicts.push(verdict)
+      if (verdict.state !== 'hit') {
+        filteredBySignal += 1
+        continue
+      }
       const obs: ManaObservation = {
         sessionId: input.sessionId,
         turnId: input.turnId,
@@ -95,14 +182,19 @@ export function apply(ctx: Context, config: Config): void {
         source: input.source ?? 'unknown',
       }
       ctx.emit('mana/observation', obs)
+      emitted += 1
     }
-    return chunks.length
+    lastReading = { emitted, filteredBySignal, filterEnabled: config.signalFilterEnabled, verdicts, chunks: chunks.length }
+    // ⚠ 契约面：返回**发出块数**（不是读数对象）。读数走 lastReading()。
+    return emitted
   }
 
   const service: ManaPerceptionService = {
     plugin: name,
     perceive,
-    status: () => ({ plugin: name, wired: true }),
+    lastReading: () => lastReading,
+    signalTable: () => ({ name: table.name, size: table.words.length }),
+    status: () => ({ plugin: name, wired: true, filterEnabled: config.signalFilterEnabled, tableName: table.name }),
   }
 
   ctx.effect(() => {
@@ -114,5 +206,9 @@ export function apply(ctx: Context, config: Config): void {
 
   void core
 }
+
+export { mergeSignalTables, prefilterBySignalWords, BUILTIN_SIGNAL_TABLE } from './signal.ts'
+export type { SignalVerdict, SignalWordTable } from './signal.ts'
+export { DEFAULT_SIGNAL_WORDS } from './signal-words.ts'
 
 export type { ManaCoreService }

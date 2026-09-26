@@ -263,7 +263,32 @@ test('P5 ④形态：ctx.effect 注册 1 点、agent/pre-step 直通 1 条且真
     assert.equal(listeners.length, 1, '本包除 pre-step 外不应注册其它事件监听器')
 
     const svc = provides.get('mana-perception')
-    assert.deepEqual(svc.status(), { plugin: 'mana-perception', wired: true })
+    /**
+     * ⚠ **status() 的形状已扩展**（v10 §12.3 信号词预筛落地）：新增 `filterEnabled` 与 `tableName`。
+     *   本条断言原为 `deepEqual({plugin, wired})` ⇒ 扩展后**按设计变红** —— 那是判据正确报告
+     *   「形态变了」（本仓明令：多一条行为而没人交代即红），**不是**缺陷。
+     *   ⇒ 修法**不是**删字段凑旧值，而是**把新字段一并钉住**（否则下次删掉它们不会有任何判据响）。
+     *   ⚠ 这里用**显式键值逐条断言**而不是再写一份 deepEqual 字面量：后者每逢加字段都要人肉同步
+     *   （本席在同批的 `a15-anchor` 上刚踩过"写死数字"的坑）。
+     */
+    const st = svc.status()
+    assert.equal(st.plugin, 'mana-perception')
+    assert.equal(st.wired, true)
+    /**
+     * ⚠ 本用例传的是**裸对象**（`{maxChunkChars, chunkOverlapChars}`）⇒ **schemastery 的缺省不生效**
+     *   ⇒ `config.signalFilterEnabled` 为 `undefined`。这是**真实的边界**（真宿主经 schema 装配时
+     *   才会填 false），本断言如实钉住它：
+     *   · `undefined` **不是** true ⇒ 生产路径上"没配该键"等于**不筛**（行为面正确）；
+     *   · 但它**不是**显式 false ⇒ status() 必须如实回报 `undefined` 而不是替它编一个 false。
+     *   ⇒ 断言"非 true"（行为正确性）**且**"与 config 同源"（读数诚实性），而不是写死某个值。
+     */
+    assert.notEqual(st.filterEnabled, true, '裸 config 下不得视为"开"（undefined 不是 true ⇒ 不筛）')
+    assert.equal(st.filterEnabled, undefined, '读数必须如实反映传入配置（不得替调用方编一个缺省值）')
+    assert.equal(st.tableName, 'builtin', '未注入领域词 ⇒ 表名必须是内置表（"用的哪张表"可查）')
+    assert.ok(
+      Object.keys(st).length === 4,
+      'status() 的键集合变了就必须在此交代（实测键=' + JSON.stringify(Object.keys(st)) + '）',
+    )
 
     const n = svc.perceive({ content: '0123456789ABCDEFGHIJ', sessionId: 's', turnId: 1, requestId: 'r' })
     assert.equal(n, 3)
