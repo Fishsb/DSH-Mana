@@ -837,7 +837,53 @@ const fixed = (x, n = 6) => Number(x).toFixed(n)
    *   `decay_factor` 列名与 `packages/forgetting/src/index.ts` 文件头的「待 W5」字样。
    *   ⇒ 本项测的是**闭式核与判据表锚点**，并**实时扫描**仓内是否已出现实现者：
    *     一旦出现，本项自动转 HANG（判据必须改接真实现，不许继续对闭式核自证）。
+   *
+   * ── ⚠ **带牙腿**（N5，2026-06-26 补；来自 c3 独立审查的实测反例）────────────────────
+   *   上文那三条锚点**不构成对核的充分检查**：它们全部取在 `t ≥ 0` 且用**同一个** `h` ⇒ 两种坏核
+   *   能把三条**全过**：① **忽略 `halfLifeDays` 的死旋钮核**（与 budgetChars 同一形态）；
+   *   ② **无 `t<0` guard 的核**。这两条当时只由包内测试兜 ⇒ 判据腿比实现面**更弱**。
+   *   ⇒ 本块补两条牙，且**齿只有一份真源**：调 `packages/forgetting/src/retention.ts` 的 `decayKernelTeeth()`，
+   *     判据腿与包内测试用**同一个**函数（避免两处各写一份齿 —— 那正是下一个漂移点）。
+   *
+   * ⚠ **写面纪律**：本脚本**不是**本席的写面（判据登记单席独占）；本轮只许改本块。
+   *   故这里用**绝对路径** `file://` 动态 import（见下面的 `TEETH_MODULE`），
+   *   不新增顶层 `import`、不引入跨包相对路径 —— 解析口径与 `tools/probes/a08-schema.mjs` 同形。
+   *
+   * ⚠ **本块本轮不动四态等级**（HANG→PASS 的定级属判据登记席，另派）：
+   *   下面 `impls.length` 分支仍记 HANG，只是 detail 里追加**两条牙的实测读数**。
+   *   这是**可观测性补强**，不是改档位；把「等级未变」读成「本轮没进展」或把「补了腿」读成「已 PASS」都是误读。
    */
+  /** 带牙腿的真源模块（本包唯一的「齿」实现；绝对路径，不依赖跨包相对解析）。 */
+  const TEETH_MODULE = 'file:///home/lk/Mana/packages/forgetting/src/retention.ts'
+  /** 带牙腿要判的**真核**（仓内唯一的衰减核实现者；与下面 impls 扫描同源）。 */
+  const KERNEL_MODULE = 'file:///home/lk/Mana/packages/long-term/src/decay.ts'
+  const FROZEN_H = 14 // 判据表 A1-5 的冻结半衰期（逐字，不从这里反算）
+  /**
+   * 两条牙的读数。**任何失败路径都必须给出可读原因**，不得静默吞掉：
+   *   · 模块不可加载 / 无 `decayKernelTeeth` ⇒ `state:'unavailable'` + 原因（**不**当 PASS）；
+   *   · 真核不可加载（仓内无实现者）⇒ `state:'no-kernel'`（本块此时走 `none()` 分支）。
+   */
+  let teethText = ''
+  let teethOk = null
+  try {
+    const mod = await import(TEETH_MODULE)
+    const kernel = await import(KERNEL_MODULE)
+    if (typeof mod.decayKernelTeeth !== 'function') {
+      teethText = '带牙腿真源缺 decayKernelTeeth 导出（判据面被削）'
+      teethOk = false
+    } else {
+      const r = mod.decayKernelTeeth(
+        { decay: kernel.decay },
+        { frozenHalfLife: FROZEN_H, probeHalfLife: FROZEN_H / 2 },
+      )
+      teethOk = r.ok === true
+      teethText = r.teeth.map((x) => (x.ok ? '✓' : '✗') + x.id).join(' · ')
+      if (!teethOk) teethText += '｜违规：' + r.violations.join('；')
+    }
+  } catch (error) {
+    teethText = '带牙腿**未判定**（' + String((error && error.message) || error).slice(0, 140) + '）'
+    teethOk = null
+  }
   const decay = (t, h) => Math.exp((-t * Math.LN2) / h) // 半衰期定义式，与 docs/mana-v5-plan.md:533 逐字同形
   /** `--mutate a1-5`：判据内联核的变异（本项无实现可变异，见上面 caveat；如实标注）。 */
   const H = mutOf('A1-5') ? 7 : 14
@@ -866,19 +912,28 @@ const fixed = (x, n = 6) => Number(x).toFixed(n)
     }
   }
   const detail = anchors.map(([n, g, w]) => `${n}=${fixed(g)}（差 ${Math.abs(g - w).toExponential(2)}）`).join(' · ')
+  /**
+   * 牙读数的**唯一渲染口**（三处分支共用一份，避免「有的分支带、有的不带」的漂移）。
+   * ⚠ 未判定（`null`）**不算过**：文案里显式写「未判定」——
+   *   本仓四态语义要求「判不了」与「过了」必须能分开读。
+   */
+  const teethNote =
+    '带牙腿：' + (teethOk === true ? '两条牙全过' : teethOk === false ? '**有牙咬住**' : '**未判定**') + ' —— ' + teethText
   if (bad.length) fail(id, title, `闭式核不符：${bad.join('；')}`, '回排序步骤（衰减核参数 h=14 天）')
   else if (impls.length)
-    hang(id, title, `${detail}｜⚠ 仓内已出现衰减核实现者：${impls.join(', ')}`, '本项须改接真实现后再判；对闭式核自证不再是有效判据', {
+    hang(id, title, `${detail}｜${teethNote}｜⚠ 仓内已出现衰减核实现者：${impls.join(', ')}`, '本项须改接真实现后再判；对闭式核自证不再是有效判据', {
       token: 'A1-5',
       crit: 'A1-5',
       implBatch: 'B4.2',
-      note: '原定验收阶段 = 阶段 3（B4.2 实现半衰期 14 天）；**而本项由阶段 1 的门读** ⇒ 阶段 1 的绿不构成它被验收',
+      note:
+        '原定验收阶段 = 阶段 3（B4.2 实现半衰期 14 天）；**而本项由阶段 1 的门读** ⇒ 阶段 1 的绿不构成它被验收' +
+        '；⚠ **等级本轮未改**（HANG→PASS 的定级属判据登记席，另派）：本块只补了两条带牙腿的实测读数',
     })
   else
     none(
       id,
       title,
-      `${detail}｜仓内**无实现者**（依赖链：B4.2 前置于 B3.1，落地册:547 / :503）`,
+      `${detail}｜${teethNote}｜仓内**无实现者**（依赖链：B4.2 前置于 B3.1，落地册:547 / :503）`,
       '只此一处不合格：本项证明的是「判据锚点成立」，不是「实现正确」——实现落地时本项须改接真实现',
     )
 }
@@ -1064,13 +1119,32 @@ const fixed = (x, n = 6) => Number(x).toFixed(n)
         fresh = statSync(libEntry).mtimeMs >= maxSrc
       }
     }
-    if (fresh === false) bad.push(`${pkg}: lib/index.js 早于 src ⇒ 解析到的是过期产物`)
-    // 内容腿（见文件上部 artifactVerdict 的注释）：mtime 是代理指标，可被 cp/touch 伪造 ⇒
-    // 「新鲜」不等于「产物出自当前 src」。只作**附加**证据，不改变本项的既有判定面。
+    // ── 产物过期判定：**内容腿优先，mtime 只作附加证据**（V1 修）─────────────────
+    //
+    // ⚠ 修的是什么（两位审查席独立报告，本席独立复现）：
+    //   原实现 `if (fresh === false) bad.push(...)` 对 mtime **直接判红**，而**同一份实现、同一轮**
+    //   的 ARTIFACTS 腿已把 mtime 定性为「可被 cp/touch 伪造的代理指标」并给 HANG
+    //   ⇒ 同一现象一处判红、一处挂账。实测形态：` M packages/long-term/src/index.ts`（别席在途编辑）
+    //   会让 mtime 腿报「过期」，而内容腿（真 tsc 重编 + 逐字节比）同时报 ✓ —— 那是**假红**。
+    // ⚠ **不得**改成「不看 mtime」（那是拆东墙：把一条能抓真过期的腿变成永远绿的腿）。
+    //   新口径是**两级**，且**只有两级**：
+    //     · 内容腿 FAIL（与当前 src 重编译产物字节不等 / lib 缺产物 / lib 多出当前 src 编不出的产物）
+    //       ⇒ **判红**（这是「产物不是当前 src 编出来的」的直接证据，不可被 mtime 掩盖）；
+    //     · 内容腿 PASS 而 mtime 报旧 ⇒ **不判红**，在行内标注 `mtime=⚠（内容✓⇒mtime假红）`；
+    //     · 内容腿 unknown（无 tsc / 无 tsconfig / 重编未产出）⇒ **不得读成一致**：
+    //       此时 mtime 旧就**仍然判红**（mtime 是唯一可用证据，不能因为「内容腿判不了」而放行）。
+    //   ⇒ 真过期（改 src 不重建）在下述两种情形都仍会红：内容腿直接红；或内容腿判不了时 mtime 红。
     const cv = artifactVerdict(dir)
-    if (cv.state === 'FAIL') bad.push(`${pkg}: 内容腿红 —— ${contentBad(cv)}`)
+    const mtimeStale = fresh === false
+    if (cv.state === 'FAIL') {
+      bad.push(`${pkg}: 产物过期（**内容腿**：与当前 src 重编译产物不一致）—— ${contentBad(cv)}`)
+    } else if (mtimeStale && cv.state !== 'PASS') {
+      // 内容腿 unknown ⇒ mtime 是当轮唯一证据 ⇒ 保留原判红口径（不因「判不了」而放行）。
+      bad.push(`${pkg}: lib/index.js 早于 src 且内容腿**未判定**（${contentBad(cv)}）⇒ 按 mtime 判过期`)
+    }
     const cNote = cv.state === 'PASS' ? '内容=✓' : cv.state === 'unknown' ? '内容=未判定' : '内容=✗'
-    lines.push(`${pkg} → ${resolved} [${keys.join(',')}] mtime=${fresh === false ? '⚠过期' : '✓'} ${cNote}${cv.state === 'FAIL' ? ' ⚠' + contentBad(cv) : ''}`)
+    const mNote = !mtimeStale ? '✓' : cv.state === 'PASS' ? '⚠（内容✓⇒mtime假红）' : '⚠过期'
+    lines.push(`${pkg} → ${resolved} [${keys.join(',')}] mtime=${mNote} ${cNote}${cv.state === 'FAIL' ? ' ⚠' + contentBad(cv) : ''}`)
   }
   if (bad.length) fail(id, title, `不符：${bad.join('；')}｜${lines.join(' | ')}`, '回构建步骤（npm run build --workspace dsh-mana-<pkg>）')
   else pass(id, title, lines.join(' | '), '判据表 docs/session-allocation.md W2-5；「文件在长」不算通过 —— 断言到导出符号与产物新鲜度')

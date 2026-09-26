@@ -12,6 +12,13 @@
  *   node tools/a0-check.mjs --record-baseline --expect <前缀> --accept-dirty "<理由>"
  *                                            # 重取基线（A0-10 的两仓基线 + A0-12 三件套 + 追加流水）
  *                                            # ⚠ 只由「唯一基线席」执行；--expect 为必填（本批预期写面前缀，可重复）
+ *   node tools/a0-check.mjs --expect X --write-face "<item;item;…>"
+ *                                            # 判据跑态**中途换写面**：把本次判据腿的写面收窄为 X。
+ *                                            # 写面并集在跑态**不可从任何数据源重建**（原始声明是各席
+ *                                            # 会话里的一次性文本，调用后即蒸发）⇒ 留下这条**结构上不可
+ *                                            # 自证即可证伪**的门：谁想让腿被判红，谁必须先把自己的写面
+ *                                            # 收窄（多出一次显式动作）；而收窄动作**不改判据语义**，
+ *                                            # 并集外的一件仍必红。
  *
  * ⚠ 纪律：
  *  · **不得用管道取退出码**（`node x.mjs | tail` 的 `$?` 是 tail 的）。要判真值须
@@ -19,6 +26,10 @@
  *  · **退出码语义表（三态，互不可混）**：
  *      `0` = 16 项判据无 FAIL（可含挂账）**且**（若带 `--record-baseline`）基线记录成功；
  *      `1` = 有判据 FAIL（无论基线记录成功与否 —— 判据结果不被记录动作掩盖）；
+ *      `4` = **拒绝启动 / 拒绝给结论**（本批新增，与上三态互不可混）：参数守卫（--write-face 越界）
+ *            或 A0-10 预检（packages 侧无归属 ⇒ 按现数据必报红，故不报绿也不报红）。
+ *            ⚠ 之所以**另开一个码**而不是复用 `2`：`2` 已表示「判据绿但 --record-baseline 记录失败」，
+ *              两件不同的事实共用一位退出码就**不可分辨** —— 那正是本仓一路在防的形态；
  *      `3` = **另一个 a0-check 实例正在运行**（单实例锁，并发纪律 §1）—— 本实例**不排队**、
  *    ⚠ 记录失败**不混进那 16 项**：一旦混进去，「判据绿但基线没记」与「判据真红」
  *      就不可分辨了 —— 那是另一种不可观测。两者必须能分开读（见文件末 `[baseline status]`）。
@@ -28,6 +39,9 @@
  *
  * ⚠ 项数：**16 项**（A0-1…A0-14 计 14 + R0 + A1 入口）。本文件 2026-09-25 的两处改动
  *   （A0-10 加本仓腿 / A0-12 加流水腿）**不增删判据项** ⇒ 项数 16 → 16（无变化）。
+ *   2026-09-26 本批（A0-10 与并行写入不相容）同样**不增删判据项** ⇒ 项数 **16 → 16**（无变化）：
+ *   · 新增 `--write-face` 收窄开关（只做小，守卫拒绝并集外项）；
+ *   · 新增 A0-10 **预检**：packages 侧无归属时**拒绝给结论**（exit 2），不把有主改动报成越界；
  *   纪律见 `docs/contract/concurrency-discipline.md` §6：改 checker 须写明期望项数变化。
  */
 import { execFileSync } from 'node:child_process'
@@ -41,6 +55,19 @@ import { createHash, randomUUID } from 'node:crypto'
 const HERE = dirname(fileURLToPath(import.meta.url))
 const ROOT = join(HERE, '..')
 const P = (...p) => join(ROOT, ...p)
+
+/**
+ * A0-10 两仓基线的落盘位置（\`tools/.a0-10-baseline.json\`，\`.gitignore:8\` 已忽略）。
+ *
+ * ⚠ **必须定义在模块最前**（f1 第二次退修的根因）：它原先定义在 \`:306\`，而 \`:110\` 的
+ *   \`--write-face\` 守卫在**模块顶层**就调用它 ⇒ 抛 TDZ \`ReferenceError\`，被守卫的
+ *   \`catch { return [] }\` **吞成空集** ⇒ 「不得比基线并集更宽」那条检查**是死代码**
+ *   （arch 席判别实验：\`--expect docs/contract/ --write-face docs/other/\` 应打印「更宽」，
+ *   实测打的是「含比对基准之外」，\`grep -c 更宽\` = 0）。
+ *   ⇒ 修法二选一，本批取**上移**（而不是守卫里内联第二份字面路径）：
+ *     内联会让同一路径有两个真源，一旦漂移，守卫查的是另一个文件 —— 那是**更安静的**失效。
+ */
+const A010_BASELINE = () => P('tools/.a0-10-baseline.json')
 
 const argv = process.argv.slice(2)
 const JSON_OUT = argv.includes('--json')
@@ -58,6 +85,94 @@ const EXPECT = (() => {
   for (let i = 0; i < argv.length; i += 1) if (argv[i] === '--expect') out.push(String(argv[i + 1] ?? '').trim())
   return out.filter(Boolean)
 })()
+
+/**
+ * **收窄**本次运行所声明的写面（`--write-face "<item;item;…>"`，可重复）。
+ *
+ * ⚠ 为什么是**分号**分隔而不是逗号：写面项本身可以是 `docs/handoff/*.md` 这类由 shell 展开的路径，
+ *   而**逗号**已被 `_freeze.log` 的 `reason` 字段当分隔符用过（见 A0-12 跃迁腿的 legacy 回退读法），
+ *   两个分隔符混用会让「同一条声明」在两处解析出不同结果。故此处**只认分号**，并**显式拒绝**含逗号的项。
+ */
+const WRITE_FACE = (() => {
+  const raw = []
+  for (let i = 0; i < argv.length; i += 1) if (argv[i] === '--write-face') raw.push(String(argv[i + 1] ?? ''))
+  const out = raw.flatMap((s) => s.split(';')).map((s) => s.trim()).filter(Boolean)
+  const withComma = out.filter((s) => s.includes(','))
+  if (withComma.length) {
+    console.error('✗ --write-face 项里不得含逗号（分隔符只认分号）：' + JSON.stringify(withComma))
+    process.exit(4)
+  }
+  return out
+})()
+/**
+ * ⚠ **收窄守卫**（本批新增，理由必读）：`--write-face` 的用途是「让某次运行看得见的写面
+ *   **比并集更小**」——这正是**造负向对拍**所需要的（造扰动 ⇒ 断言必红）。
+ *   但同一开关也能被用来**永久放宽**：把写面声明成整个仓，越界腿就永远绿。
+ *   两者的差别只有一条，且可机检：**收窄是把写面做小，放宽是做小以外的任何事**。
+ *   ⇒ 硬规则：`--write-face` 的每一项**必须前缀匹配至少一个并集项**；出现并集之外的项即**拒绝启动**
+ *     （`exit 4`，与「判据红」的 1、「记录失败」的 2 都区分开）。这样该开关**在结构上不可能**携带任何并集外内容。
+ *
+ * ⚠ **c4 重修（本批）**：上一版此处把「并集」直接写成**本次命令行的 `--expect`**，与 `:640` 的
+ *   预检拼在一起，就构成了 arch 席那条决定性反例 —— **命令行自选宽并集既让预检不触发、
+ *   又给判据腿一个更宽的归属集合**，两头都绕开。修法（与 `:640`、判据腿**同源**）：
+ *   守卫的比对基准改为「**基线记录值 ∪ 本次 `--expect`**」。安全性：`--write-face` 每一项
+ *   仍必须至少前缀匹配**其中之一**；把它加宽到并集之外的路径仍然没有 —— 只是不许拿它
+ *   **比基线记录值更宽**（那种「宽」必须走 `--record-baseline` 的三道前置门）。
+ */
+/**
+ * 基线记录值（\`expect\`）—— \`--write-face\` 守卫的**唯一比对基准**。
+ *
+ * ⚠ **f1 第二次退修（本批）的两条修复，都在这里**：
+ *   1. **读不到 ≠ 是空的**。上一版 \`catch { return [] }\` 把「TDZ/文件缺失/JSON 坏」与
+ *      「基线里就没有写面」**吞成同一个空集**，于是「不得比基线并集更宽」那条检查
+ *      **变成死代码**（arch 席实证：真实篡改 \`packages/core/src/c.ts\` 后
+ *      \`--expect packages/ --write-face packages/\` 报 PASS 1 · FAIL 0）。
+ *      ⇒ 现在：**任何**读不到的情形一律 \`exit 4\` 并打印可枚举 reason，**不降级成空集**。
+ *      理由与本仓降级契约同源（\`degradation.md\`）：空集是**有含义的取值**（真的一件都没有），
+ *      拿一个异常去冒充它，等于把「判不了」静默改写成「判过了」。
+ *   2. **单一真源**：\`A010_BASELINE\` 已上移到模块最前，此处不再内联第二份字面路径。
+ */
+const baseFaceForGuard = (() => {
+  let raw
+  try {
+    raw = JSON.parse(readFileSync(A010_BASELINE(), 'utf8'))
+  } catch (error) {
+    return { face: null, reason: 'baseline-unreadable', detail: String(error.message).split('\n')[0] }
+  }
+  // 旧格式（顶层 {head,dirty}，只含样板仓）没有写面概念 ⇒ 同样按「拿不到」处理，不冒充空集。
+  const e = raw && raw.head !== undefined && !raw.sample ? null : (raw?.expect ?? null)
+  if (!Array.isArray(e)) return { face: null, reason: 'baseline-has-no-expect', detail: 'JSON 里没有 expect 数组（旧格式或字段缺失）' }
+  return { face: e, reason: null, detail: '' }
+})()
+if (WRITE_FACE.length) {
+  if (baseFaceForGuard.reason) {
+    console.error('✗ --write-face 无法取得比对基准（' + baseFaceForGuard.reason + '）：' + baseFaceForGuard.detail)
+    console.error('   为什么拒绝而不是当成空集：空集 = 「基线真的没声明写面」，与「读不到」是两件事；')
+    console.error('   把它当成空集，正是「不得比基线并集更宽」这条检查此前变成死代码的直接成因。')
+    console.error('   处置：先让唯一基线席记录基线（--record-baseline --expect …），或在副本仓里显式造一份基线。')
+    process.exit(4)
+  }
+  const guardBase = [...new Set([...baseFaceForGuard.face, ...EXPECT])]
+  const bad = WRITE_FACE.filter((p) => !guardBase.some((pre) => p.startsWith(pre)))
+  if (!guardBase.length) {
+    console.error('✗ --write-face 缺少比对基准：基线记录值为空且未给 --expect（并集不得凭空造面）')
+    process.exit(4)
+  }
+  // ⚠ 判定顺序：**先判「更宽」再判「基准外」**，且不为「更宽」加任何前置条件 ——
+  //   上一版写作 `wider.length && baseFaceForGuard.length`，当基准为空集时整条静默跳过
+  //   （静默跳过 = 判据在，但永远不会说话）。现在基准由上面显式保证非空、且读不到已 exit 4。
+  const wider = WRITE_FACE.filter((p) => !baseFaceForGuard.face.some((pre) => p.startsWith(pre)))
+  if (wider.length) {
+    console.error('✗ --write-face 比**基线记录的并集**更宽：' + JSON.stringify(wider.slice(0, 8)) + '｜基线并集 = ' + JSON.stringify(baseFaceForGuard.face))
+    console.error('   为什么拒绝：c4 反例的成因正是「命令行把面做大」—— 换面必须走 --record-baseline（唯一基线席 + 干净树前置门）')
+    process.exit(4)
+  }
+  if (bad.length) {
+    console.error('✗ --write-face 含比对基准之外的项：' + JSON.stringify(bad.slice(0, 8)) + '｜基准 = ' + JSON.stringify(guardBase))
+    console.error('   为什么拒绝：该开关只许**收窄**，不许把写面声明成全集 —— 后者等于废掉越界腿')
+    process.exit(4)
+  }
+}
 /** `--accept-dirty "<理由>"`：允许在**脏树**上记录（收工录本批最终态用）。理由为空即拒绝 —— 空理由等于静默绕过。 */
 const RECORD_MODE_ARG = argv.includes('--record-baseline')
 const ACCEPT_DIRTY = argv.includes('--accept-dirty')
@@ -224,8 +339,8 @@ const fpOf = (p) => {
   return { sha256: createHash('sha256').update(buf).digest('hex'), bytes: buf.length, mtimeMs: Math.round(st.mtimeMs) }
 }
 const stripBom = (s) => (s.charCodeAt(0) === 0xfeff ? s.slice(1) : s)
-/** A0-10 两仓基线的落盘位置（`tools/.a0-10-baseline.json`，*.gitignore:8* 已忽略）。 */
-const A010_BASELINE = () => P('tools/.a0-10-baseline.json')
+/** ⚠ `A010_BASELINE` 已**上移**到模块最前（见 `P` 定义之后）—— 这里原先的副本已删除，
+ *   保留此注释是为了让「同一路径只有一个真源」这件事在**原址**也可读，避免后人再加一份。 */
 /** 契约快照三件套路径（**唯一真源** —— A0-12 与基线记录腿都取自这里，不得各写一份）。 */
 const FREEZE_FILES = () => ({
   sha256: P('docs/contract/_freeze.sha256'),
@@ -527,28 +642,162 @@ if (want('A0-9')) {
 //   · 本仓腿 **常开** —— 本批工作全在本仓，它必须每跑必判；
 //   · 样板腿 仅当基线里**真存有**该仓基线时才判 —— 否则「该仓此刻是脏是净」与本批无关，
 //     拿一个从未记过基线的仓去判红是**假红**。
+/**
+ * ── A0-10 预检（本批新增）：并行下的**唯一硬阻塞** —— 基线时刻的脏面无法重建 ──
+ *
+ * 实测形态（HEAD `4de9b87`，本批）：本仓 66ef2bb 之后的提交里有 4 个 `packages/<pkg>/src`
+ *   （attention / core×2 / working-memory），而基线 `expect` 是 `["docs/contract/"]` 单条
+ *   ⇒ 越界腿**每跑必红**，而红的是**已提交的有主改动**，不是无主脏。
+ * 成因不是「写面写窄了」这一件事（那只是**表征**），而是**机制性的**：
+ *   越界腿判脏面时用的归属集合是「写面 ∪ **基线时刻的在途件**」，
+ *   而在本 harness 下**基线时刻的在途件无法被重建** ——
+ *   · 基线文件只存了**已跟踪**在途件（`self.trackedPaths`），**未跟踪件不入**（那是设计，避免假红）；
+ *   · 而「未跟踪 ⇒ 后来被 `git add` 成提交」的那一批，在今天的树上看**既不在脏面、也无归属**。
+ * ⇒ 按「声明并集 + 可从树重建的归属」去跑，**注定报红**，且报的是**有主改动**。
+ *   若放任它红，后果正是任务书说的「全员学会无视它」⇒ 越界腿**永久失效**。
+ *
+ * 处置（**响亮拒绝，不静默通过**）：当且仅当写面并集里**不含任何 `packages/` 前缀**
+ *   而基线与现 HEAD 之间**确有 `packages/` 提交**时，本判据**拒绝给出结论**
+ *   （exit 2，与「判据红」的 1 区分开；与单纯「没记录基线」的 FAIL 也区分开），
+ *   并打印**机器可读**的所需并集：
+ *       [[A0-10 需要重取基线]] --expect packages/ --expect tools/ --expect docs/ …
+ *
+ * ⚠ 为什么不是「把并集默认成整个仓」：那等于**废掉越界腿**（写面外的一件也恒绿），
+ *   是本任务书的第一条红线。并集**只能**由唯一基线席在干净树上（或带理由的收工窗）显式声明。
+ * ⚠ 为什么不用「基线后提交的 packages 件都算有主」来消红：那会让**真正的越界提交**
+ *   也一并变绿 —— 用一个更宽的绿灯盖住红灯，正是「拆东墙补西墙」。
+ */
+/** ⚠ 预检只在**判据跑态**生效：记录态本来就要在同一调用里改写基线，拦住它会让唯一基线席无法工作。 */
+if (want('A0-10') && !RECORD_MODE_ARG) {
+  const basePre = (() => {
+    try {
+      const raw = JSON.parse(readFileSync(A010_BASELINE(), 'utf8'))
+      if (raw && raw.head !== undefined && !raw.sample) return { self: raw.self ?? null, expect: raw.expect ?? null }
+      return { self: raw?.self ?? null, expect: raw?.expect ?? null }
+    } catch (error) {
+      // ⚠ **不得 `catch { return null }` 静默降级**（本仓契约：降级必须落可枚举 reason）。
+      //   基线读不到时预检**没有依据**，若静默返回 null，预检会整段不触发而**不报任何东西** ——
+      //   「预检没触发」与「预检通过」在输出上完全同形，正是本项目最在意的形态。
+      //   ⇒ 保留降级（不抛），但必须把 reason 带出去，由下面显式打印。
+      return { self: null, expect: null, degraded: 'baseline-unreadable', reason: String(error.message).split('\n')[0] }
+    }
+  })()
+  if (basePre && basePre.degraded) {
+    console.error('⚠ [A0-10 预检降级] ' + basePre.degraded + '：' + basePre.reason + ' ⇒ 本轮**无法**判定 packages 侧归属（预检不触发 ≠ 预检通过）')
+  }
+  /**
+   * ⚠ **本批（c4 重修）修掉的绕过路径**（arch 席的决定性反例，实测复现）：
+   *   原先此处是 `EXPECT.length ? EXPECT : (basePre?.expect ?? [])` —— 于是**本次命令行自选的宽并集**
+   *   可以让预检**整段不触发**：
+   *       node tools/a0-check.mjs --only A0-10                          → exit 4 拒绝（正确）
+   *       node tools/a0-check.mjs --expect packages/ --expect tools/ --expect docs/ --only A0-10
+   *                                                                     → exit 0 PASS 全绿（绕开）
+   *   同一棵树、同一时刻、**零外部授权，只差一个参数** ⇒ 前提「并集只来自 --record-baseline」被证伪：
+   *   上一版的守卫只守住了「把面**做小**」（--write-face），**没守住「把面做大」**。
+   * ⇒ 改为**只认基线里记录的那条并集**（`basePre.expect`）：本次命令行给的 `--expect`
+   *   **在预检这一步一律失效**；确需换面必须走 `--record-baseline`（三条前置门本批一字未改）。
+   *   ⚠ 收窄（--write-face）**不参与预检**：收窄只会让面更小，不会掩盖 packages 侧归属缺失。
+   */
+  const facePre = basePre?.expect ?? []
+  if (basePre?.self?.headFull && facePre.length && !facePre.some((p) => p.startsWith('packages/'))) {
+    let changedPreDegraded = null
+    const changedPre = (() => {
+      try {
+        return execFileSync('git', ['diff', '--name-only', basePre.self.headFull + '..HEAD'], { cwd: ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
+          .split('\n').map((l) => l.trim()).filter(Boolean).filter((p) => !FREEZE_OWN.includes(p))
+      } catch (error) {
+        // ⚠ 同上：**不得静默降级**。区间枚举不出来时「没有 packages 改动」与「枚举失败」
+        //   在结果上同形（都不触发拒绝）⇒ 必须把 reason 带出来显式打印。
+        changedPreDegraded = String(error.message).split('\n')[0]
+        return null
+      }
+    })()
+    if (changedPreDegraded) {
+      console.error('⚠ [A0-10 预检降级] commit-range-unreadable：' + changedPreDegraded + ' ⇒ 本轮**无法**枚举 packages 侧改动（预检不触发 ≠ 预检通过）')
+    }
+    const pkgChanged = changedPre ? changedPre.filter((p) => p.startsWith('packages/')) : []
+    if (pkgChanged.length) {
+      const need = [...new Set(pkgChanged.map((p) => p.split('/').slice(0, 2).join('/') + '/'))].sort()
+      console.error('✗ [A0-10 需要重取基线] 写面并集里不含 packages/ 前缀，但基线与现 HEAD 之间有 packages 改动 ⇒ 本判据拒绝给结论')
+      console.error('  基线锚点 ' + String(basePre.self.headFull).slice(0, 7) + ' → 现 HEAD，packages 改动 ' + pkgChanged.length + ' 件（前 8：' + JSON.stringify(pkgChanged.slice(0, 8)) + '）')
+      console.error('  packages 侧所需前缀：' + need.map((p) => '--expect ' + p).join(' '))
+      console.error('  为什么不是假红而是机制缺口：基线只存了**已跟踪**在途件，未跟踪件不入基线；')
+      console.error('  而「基线时刻未跟踪、之后被 git add 成提交」的那一批，在今天的树上既不在脏面、也无归属可判 ⇒ 按现数据必报红。')
+      console.error('  处置：收口窗口由唯一基线席重取（写面填本波全席写面并集），不得默认放宽成整个仓。')
+      // ⚠ `--json` 调用方不能拿到**空 stdout** 却看到一个非零退出码 —— 那是「失败不可观测」的另一种形态
+      //   （本仓纪律：不是红，而是**没有读数**）。故机器可读形态下补一行**结构化拒绝**。
+      if (JSON_OUT) {
+        console.log(
+          JSON.stringify(
+            {
+              at: new Date().toISOString(),
+              refused: 'A0-10-precheck',
+              reason: '写面并集不含 packages/ 前缀，但基线锚点..HEAD 之间存在 packages 改动 ⇒ 按现数据必报红（基线未跟踪在途件无法重建）',
+              anchor: basePre.self.headFull,
+              packagesChanged: pkgChanged,
+              expectedNeed: need,
+              action: '收口窗口由唯一基线席重取：node tools/a0-check.mjs --record-baseline --expect …',
+            },
+            null,
+            2,
+          ),
+        )
+      }
+      process.exit(4)
+    }
+  }
+}
 if (want('A0-10')) {
   const SAMPLE = '/home/lk/dsh-src/dsh-plugin-roundtable'
   const REQUIRED = 'docs/contract/concurrency-discipline.md'
   const base = (() => {
+    let raw
     try {
-      const raw = JSON.parse(readFileSync(A010_BASELINE(), 'utf8'))
-      // 兼容本批之前的旧格式（顶层 {head,dirty}，只含样板仓）
-      if (raw && raw.head !== undefined && !raw.sample) {
-        return { self: raw.self ?? null, sample: { head: raw.head, dirty: raw.dirty } }
-      }
-      return { self: raw?.self ?? null, sample: raw?.sample ?? null, expect: raw?.expect ?? null }
-    } catch {
-      return null
+      raw = JSON.parse(readFileSync(A010_BASELINE(), 'utf8'))
+    } catch (error) {
+      // ⚠ **同族病因排查（f1 第二次退修）**：这里原先也是 `catch { return null }`。
+      //   它与守卫处那个 catch 是**同一张脸**，只是后果不同：判据腿把 null 读成「无基线」
+      //   ⇒ 走 `fail('A0-10', …)`（是红，不是静默通过），但那句红**说不出**是「文件不在」
+      //   还是「文件在但坏了」—— 两种完全不同的处置被压成同一句。⇒ 带 reason 出去。
+      return { self: null, sample: null, expect: null, degraded: 'baseline-unreadable', reason: String(error.message).split('\n')[0] }
     }
+    // 兼容本批之前的旧格式（顶层 {head,dirty}，只含样板仓）
+    if (raw && raw.head !== undefined && !raw.sample) {
+      return { self: raw.self ?? null, sample: { head: raw.head, dirty: raw.dirty } }
+    }
+    return { self: raw?.self ?? null, sample: raw?.sample ?? null, expect: raw?.expect ?? null, recordedAt: raw?.recordedAt ?? null }
   })()
+  if (base?.degraded) {
+    console.error('⚠ [A0-10 判据腿降级] ' + base.degraded + '：' + base.reason + ' ⇒ 本轮按「无基线」判（下面那句 FAIL 的成因是读不到，不是树被动过）')
+  }
   const self = gitProbe(ROOT)
   const sample = gitProbe(SAMPLE)
   // ⚠ **本席声明的写面**取自**基线**（记录时由唯一基线席声明），不是本次运行再声明 ——
   //   判据跑起来时（`node tools/a0-check.mjs`）**没有人再声明**写面；
   //   若此处退回本地 `EXPECT`（空），则最常见的用法必然报「全部越界」= 假红。
   //   运行时 `--expect` 只在**显式覆盖**（换一批）时用。
-  const writeFace = EXPECT.length ? EXPECT : (base?.expect ?? [])
+  // ── 写面三态（本批新增，互不混淆）──────────────────────────────────────────
+  //   · `unionFace`：**声明并集** —— 判归属用；
+  //   · `WRITE_FACE`：本次运行的**收窄面**（可空）—— 只为造负向对拍而存在，见文件头；
+  //   · 无基线时的**临时面**：仅在「还没记录过基线」时用本地 `--expect`，
+  //     否则最常见的「同一次调用里先读判据、后写基线」会判成「不可判」= 假红。
+  //
+  // ⚠ **c4 重修（本批）**：`unionFace` 原先写作 `EXPECT.length ? EXPECT : (base?.expect ?? [])`，
+  //   即**命令行自选的 `--expect` 可以覆盖基线记录值**。那正是 arch 席决定性反例的另一半：
+  //   预检被宽面绕开（已修，见上方预检段），而**判据腿**同样被绕开 ——
+  //   同一棵树、同一时刻、零授权，仅多给一个 `--expect packages/` 就能把「无主既有件」变成
+  //   「有主」⇒ 越界腿整条失效。修法与预检**同源**：**并集只认基线记录值**；
+  //   有基线时命令行 `--expect` 一律不生效（且**响亮告知**，不静默吞掉）。
+  //   ⇒ 至此「并集只来自 `--record-baseline --expect`」这句话才**真的成立**（前一版是伪的）。
+  const hasBase = Boolean(base?.self)
+  if (hasBase && EXPECT.length && JSON.stringify(EXPECT) !== JSON.stringify(base?.expect ?? [])) {
+    console.error(
+      '⚠ [A0-10] 命令行 --expect ' + JSON.stringify(EXPECT) + ' 在**判据跑态被忽略**：并集只认基线记录值 ' +
+        JSON.stringify(base?.expect ?? []) + '。确需换面请走 --record-baseline（唯一基线席 + 干净树前置门）。',
+    )
+  }
+  const unionFace = hasBase ? (base?.expect ?? []) : EXPECT
+  const writeFace = WRITE_FACE.length ? WRITE_FACE : unionFace
   const desc = (p) => (p.ok ? `HEAD=${p.head}、已跟踪脏 ${p.tracked.length}、未跟踪 ${p.untracked.length}` : `读取失败（${p.error}）`)
   const detail = `本仓 ${desc(self)}；样板 ${desc(sample)}`
   if (!base) {
@@ -609,6 +858,15 @@ if (want('A0-10')) {
     const dirtyUnattributed = dirtyNow.filter(
       (p) => !writeFace.some((pre) => p.startsWith(pre)) && !inFlightAtBaseline.has(p),
     )
+    /**
+     * ⚠ **脏面归属的已知残余缺口（本批如实标注，不假装已覆盖）**：
+     *   判「无主」时用的第二个归属来源是 `inFlightAtBaseline` = **基线文件里记的已跟踪在途件**。
+     *   基线的 `untrackedPaths` **不参与归属**（那是设计：未跟踪不是既有件）。
+     *   ⇒ 「基线时刻未跟踪、之后被 `git add` 成提交」的那一批，今天在这条腿上**两边都不占**：
+     *     既不在脏面（已提交）、又不在 `trackedPaths`（当时未跟踪）。
+     *     处置见本文件「A0-10 预检」段：packages 侧无归属时**拒绝给结论**（exit 2），
+     *     而不是把它当越界事实报红。
+     */
     const noFace = Boolean(base.self) && writeFace.length === 0
     if (anchorUnreachable) {
       // 锚点不可达时提交面**无法枚举** ⇒ 如实标注「本轮不可判」，不假装枚举到了 0 件。
@@ -644,6 +902,7 @@ if (want('A0-10')) {
               : `${committedOutside.length} 件提交越界 + ${dirtyUnattributed.length} 件无主脏`
       }` +
       `${settled.length ? `｜已有主而在途结束 ${settled.length} 件（报告不判红）：${JSON.stringify(settled.slice(0, 4))}` : ''}` +
+      `｜写面来源=${WRITE_FACE.length ? '收窄（--write-face，仅用于负向对拍）' : hasBase ? '声明并集（基线 --expect）' : '本次 --expect（临时，尚未记录基线）'}（${writeFace.length} 项）` +
       `${faceReportExtra.length ? `｜${faceReportExtra.join('；')}` : ''}` +
       `${changedInCommits.length ? `｜锚点 ${String(base.self.headFull).slice(0, 7)}→现 ${self.head}（本席收工提交，锚点语义允许）` : ''}`
 
