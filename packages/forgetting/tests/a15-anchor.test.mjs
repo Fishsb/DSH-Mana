@@ -227,14 +227,28 @@ test('⑥ 带牙腿：死旋钮核（忽略 h）⇒ decayKernelTeeth 必红「co
   // ② 带牙腿必须把它判红，且**点名到腿**
   const deadReading = retentionMod.decayKernelTeeth(deadKnob, opts)
   assert.equal(deadReading.ok, false, '死旋钮核必须被判红（ok=false）')
-  assert.equal(deadReading.teeth.length, 2, '两条牙都必须有读数（缺一条即判据面被削）')
+  /**
+   * ⚠ **牙数不得写死数字**（本席 2026-09-26 实测踩到）：原断言写 `length === 2`，
+   *   而我给 `decayKernelTeeth` 补第三条牙（`rejects-non-finite-time`，闭合
+   *   `A1-5-TEETH-GAP-1`）后本条**按设计变红** —— 这是**正确连带**（判据抓到了"判据面变了"），
+   *   但修法**不是**把 2 改成 3（那是每逢加牙就要人肉改一次，且改的人只看到了数字）。
+   *   ⇒ 改为**按 id 逐条点名**：每条牙**必须都有读数**且 id 集合与实现面**同源**。
+   *     这样加牙/删牙都会被结构性地检到，而不用维护一个会漂的字面量。
+   */
+  assert.ok(deadReading.teeth.length >= 2, '牙数不得少于 2（缺一条即判据面被削）；实测 ' + String(deadReading.teeth.length))
+  for (const id of ['consumes-half-life', 'rejects-negative-time', 'rejects-non-finite-time']) {
+    assert.ok(
+      deadReading.teeth.some((x) => x.id === id),
+      '牙 ' + id + ' 必须有读数；实测 id 集合=' + JSON.stringify(deadReading.teeth.map((x) => x.id)),
+    )
+  }
   const t1 = deadReading.teeth.find((x) => x.id === 'consumes-half-life')
   assert.ok(t1 && t1.ok === false, 'consumes-half-life 必须判红，实测 ' + JSON.stringify(t1))
   assert.match(t1.detail, /同值|被忽略/, '读数必须说清是「参数被忽略」，实测 ' + t1.detail)
   assert.ok(deadReading.violations.some((v) => v.includes('consumes-half-life')), 'violations 必须点名该腿')
   // ③ 真核必须全过（不许见谁都红）
   const realReading = retentionMod.decayKernelTeeth({ decay }, opts)
-  assert.equal(realReading.ok, true, '真核必须两条牙全过，实测 ' + JSON.stringify(realReading.violations))
+  assert.equal(realReading.ok, true, '真核必须**全部**牙过（不写死条数：牙数随实现面演进），实测 ' + JSON.stringify(realReading.violations))
   assert.equal(realReading.violations.length, 0, '真核的 violations 必须为空')
   // ④ 另一类「不等但错」的核也必须被自洽式抓住：把 h 当 h² 用。
   const wrongExponent = { decay: (t, h) => Math.exp((-t * Math.LN2) / ((h === undefined ? frozen : h) ** 2)) }

@@ -171,7 +171,7 @@ export interface DecayKernelTeethOptions {
 
 /** 单条牙的读数（`id` 是**可枚举**的腿名，不是布尔 —— 面板/判据据此点名）。 */
 export interface DecayKernelToothReading {
-  readonly id: 'consumes-half-life' | 'rejects-negative-time'
+  readonly id: 'consumes-half-life' | 'rejects-negative-time' | 'rejects-non-finite-time'
   readonly ok: boolean
   readonly detail: string
 }
@@ -289,6 +289,59 @@ export function decayKernelTeeth(
   }
   teeth.push(Object.freeze(t2))
   if (!t2.ok) violations.push('[rejects-negative-time] ' + t2.detail)
+
+  /**
+   * ── 牙③：**t 非有限数必抛**（`A1-5-TEETH-GAP-1` 的闭合）─────────────────────────
+   *
+   * ⚠ **本条补的是一个实测出来的覆盖缺口**（N3 清账席 2026-09-26 逐守卫摘除实证）：
+   *   把 `decay.ts` 里的 `Number.isFinite(t)` 守卫**单独摘掉**后，`node tools/a1-check.mjs`
+   *   **仍报 A1-5 PASS、exit 0** ⇒ 该面坏了判据不响（判据腿与包内测试都没有它）。
+   *   当时 N3 席因写面纪律（该文件不在其写面）**只披露不越界**，挂账名 `A1-5-TEETH-GAP-1`。
+   *   本席（N3 合并轮）承接该挂账在此闭合。
+   *
+   * ── 牙本身判什么 ──────────────────────────────────────────────────────────
+   *   `t = NaN` 与 `t = Infinity` 都**不是**"时间很大"或"时间很小"，而是**输入非法**。
+   *   一个只查 `t < 0` 而不查有限性的核，对 `NaN` 会返回 `NaN`（**静默污染排序**：
+   *   NaN 参与比较恒 false ⇒ 该条记忆在排序里位置不定，且**没有任何地方报错**）。
+   *   `Infinite` 更糟：`exp(-Inf)` = 0 —— 看起来像"衰减到 0"这个**完全合理的值**。
+   *   ⇒ 本仓 fail-closed 口径（`long-term/src/decay.ts:27` 实测抛错）要求**必须抛**。
+   *
+   * ⚠ 与牙①/牙②**不重叠**（这是单列它的理由）：
+   *   · 牙①（h 消费）只测有限 `t`；
+   *   · 牙②（t<0 必抛）只测 `t = -h/2` 这个有限负数 ⇒ `NaN`/`Infinity` 从它下面穿过去；
+   *   · **本条**专测非有限 `t`。三者各自可归因，互不冒充。
+   */
+  let t3: DecayKernelToothReading
+  const nonFiniteT = [Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY]
+  const nonFiniteLeaks: string[] = []
+  for (const probeT of nonFiniteT) {
+    let threwNonFinite = false
+    let gotNF: number | null = null
+    try {
+      gotNF = kernel.decay(probeT, frozenHalfLife)
+    } catch {
+      threwNonFinite = true
+    }
+    if (!threwNonFinite) {
+      const shown = Number.isNaN(probeT) ? 'NaN' : probeT === Number.POSITIVE_INFINITY ? 'Infinity' : '-Infinity'
+      nonFiniteLeaks.push(shown + ' ⇒ 返回 ' + String(gotNF) + '（未抛）')
+    }
+  }
+  if (nonFiniteLeaks.length === 0) {
+    t3 = {
+      id: 'rejects-non-finite-time',
+      ok: true,
+      detail: 't 非有限数（NaN / ±Infinity）三种探针**均抛错**（fail-closed 成立）',
+    }
+  } else {
+    t3 = {
+      id: 'rejects-non-finite-time',
+      ok: false,
+      detail: 't 非有限数**未抛**：' + nonFiniteLeaks.join('；') + ' ⇒ NaN 会静默污染排序、Infinity 会伪装成"衰减到 0"',
+    }
+  }
+  teeth.push(Object.freeze(t3))
+  if (!t3.ok) violations.push('[rejects-non-finite-time] ' + t3.detail)
 
   return Object.freeze({ ok: violations.length === 0, teeth: Object.freeze(teeth), violations: Object.freeze(violations) })
 }

@@ -72,6 +72,24 @@ test('① A1-5 时间衰减三锚点 + 负向对拍（h=14 → 7 必须偏离）
   )
   assert.ok(near(perturbed, 0.25), `h=7 ⇒ 14 天恰好两个半衰期 ⇒ 0.25，实测 ${perturbed}`)
   assert.ok(!near(decay(90, 7), 0.011609), '负向对拍：h=7 的 decay(90) 必须偏离锚点')
+
+  // ── 判据腿的「齿」在**实现面**的同一条律（A1-5 清账：两侧不得一强一弱）──────────
+  // ⚠ 上面两条负向对拍只钉住「h=7 时三个数变成 0.25 那一组」；一个把 h **用错**的核
+  //   （如 h→h²）也可能凑出「不等」。故这里补**自洽式**（与 decayKernelTeeth 的
+  //   `consumes-half-life` 牙判**同一条律**）：f(t,h₂) = f(t,h₁)^(h₁/h₂)。
+  //   这是「判据腿不得弱于实现面」在本包侧的落点 —— 两条腿各自独立可归因。
+  const atFrozen = decay(14, 14)
+  const atProbe = decay(14, 7)
+  assert.ok(
+    near(atProbe, Math.pow(atFrozen, 14 / 7), 1e-12),
+    `h 自洽式：decay(14,7) 须 = decay(14,14)^(14/7)=0.25，实测 ${atProbe}（对照 ${Math.pow(atFrozen, 14 / 7)}）`,
+  )
+  assert.notEqual(atProbe, atFrozen, 'h 参数必须真被消费；同值即"死旋钮核"（与 budgetChars 同一形态）')
+
+  // ── 时钟回拨：t<0 必须抛（fail-closed），不得给出 >1 的"假留存率" ──
+  // ⚠ 判据腿的 `rejects-negative-time` 牙在真核上判的就是这条；实现面必须自己也有。
+  assert.throws(() => decay(-7), /不得为负/, 't<0（时钟回拨）必须抛 —— 否则会静默给出 >1 的假留存率污染排序')
+  assert.throws(() => decay(1, 0), /halfLifeDays 必须是正有限数/, 'h<=0 必须抛（会得 Infinity/NaN）')
 })
 
 // ══ ② A2-1 基础激活四锚点 + 幂律同形腿（C14：不得再乘一次时间衰减）══════════
