@@ -1,0 +1,226 @@
+{
+  "id": "mana-v10-review-2026-09-25",
+  "name": "mana-v10-review-2026-09-25",
+  "goal": "把外部方案档《Mana（末那识）：完整记忆插件方案 v10.0（最终整合版）》（C:\\Users\\lk\\Downloads\\deepseek_markdown_20260924_968609.md，2346 行）与当前仓库实测现状逐条比对：① 判定 v10 相对已落地体系（docs/mana-rollout-plan.md 落地册 v1.0 + docs/mana-project-status-plan.md v6.3 实况订正版 + 仓内实测）属【新增 / 已否决 / 已订正冲突复发】哪一类；② 判定 v10 是否诱发对已完成工作的返工或覆盖；③ 产出可执行、可机检的后续任务清单（批次粒度 + 能力要求 + 依赖 + 判据 + 回归面）供用户排期。最终交付物 = 评审结论 + 任务规划，不是代码。",
+  "mode": "orchestrated",
+  "captainSessionId": "session-a082ed37-b9b3-4efb-b7d4-391b0835796f",
+  "charter": "《全局协作总纲》\n\n一、会议背景与核心目标\n把外部方案档《Mana（末那识）：完整记忆插件方案 v10.0（最终整合版）》（C:\\Users\\lk\\Downloads\\deepseek_markdown_20260924_968609.md，2346 行）与当前仓库实测现状逐条比对：① 判定 v10 相对已落地体系（docs/mana-rollout-plan.md 落地册 v1.0 + docs/mana-project-status-plan.md v6.3 实况订正版 + 仓内实测）属【新增 / 已否决 / 已订正冲突复发】哪一类；② 判定 v10 是否诱发对已完成工作的返工或覆盖；③ 产出可执行、可机检的后续任务清单（批次粒度 + 能力要求 + 依赖 + 判据 + 回归面）供用户排期。最终交付物 = 评审结论 + 任务规划，不是代码。\n\n一之一、**用户原话**（未加工·最高优先级；与上文目标冲突时**以本条为准**）\n> \"C:\\Users\\lk\\Downloads\\deepseek_markdown_20260924_968609.md\"根据这个方案对当前项目做评审，规划后续任务\n本会议的**唯一目的**是满足上面这句用户指令。产出偏离它 = 无效产出，无论多精彩。\n\n一之二、本会议的边界声明（**改动前必须对照**）\n- 要解决的现象：用户原话「根据这个方案对当前项目做评审，规划后续任务」= 拿 v10 方案当参照物审当前项目并排后续任务；要能回答「v10 里哪些是我们要做的、哪些已经做完了、哪些是 v6.3 已订正而 v10 又写回去了」。\n- 算解决的标准：① 各席给出带位置（文件/行号/命令输出）的结论，找不到真问题写「未发现」；② v10 的 §32/§33/§34/§36/§6/§23/§24/§40 各区块都有「本仓实测现状」对照；③ 产出任务清单，每条写明目标/承接能力/依赖/可机检判据/回归面；④ 风险席独立给出「v10 会带偏已完成工作」的判断；⑤ 主持人汇总后向用户交付汇总（含分歧与拍板项）并落盘评审报告。\n- 怎么检查才算达标：评审事实全部可复跑：npm run check:a1（应 15 项 / PASS 12 / 挂账 2）· node tools/a0-check.mjs（应 16 项 / PASS 15 / 挂账 1）· npm test（应 251/251，HEAD=b3fa4cb）· packages/*/src 行数与 v6.3 实况档逐包对比 · grep 概念词命中数为 0 才算「本仓无此物」。结论必须给命令或 文件:行号，给不出即标「未验证」。\n- **明确不做 / 不许动**：① 不改 packages/*/src、tools/*.mjs、docs/contract/* 任何既有文件；② 不装任何新依赖（尤不装 sqlite-vec 扩展）；③ 不重排已定盘的 W1/W2/W3 波次与落地册阶段划分；④ 不把 v10 设计意图当现状写进任何文档；⑤ 不引入 OpenRouter 云通道、不用 options 内 logprobs 写法；⑥ 不动 shoucang 既有件与 DSH 运行时。\n- ⚠ 提出任何改动时，须自答一句：「这条改动会不会碰坏上面『不许动』里的东西？」\n  若会，必须在 [核心产出] 里点明**碰了哪面墙、用什么证据确认没碰坏**；没有证据就标「未验证」。\n  禁止用\"顺带修好了\"掩盖越界改动 —— 那是拆东墙补西墙的典型形态。\n\n二、团队与通信边界（单线制）\n主持人（DeepSeek）：全局编排与最终汇总，唯一对用户负责；也是你唯一的联系人与信息来源。\n你与其他席位的存在互不披露：不掌握其他专家的人数、标识、分工与连线。\n权限隔离：只做本职，严禁越权代管他人的工作；只有主持人可以创建/移除成员、修改连线、发起人类决策、结束会议。\n本职以外的请求或发现，不要自行处理，也不要臆断谁会处理 —— 在本轮发言里单列一行 [越界转派]：<事项> | 建议承接：<职责>，由主持人再分配。\n\n三、标准化协作协议\n- 每次发言开头标注 [当前状态]，结尾给出 [核心产出] 与 [下一步建议]。\n- [核心产出] 必须自包含：选定的方向、关键取舍与理由写进这一节，让不读过程的人也能完整获得结论。\n- 发言中有需要用户拍板的分歧时，在结尾单列一行 [建议决策]：<问题> | 选项：<A>/<B>/… | 推荐：<X> 理由：<一句话>；主持人据此触发人类决策。\n- 单一出口：专家的汇报只进会议记录（roundtable_speak），对用户的输出一律由主持人整轮收敛后统一汇总，专家不直接对用户播报。\n- 严禁输出\"好的\"\"收到\"等无信息量内容。\n- 节点发言通过 roundtable_speak 写入会议记录，供汇聚网关与主持人查阅；定向讨论使用 to 参数。\n\n四、全局约束与安全红线\n- 遇到分歧或无法独自决定的事项，立即建议主持人触发 [需人类决策]，严禁自行替用户拍板。\n- 严禁编造不存在的 API、数据或事实；不确定时明确说明。\n- 超预算（轮数/Token）时会议将自动闭麦暂停。",
+  "nodes": [
+    {
+      "id": "33870248-6631-4fdf-8329-b0ddff709543",
+      "key": "v10-diff",
+      "role": "对照席（v10 §32 插件清单 / §33 标准结构 / §34 事件契约 / §36 核心表结构）。逐条与 packages/ 13 包、packages/core/src/event-types.ts、packages/core/src/schema.ts 比对：v10 列 18 个插件里本仓有哪几个、哪几个不存在（llm/reconsolidation/learning/itacl/shoucang-adapter）、哪几个是 v10 新增而本仓无同类；v10 §36 的 11 张表里本仓有哪几张、缺哪几张（fsrs_schedule/agent_profile/user_profile/distillation_log/sleep_cycles/pruning_log/retrieval_induced_forgetting）、本仓多出哪几张（inject_log/user_model_history/memory_items_fts）。每条结论必须给 文件:行号 或 grep 命中数。禁止把「v10 没提」当「本仓没有」，也禁止把「v10 写了」当「本仓缺了就要补」——只做对照，不给采购建议。",
+      "provider": "dshapi",
+      "model": "deepseek-v4.1-flash",
+      "status": "removed",
+      "joinedAt": 1790289849655
+    },
+    {
+      "id": "9f538426-0b6b-4c9b-bdf4-982e3af41829",
+      "key": "jev-v10",
+      "role": "JEV 接入面对照席（v10 §6 / §22 / §23 接入点 40 行 / §24 批量调用 / §25 Prompt 库 / §26 阈值校准）。与 packages/jev + packages/attention 实测比对，并与 docs/mana-project-status-plan.md（v6.3 实况订正版）逐条对齐：v10 里哪些写法是 v6.3 已实测订正过的（OpenRouter 端点、ctx.credentials.get、options 内 logprobs、50 问批量语义、21 个 Prompt 一个都不存在），哪些是 v10 独有而本仓零落点（§23 的 40 行接入点表、§26 阈值校准五步）。重点回答：v10 的 §23/§25 表会不会让人把「未实现」读成「已实现」。每条给证据。",
+      "provider": "dshapi",
+      "model": "deepseek-v4.1-flash",
+      "status": "removed",
+      "joinedAt": 1790289849795
+    },
+    {
+      "id": "301be873-3b17-4136-9131-0801a07b37b2",
+      "key": "roadmap-diff",
+      "role": "路线图对照席（v10 §37 多 Agent 分工 / §40 六阶段路线图 / §39 四层评估 + 10 个核心指标）。与 docs/mana-rollout-plan.md（7 阶段 / 18 批次 / 阶段 0-1 判据已落地）与 docs/session-allocation.md（W1-W3 波次）比对，输出：① v10 阶段与落地册阶段的映射表；② v10 里落地册完全没覆盖的增量点；③ v10 的周数工期在本仓「批次」口径下不可排期的部分（不得直接把周数换算成批次）。只做映射与缺口，不重排已定盘波次。",
+      "provider": "dshapi",
+      "model": "deepseek-v4.1-flash",
+      "status": "removed",
+      "joinedAt": 1790289849860
+    },
+    {
+      "id": "cd5efc88-de90-407f-8df2-b64b91922220",
+      "key": "gate-blindspot",
+      "role": "判据盲区审计席（本会议最重要的一席）。亲自跑 npm run check:a1 与 node tools/a0-check.mjs，再用 read/grep 逐条核对「文档判据原文」vs「测试真实断言」，找出被放宽、被替换、或挂账被读成通过的地方。已有抽样一条待核实并找全同类：docs/mana-rollout-plan.md:346 与 :451 要求 A1-1 机检「S1 五类 event_type（observation/attention/decision/recall/injection）各 ≥1」，而 packages/core/tests/chain-e2e.test.mjs:97 的断言列表疑似被写成 [observation, mana/working-memory, mana/scheduler/attention]，后两个名字不在契约里 —— 请确认是否属实、影响面多大、A1-1 为何仍 PASS、还有多少条判据同型。每条给 文件:行号 + 命令输出。找不到就写「未发现」，不许凑数。",
+      "provider": "dshapi",
+      "model": "deepseek-v4.1-flash",
+      "status": "removed",
+      "joinedAt": 1790289849978
+    },
+    {
+      "id": "b943c2a2-b4f0-41bb-ab88-9022cee354b0",
+      "key": "theory-graft",
+      "role": "机制移植评估席（v10 独有而本仓零落点的机制：§19-21 ITACL 与三阶段状态机 / §18.3 认知环 MCL / §12.4 内在奖励 / §13.3 睡眠三重振荡耦合 / §17.1 FSRS 与 Hebbian / §16.5 小胶质细胞修剪 / §8 神经科学基础）。逐项判：① 本仓或守藏现役是否已有等价物（守藏已有：混合召回 RRF、会话蒸馏、深度睡眠、认知环 MCL、热温冷活性分级、白名单门禁）——有等价物必须指名，不许重复造；② 与 DSH 宿主扩展点是否冲突（agent/pre-step 是官方 waterfall、subagent 与工具面）；③ 每个机制给「移植 / 改造后用 / 不移植」三选一 + 一条可判据理由。只评估，不实现。",
+      "provider": "dshapi",
+      "model": "deepseek-v4.1-flash",
+      "status": "removed",
+      "joinedAt": 1790289850057
+    },
+    {
+      "id": "6b6fa3e7-3bc9-4283-ae50-9c7c89f9c66e",
+      "key": "risk-reviewer",
+      "role": "独立审查席（本席不产出任何改动，只判别的席的结论站不站得住）。逐条审前几席产出：① 哪些结论把 v10 的转述当成本仓现状；② 哪些结论给不出位置证据；③ 专门回答回归问题：按 v10 做事会不会覆盖或推翻已完成的阶段 0/1 成果（已知回归面：13 包已装配、A0/A1 判据入口已建、契约 v0.2.2 已冻、W3 事件链已通）—— 列出具体「会碰坏什么」清单；④ 每条被审结论给 成立/不成立/证据不足 三态判定，不成立的要给反证。",
+      "provider": "dshapi",
+      "model": "deepseek-v4.1-flash",
+      "status": "removed",
+      "joinedAt": 1790289850132
+    },
+    {
+      "id": "e0490e0f-78f6-406e-a3fb-02610ef006f5",
+      "key": "planner",
+      "role": "任务规划合成席。承接前 6 席已成立的结论（不重复论证），把后续工作拆成可独立验证的批次任务，每条写全 6 项：任务目标 / 承接能力（不是人名）/ 依赖 / 可机检判据（命令或断言）/ 回归面（碰坏什么、怎么确认没碰坏）/ 与 v10 的对应章节。粒度对齐落地册批次口径（一个批次 = 一次可独立验证的执行段），不估时。凡依赖未定阈值、未拍板项、未验证项的必须显式标「挂账」并写明挂到哪一步。",
+      "provider": "dshapi",
+      "model": "deepseek-v4.1-flash",
+      "status": "removed",
+      "joinedAt": 1790289850210
+    }
+  ],
+  "edges": [],
+  "decisions": [],
+  "budget": {
+    "maxRounds": 6,
+    "maxTokens": 400000,
+    "usedRounds": 3,
+    "usedTokens": 41657
+  },
+  "round": 3,
+  "kbPath": "/home/lk/Mana/docs",
+  "boundary": {
+    "goal": "用户原话「根据这个方案对当前项目做评审，规划后续任务」= 拿 v10 方案当参照物审当前项目并排后续任务；要能回答「v10 里哪些是我们要做的、哪些已经做完了、哪些是 v6.3 已订正而 v10 又写回去了」。",
+    "done": "① 各席给出带位置（文件/行号/命令输出）的结论，找不到真问题写「未发现」；② v10 的 §32/§33/§34/§36/§6/§23/§24/§40 各区块都有「本仓实测现状」对照；③ 产出任务清单，每条写明目标/承接能力/依赖/可机检判据/回归面；④ 风险席独立给出「v10 会带偏已完成工作」的判断；⑤ 主持人汇总后向用户交付汇总（含分歧与拍板项）并落盘评审报告。",
+    "check": "评审事实全部可复跑：npm run check:a1（应 15 项 / PASS 12 / 挂账 2）· node tools/a0-check.mjs（应 16 项 / PASS 15 / 挂账 1）· npm test（应 251/251，HEAD=b3fa4cb）· packages/*/src 行数与 v6.3 实况档逐包对比 · grep 概念词命中数为 0 才算「本仓无此物」。结论必须给命令或 文件:行号，给不出即标「未验证」。",
+    "notDoing": "① 不改 packages/*/src、tools/*.mjs、docs/contract/* 任何既有文件；② 不装任何新依赖（尤不装 sqlite-vec 扩展）；③ 不重排已定盘的 W1/W2/W3 波次与落地册阶段划分；④ 不把 v10 设计意图当现状写进任何文档；⑤ 不引入 OpenRouter 云通道、不用 options 内 logprobs 写法；⑥ 不动 shoucang 既有件与 DSH 运行时。"
+  },
+  "userDirective": "\"C:\\Users\\lk\\Downloads\\deepseek_markdown_20260924_968609.md\"根据这个方案对当前项目做评审，规划后续任务",
+  "skillDelivery": "relay",
+  "status": "ended",
+  "createdAt": 1790289838181,
+  "updatedAt": 1790294552218,
+  "roundPlans": [
+    {
+      "round": 1,
+      "items": [
+        {
+          "id": "a1",
+          "task": "对照 v10 §32 插件清单 / §33 标准结构 / §34 事件契约 / §36 核心表结构 与本仓 13 包、event-types.ts、schema.ts，产出逐条差异表（含 grep 命中数）",
+          "owner": "v10-diff",
+          "dependsOn": [],
+          "kind": "survey",
+          "regressionRisk": "无回归面（只读）"
+        },
+        {
+          "id": "a2",
+          "task": "对照 v10 §6/§22/§23/§24/§25/§26 与 packages/jev + packages/attention 实测及 docs/mana-project-status-plan.md（v6.3 实况订正版），标出「已订正冲突复发」与「本仓零落点」两类",
+          "owner": "jev-v10",
+          "dependsOn": [],
+          "kind": "survey",
+          "regressionRisk": "无回归面（只读）"
+        },
+        {
+          "id": "a3",
+          "task": "对照 v10 §37/§39/§40 与 docs/mana-rollout-plan.md（7 阶段 18 批次）+ docs/session-allocation.md（W1-W3），产出阶段映射、增量缺口、不可排期项",
+          "owner": "roadmap-diff",
+          "dependsOn": [],
+          "kind": "survey",
+          "regressionRisk": "无回归面（只读）"
+        },
+        {
+          "id": "a4",
+          "task": "判据盲区审计：逐条核对「文档判据原文」vs「测试真实断言」，找出被放宽/被替换/挂账被读成通过的地方（含 A1-1 五类 event_type 抽样核实）",
+          "owner": "gate-blindspot",
+          "dependsOn": [],
+          "kind": "survey",
+          "regressionRisk": "无回归面（只读）"
+        },
+        {
+          "id": "a5",
+          "task": "机制移植评估：ITACL / MCL / 内在奖励 / 睡眠三重耦合 / FSRS+Hebbian / 小胶质细胞修剪，逐项给「移植 / 改造后用 / 不移植」+ 可判据理由，并指名守藏既有等价物",
+          "owner": "theory-graft",
+          "dependsOn": [],
+          "kind": "survey",
+          "regressionRisk": "无回归面（只读）"
+        },
+        {
+          "id": "a6",
+          "task": "独立审查：逐条判前五席结论 成立/不成立/证据不足，并列出「按 v10 做事会碰坏什么」的具体回归面清单",
+          "owner": "risk-reviewer",
+          "dependsOn": [
+            "a1",
+            "a2",
+            "a3",
+            "a4",
+            "a5"
+          ],
+          "kind": "review",
+          "regressionRisk": "无回归面（只读）"
+        },
+        {
+          "id": "a7",
+          "task": "合成后续批次任务清单：每条写全 目标/承接能力/依赖/可机检判据/回归面/v10 对应章节，未定项显式挂账",
+          "owner": "planner",
+          "dependsOn": [
+            "a6"
+          ],
+          "kind": "survey",
+          "regressionRisk": "无回归面（只读）"
+        }
+      ],
+      "createdAt": 1790289888622,
+      "note": "第 1 轮：六席只读勘察（v10 对照 ×3 + 判据盲区审计 + 机制移植评估），随后独立审查席核结论与回归面，最后由规划席合成批次任务清单。本轮全程只读，不改任何既有文件。"
+    },
+    {
+      "round": 2,
+      "items": [
+        {
+          "id": "b1",
+          "task": "路线图对照（重派·有界版）：v10 §37/§39/§40 ↔ 落地册 7 阶段 18 批次 映射表 + 增量缺口 + 不可排期项；只读三份文档，不跑命令",
+          "owner": "roadmap-diff",
+          "dependsOn": [],
+          "kind": "survey",
+          "regressionRisk": "无回归面（只读）"
+        },
+        {
+          "id": "b2",
+          "task": "判据盲区审计（重派·有界版）：回答 6 问（A1-1 五类事件 / A1-8 夹具自证 / ARTIFACTS 分层 / 挂账是否被读成通过 / npm test 251 是环境态还是稳定态 / 还有多少同型），每条给 文件:行号；命令超时即标注跳过，不得死等",
+          "owner": "gate-blindspot",
+          "dependsOn": [],
+          "kind": "survey",
+          "regressionRisk": "无回归面（只读）"
+        },
+        {
+          "id": "b3",
+          "task": "独立复评：对 b1/b2 的新产出 + 此前三席结论给出 成立/不成立/证据不足 三态判定与反证",
+          "owner": "risk-reviewer",
+          "dependsOn": [
+            "b1",
+            "b2"
+          ],
+          "kind": "review",
+          "regressionRisk": "无回归面（只读）"
+        },
+        {
+          "id": "b4",
+          "task": "合成后续批次任务清单（每条含 目标/承接能力/依赖/可机检判据/回归面/v10 章节），未定项显式挂账",
+          "owner": "planner",
+          "dependsOn": [
+            "b3"
+          ],
+          "kind": "survey",
+          "regressionRisk": "无回归面（只读）"
+        }
+      ],
+      "createdAt": 1790292023931,
+      "note": "第 2 轮（恢复轮）：a3（路线图对照）与 a4（判据盲区审计）两席第 1 轮运行失败、未产出任何发言 —— 按协议重派一次，并把任务切成有界小块（命令加超时、超时即如实跳过而非死等）。这两项回报后，a6 复评 + a7 合成。本轮仍全程只读。"
+    },
+    {
+      "round": 3,
+      "items": [
+        {
+          "id": "c1",
+          "task": "终审 b4 的写面隔离与 11 批次：判 F-02∥F-03 的处置物理可执行性、F-01/F-02 与 W3 独占面冲突、并行上限是否可到 3、每条回归面是否具体、有无批次被当成可开工而依赖未拍板",
+          "owner": "risk-reviewer",
+          "dependsOn": [],
+          "kind": "review",
+          "regressionRisk": "无回归面（只读）"
+        }
+      ],
+      "createdAt": 1790294255785,
+      "note": "第 3 轮（终审轮）：规划席 b4 已交付 11 批次 + 写面分配，本轮请独立审查席对「写面隔离是否成立 / 有无拆东墙 / 有无批次被悄悄当成可开工」给出终审三态判定。只读。"
+    }
+  ]
+}

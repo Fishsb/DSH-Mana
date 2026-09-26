@@ -1,0 +1,331 @@
+{
+  "id": "mana-w2-parallel-2026-09-24",
+  "name": "mana-w2-parallel-2026-09-24",
+  "goal": "放行 `docs/session-allocation.md` §七点五 C 的 W2 可并行波次。但**主持人已逐条实测复验五条前置，派单表本身已过时**，本轮按订正后范围执行（每条都有命令证据，不采信文档自述）：\n\n【W2-1 —— 已完工，本轮不重做】派单表写「`cached` 列现恒 0」是过时自述。实测：`packages/jev/src/framework.ts` 562 行 + `tests/framework.test.mjs` 818 行已在盘，五个配置面齐全（TTL 300 / 熔断 5 / 冷却 60 / 并发 4 / 预算 200，见 `framework.ts:35-47`）；`node packages/jev/tests/gate.mjs` → **exit 0**（离线 46/46 + 自检/静态/离线动态/显式红 四腿全过）；F1 用例已断言 `jev_log.cached` 0→1。该批由 mana-jev-framework / mana-jev-real 会议交付。\n\n【真缺项，本轮主体】\n· **W2-2** A1 判据机检入口：`tools/` 下只有 `a0-check.mjs` / `r0-assembly-check.mjs` / `check-comment-guard.mjs` / `mana-heartbeat.mjs` / `probes/`，**无 `tools/a1-check.mjs`**。A1-4/A1-5/A1-11/A1-12 现散在 `packages/vector/tests/b11-vector.test.mjs` 与各包源码注释里。\n· **W2-3** UI 装配证据：原判据**指错了面**。`r0-assembly-check.mjs:46-51` 只覆盖 6 包（core/jev/vector/perception/attention/working-memory），**不含 ui**；而 A5-2 那条 grep 在 client 产物上其实已 0 命中（`panel.js:8` 的命中是**注释里写「本文件不含 node:fs」**，是自我说明不是违规）。\n· **W2-4** user-model / metacognition 接线：两包全仓**零消费者**（`grep -rn \"dsh-mana-user-model\"` 只命中 package-lock 与 arch anchors）。⚠ 且派单表自己的「依赖」列写着「B4.x 才接」⇒ 是否属本轮，须会议裁定。\n· **W2-5** P1 三骨架 `lib/`：已复现 —— `import('dsh-mana-long-term'|'consolidation'|'forgetting')` 三个**全报 `ERR_MODULE_NOT_FOUND`**。\n\n【附带】固化在途交付：`packages/jev/src/index.ts`(+237) 与 `packages/vector/src/index.ts`(+172) 是 jev-real / w1-vector 会议已交付但**尚未提交**的改动（HEAD f448efc 不含它们）。\n\n【会议纪律】排序口径：先给「会掩盖其他问题 / 让失败不可观测」的缺陷，再按严重度排，不得按显眼度排。每条结论须给位置（文件/行号/命令输出），给不出即标「未验证」。找不到真问题写「未发现」，不许凑数。需你拍板的分歧用 [建议决策] 行输出。",
+  "mode": "orchestrated",
+  "captainSessionId": "session-08f30fd5-a2a1-4952-9073-37c101cce587",
+  "charter": "《全局协作总纲》\n\n一、会议背景与核心目标\n放行 `docs/session-allocation.md` §七点五 C 的 W2 可并行波次。但**主持人已逐条实测复验五条前置，派单表本身已过时**，本轮按订正后范围执行（每条都有命令证据，不采信文档自述）：\n\n【W2-1 —— 已完工，本轮不重做】派单表写「`cached` 列现恒 0」是过时自述。实测：`packages/jev/src/framework.ts` 562 行 + `tests/framework.test.mjs` 818 行已在盘，五个配置面齐全（TTL 300 / 熔断 5 / 冷却 60 / 并发 4 / 预算 200，见 `framework.ts:35-47`）；`node packages/jev/tests/gate.mjs` → **exit 0**（离线 46/46 + 自检/静态/离线动态/显式红 四腿全过）；F1 用例已断言 `jev_log.cached` 0→1。该批由 mana-jev-framework / mana-jev-real 会议交付。\n\n【真缺项，本轮主体】\n· **W2-2** A1 判据机检入口：`tools/` 下只有 `a0-check.mjs` / `r0-assembly-check.mjs` / `check-comment-guard.mjs` / `mana-heartbeat.mjs` / `probes/`，**无 `tools/a1-check.mjs`**。A1-4/A1-5/A1-11/A1-12 现散在 `packages/vector/tests/b11-vector.test.mjs` 与各包源码注释里。\n· **W2-3** UI 装配证据：原判据**指错了面**。`r0-assembly-check.mjs:46-51` 只覆盖 6 包（core/jev/vector/perception/attention/working-memory），**不含 ui**；而 A5-2 那条 grep 在 client 产物上其实已 0 命中（`panel.js:8` 的命中是**注释里写「本文件不含 node:fs」**，是自我说明不是违规）。\n· **W2-4** user-model / metacognition 接线：两包全仓**零消费者**（`grep -rn \"dsh-mana-user-model\"` 只命中 package-lock 与 arch anchors）。⚠ 且派单表自己的「依赖」列写着「B4.x 才接」⇒ 是否属本轮，须会议裁定。\n· **W2-5** P1 三骨架 `lib/`：已复现 —— `import('dsh-mana-long-term'|'consolidation'|'forgetting')` 三个**全报 `ERR_MODULE_NOT_FOUND`**。\n\n【附带】固化在途交付：`packages/jev/src/index.ts`(+237) 与 `packages/vector/src/index.ts`(+172) 是 jev-real / w1-vector 会议已交付但**尚未提交**的改动（HEAD f448efc 不含它们）。\n\n【会议纪律】排序口径：先给「会掩盖其他问题 / 让失败不可观测」的缺陷，再按严重度排，不得按显眼度排。每条结论须给位置（文件/行号/命令输出），给不出即标「未验证」。找不到真问题写「未发现」，不许凑数。需你拍板的分歧用 [建议决策] 行输出。\n\n一之一、**用户原话**（未加工·最高优先级；与上文目标冲突时**以本条为准**）\n> W2 — 可并行\n本会议的**唯一目的**是满足上面这句用户指令。产出偏离它 = 无效产出，无论多精彩。\n\n一之二、本会议的边界声明（**改动前必须对照**）\n- 要解决的现象：把派单表里「真缺的三项」变成可机检的交付：A1 机检入口能跑、P1 三骨架按包名可解析、ui 有仓内装配证据；并固化在途交付。\n- 算解决的标准：四条命令全绿且可复现：① `node tools/a1-check.mjs` 逐项 PASS/FAIL 输出，且**变异自证**（故意改坏 RRF k 值 ⇒ 该判据报红）；② 三包 `node -e \"import('dsh-mana-<pkg>')\"` 不再报 ERR_MODULE_NOT_FOUND；③ ui 经**仓内 Loader 通道**装配后装配计数归零（既有 r0 模式）；④ 在途改动已提交且内容与各会议交付一致（逐字比对，非「文件在长」）。\n- 怎么检查才算达标：命令层：上述①–④ + `npm test` 计数**不降**（基线 184/184）+ `node tools/a0-check.mjs` 无 FAIL + `node tools/r0-assembly-check.mjs` 仍 6/6 且新增 ui 后仍归零。判据不得只报数，须能真跑出红。\n- **明确不做 / 不许动**：本波**不许动的墙**（越界即报红，不许事后重新解释）：\n① `~/.dsh/profiles/**` —— 你的 web GUI 运行态 profile 当前**零 mana 依赖**（实测三个 profile deps/bundles 均空）。把半成品 P2 插件装进你正在用的界面属共享件变更，**本轮只做仓内 Loader 通道验证，真装载须你单独拍板**。\n② `packages/core/**` 与 `docs/contract/**` —— 契约冻结，哈希腿（53c92707…）已被验证席变异测试证实有效。若某项接线必须改 core ⇒ **只出设计提案 + 上报，不施工**。\n③ 任何在途未提交文件**不得 `git checkout`/覆盖/丢弃**；git 写操作只允许一席做。\n④ 不碰 jev 的**模型适配面**（你已定：模型差，先做框架；不换模型/不调提示词/不追概率质量）。\n⑤ 不重排 `docs/session-allocation.md` 里 W3/W4 的既有裁定（W3 必须 S5 独占）。\n- ⚠ 提出任何改动时，须自答一句：「这条改动会不会碰坏上面『不许动』里的东西？」\n  若会，必须在 [核心产出] 里点明**碰了哪面墙、用什么证据确认没碰坏**；没有证据就标「未验证」。\n  禁止用\"顺带修好了\"掩盖越界改动 —— 那是拆东墙补西墙的典型形态。\n\n二、团队与通信边界（单线制）\n主持人（DeepSeek）：全局编排与最终汇总，唯一对用户负责；也是你唯一的联系人与信息来源。\n你与其他席位的存在互不披露：不掌握其他专家的人数、标识、分工与连线。\n权限隔离：只做本职，严禁越权代管他人的工作；只有主持人可以创建/移除成员、修改连线、发起人类决策、结束会议。\n本职以外的请求或发现，不要自行处理，也不要臆断谁会处理 —— 在本轮发言里单列一行 [越界转派]：<事项> | 建议承接：<职责>，由主持人再分配。\n\n三、标准化协作协议\n- 每次发言开头标注 [当前状态]，结尾给出 [核心产出] 与 [下一步建议]。\n- [核心产出] 必须自包含：选定的方向、关键取舍与理由写进这一节，让不读过程的人也能完整获得结论。\n- 发言中有需要用户拍板的分歧时，在结尾单列一行 [建议决策]：<问题> | 选项：<A>/<B>/… | 推荐：<X> 理由：<一句话>；主持人据此触发人类决策。\n- 单一出口：专家的汇报只进会议记录（roundtable_speak），对用户的输出一律由主持人整轮收敛后统一汇总，专家不直接对用户播报。\n- 严禁输出\"好的\"\"收到\"等无信息量内容。\n- 节点发言通过 roundtable_speak 写入会议记录，供汇聚网关与主持人查阅；定向讨论使用 to 参数。\n\n四、全局约束与安全红线\n- 遇到分歧或无法独自决定的事项，立即建议主持人触发 [需人类决策]，严禁自行替用户拍板。\n- 严禁编造不存在的 API、数据或事实；不确定时明确说明。\n- 超预算（轮数/Token）时会议将自动闭麦暂停。",
+  "nodes": [
+    {
+      "id": "0b78e694-beb0-4439-a946-b39f8ac01a99",
+      "key": "s0",
+      "role": "Mana【S0 契约/工具席】（临时角色，仓库无预设）。\n\n写面（你的独占区）：`tools/**`、根配置（`package.json` / `tsconfig.base.json`）、以及 P1 三骨架（`packages/long-term`、`packages/consolidation`、`packages/forgetting`）自身的构建配置。**你是本会议唯一获准做 git 写操作（add/commit）的席。**\n\n红线：① 不碰 `packages/core/**`；② 不碰 `docs/contract/**`（契约冻结，哈希腿 53c92707… 有效）；③ 不碰他人包（`packages/ui`、`packages/user-model`、`packages/metacognition`）；④ **不得 `git checkout`/覆盖/丢弃任何在途未提交文件**。\n\n你的任务（细目将由主持人按轮下发）：\n· W2-2：建 `tools/a1-check.mjs`，把散在 `packages/vector/tests/b11-vector.test.mjs` 与源码注释里的 A1-4/A1-5/A1-11/A1-12 汇总成统一机检入口（`tools/` 下现只有 a0-check / r0-assembly-check / check-comment-guard / mana-heartbeat）。\n· W2-5：为 P1 三骨架补 `lib/` 构建（现 `import('dsh-mana-long-term'|'consolidation'|'forgetting')` 三个全报 `ERR_MODULE_NOT_FOUND`）。\n· 固化在途交付：`packages/jev/src/index.ts`(+237) 与 `packages/vector/src/index.ts`(+172) 是既有会议已交付但未提交的改动（HEAD f448efc 不含）。\n\n每条结论必须给位置（文件/行号/命令输出）；给不出就标「未验证」。排序口径：先报「会掩盖其他问题、让失败不可观测」的缺陷，再按严重度排。找不到真问题写「未发现」，不许凑数。需拍板的分歧用 `[建议决策] <问题> | 选项：<A>/<B> | 推荐：<X> 理由：<一句话>` 行输出。",
+      "provider": "dshapi",
+      "model": "deepseek-v4.1-flash",
+      "status": "removed",
+      "joinedAt": 1790265435871
+    },
+    {
+      "id": "79b84710-ea39-4b41-8b11-9d255d42c696",
+      "key": "s1",
+      "role": "Mana【S1 记忆/判据席】（临时角色，仓库无预设）。\n\n写面（你的独占区）：`packages/user-model/**`、`packages/metacognition/**`（W1 已交付骨架，本轮续作）。\n\n红线：① **禁写 `packages/core/**`**（S0 独占写面，W1 起只读；契约冻结）；② 不替后续批次拍实现形状——若某项接线必须先改冻结面，**只出设计提案 + 明确上报，不施工**；③ 不碰 `packages/ui/**` 与 `tools/**`。\n\n你的任务（细目将由主持人按轮下发）：W2-4 —— 两包全仓**零消费者**（`grep -rn \"dsh-mana-user-model\"` 只命中原生 package-lock 与 `docs/arch/_anchors-MA-F01.json`，无任何源码 import）。先实测确认这一事实，再回答两问：\n· 接线点落在哪（谁应该是消费方）？\n· 是否**必须**改冻结面 / 是否属于本轮范围（派单表自己的「依赖」列写着「B4.x 才接」）？\n\n能**就地**接线（不碰 core）就接线，并给出可机检证据「消费方调用后 `user_model` 表真增行」；不能则只出设计提案，不要硬做。\n\n每条结论必须给位置（文件/行号/命令输出）；给不出就标「未验证」。排序口径：先报「会掩盖其他问题、让失败不可观测」的缺陷，再按严重度排。找不到真问题写「未发现」，不许凑数。需拍板的分歧用 `[建议决策] <问题> | 选项：<A>/<B> | 推荐：<X> 理由：<一句话>` 行输出。",
+      "provider": "dshapi",
+      "model": "deepseek-v4.1-flash",
+      "status": "removed",
+      "joinedAt": 1790265436021
+    },
+    {
+      "id": "153b7255-8907-4ec6-aa56-c757a20b236b",
+      "key": "s4",
+      "role": "Mana【S4 UI 席】（临时角色，仓库无预设）。\n\n写面（你的独占区）：`packages/ui/**`。\n\n红线：① **绝对不许碰任何 profile**（`~/.dsh/profiles/**` 当前零 mana 依赖，把半成品插件装进用户正在用的 web GUI 属共享件变更，须用户单独拍板）；② 不碰 `packages/core/**`、`docs/contract/**`；③ 不碰 `tools/**`（若需扩装配检查入口，只出补丁建议给 S0，不自己写）。\n\n你的任务（细目将由主持人按轮下发）：W2-3 —— 派单表的原判据**指错了面**，你要先自证再交付：\n· 原 A5-2 判据「对 client 产物 grep `node:fs|node:sqlite|process.env` 命中 0」：实测 `packages/ui/lib/client.js` 已 0 命中；唯一命中在 `packages/ui/lib/panel.js:8`，而那是**注释里写「本文件不含 node:fs」**——是自我说明不是违规。把它作为**假阳性**报出。\n· 真缺口：`tools/r0-assembly-check.mjs:46-51` 只覆盖 6 包（core/jev/vector/perception/attention/working-memory），**不含 ui** ⇒ ui 从未经真 Loader 通道装配过。\n· 目标：让 ui 取得**仓内**真装配证据（装配后装配计数归零，沿用 r0 模式），而不是「测试里渲染过就算」。\n\n每条结论必须给位置（文件/行号/命令输出）；给不出就标「未验证」。排序口径：先报「会掩盖其他问题、让失败不可观测」的缺陷，再按严重度排。找不到真问题写「未发现」，不许凑数。需拍板的分歧用 `[建议决策] <问题> | 选项：<A>/<B> | 推荐：<X> 理由：<一句话>` 行输出。",
+      "provider": "dshapi",
+      "model": "deepseek-v4.1-flash",
+      "status": "removed",
+      "joinedAt": 1790265436136
+    },
+    {
+      "id": "823d403a-f259-4d3c-b193-1fb517234a44",
+      "key": "verify",
+      "role": "Mana【独立复核席】（临时角色，仓库无预设）。\n\n**本席不产任何改动**（不写仓内文件、不做 git 写操作）。你只做两件事：复核他人结论、判缺陷真伪。\n\n你的任务（细目将由主持人按轮下发）：\n① **判「闸有没有牙」**：对各席交付的机检判据做**预注册变异**——先写下「注入什么缺陷应当报红」，再真做变异跑一次，看它是否真红。重点：`tools/a1-check.mjs` 改坏 RRF k 值是否报红；桩判据是否只数调用次数（弱）还是真验请求体（强）；三骨架 `lib/` 是真构建产物还是占位空文件。\n② **判「根因解决 vs 拆东墙补西墙的补丁」**：某席若说「顺带修好了 X」，你必须指出它**碰了哪些既有行为**、并给出「那些行为仍然成立」的证据；给不出即报红。\n③ **判「假绿」**：判据是否只在夹具/桩上成立、是否把「文件存在」当「功能抵达」、是否只报数不报红。\n\n环境事实（供你起步，须自验）：`npm test` 基线 **184/184 pass**；`node tools/a0-check.mjs` → **14 PASS / 0 FAIL / 1 挂账**；`node tools/r0-assembly-check.mjs` → 6/6 装配归零；`node packages/jev/tests/gate.mjs` → exit 0（四腿）。契约哈希腿 `53c92707…` 有效，**不得**改动 `packages/core/**` 与 `docs/contract/**`。\n\n每条结论必须给位置（文件/行号/命令输出）；给不出就标「未验证」。排序口径：先报「会掩盖其他问题、让失败不可观测」的缺陷，再按严重度排。找不到真问题写「未发现」，不许凑数。需拍板的分歧用 `[建议决策] <问题> | 选项：<A>/<B> | 推荐：<X> 理由：<一句话>` 行输出。",
+      "provider": "dshapi",
+      "model": "deepseek-v4.1-flash",
+      "status": "removed",
+      "joinedAt": 1790265436225
+    }
+  ],
+  "edges": [],
+  "decisions": [
+    {
+      "id": "43290322-197c-4bd2-a5a9-fe4930b43af9",
+      "question": "Round 3 已全部复核通过，进入固化提交前，有三件必须你拍板（都是我不能自行决定的越权面）。请一次给答复：\n\n**① `user_model_history` 补表 —— 撞你定的墙②（`packages/core/**` 冻结）**\ns1 实测：`grep -c user_model_history packages/core/src/schema.ts` = **0**，而册:556 明令阶段 0 必须预留。后果可机检：同 key 二次写入 ⇒ 行数 `1 → 1` 不变 ⇒ 任何写入都是覆盖，**「漂移」在数据上不存在**。\n- **A**（s1 推荐）：现在由 S0 补进 `schema.ts` + 加一条判据。理由：册:556 明令阶段 0 预留，此刻各席均未依赖该表，成本最低。\n- **B**：延到 B5.2 与 user-model 行为同批。\n- **C**：维持现状（F2 已钉成「一旦出现写入者立即转红」的登记式判据）。\n\n**② A1-5 两份真源打架 —— 压在 W3 放行门上**\n`rollout-plan:455` 列了 A1-5 三锚点（我复算 `2^(-t/14)` 逐位吻合 1.000000/0.500000/0.011609），但全仓**零实现零测试**；`session-allocation.md:173` 把它列在 S1 的 B1.1 判据里，`rollout-plan:503/:547` 却把实现归给阶段 2/3 的 B3.1/B4.2。W3 的门写着「进 W3 前须 A1-5 绿」⇒ **照现状 W3 永远进不去**。\n- **A**（s0/s1 共同推荐）：A1-5 保持「无实现者（NONE）」一等状态，实现交给 B3.1/B4.2，本轮只交付入口。\n- **B**：本轮让某席在 `forgetting` 里填衰减核、A1-5 改接真实现（成本：破坏「骨架不填实现」的既有约定）。\n- **C**：把 A1-5 从 W2-2 交付面剔除（后果：W3 的门静默缺腿）。\n\n**③ r0 覆盖的残余逃逸 —— 本轮修还是记账**\n我独立复现：**协调性地**同时删掉 `MANIFEST` 里 `long-term` 一行 + 移走 `packages/long-term` 目录 ⇒ 覆盖核对 `✓ 通过`、`R0 通过`、**exit=0**（一个包可被整体移出装配检查而无声）。\n- **A**（复核席推荐）：本轮补第三源（如以 `_freeze.files.txt` 或 `naming.md` 为独立真源交叉核对），把逃逸堵死。\n- **B**：记账不改——理由是逃逸需要“协调性双重删除”的写入权限，而目前唯一兜底者 A0-12 清单腿（`find packages -name '*.ts'`）实测能抓到（移走目录 ⇒ 清单腿漂移少 1 件），且下轮 c0 提交后 git 历史本身可审计。\n- **C**：改为让 R0 直接复用 A0-12 的权威 walk，不再自带清单。",
+      "options": [
+        "①A ②A ③B（推荐：补表现状+入口交付+记账逃逸）",
+        "①A ②A ③A（推荐方案 + 本轮堵死逃逸）",
+        "①C ②A ③B（维持现状 + 入口交付 + 记账）",
+        "①A ②C ③C（补表 + 剔除 A1-5 + R0 复用权威 walk）"
+      ],
+      "status": "resolved",
+      "ts": 1790274945850
+    }
+  ],
+  "budget": {
+    "maxRounds": 999,
+    "maxTokens": 100000000,
+    "usedRounds": 5,
+    "usedTokens": 47156
+  },
+  "round": 5,
+  "kbPath": "/home/lk/Mana/docs",
+  "boundary": {
+    "goal": "把派单表里「真缺的三项」变成可机检的交付：A1 机检入口能跑、P1 三骨架按包名可解析、ui 有仓内装配证据；并固化在途交付。",
+    "done": "四条命令全绿且可复现：① `node tools/a1-check.mjs` 逐项 PASS/FAIL 输出，且**变异自证**（故意改坏 RRF k 值 ⇒ 该判据报红）；② 三包 `node -e \"import('dsh-mana-<pkg>')\"` 不再报 ERR_MODULE_NOT_FOUND；③ ui 经**仓内 Loader 通道**装配后装配计数归零（既有 r0 模式）；④ 在途改动已提交且内容与各会议交付一致（逐字比对，非「文件在长」）。",
+    "check": "命令层：上述①–④ + `npm test` 计数**不降**（基线 184/184）+ `node tools/a0-check.mjs` 无 FAIL + `node tools/r0-assembly-check.mjs` 仍 6/6 且新增 ui 后仍归零。判据不得只报数，须能真跑出红。",
+    "notDoing": "本波**不许动的墙**（越界即报红，不许事后重新解释）：\n① `~/.dsh/profiles/**` —— 你的 web GUI 运行态 profile 当前**零 mana 依赖**（实测三个 profile deps/bundles 均空）。把半成品 P2 插件装进你正在用的界面属共享件变更，**本轮只做仓内 Loader 通道验证，真装载须你单独拍板**。\n② `packages/core/**` 与 `docs/contract/**` —— 契约冻结，哈希腿（53c92707…）已被验证席变异测试证实有效。若某项接线必须改 core ⇒ **只出设计提案 + 上报，不施工**。\n③ 任何在途未提交文件**不得 `git checkout`/覆盖/丢弃**；git 写操作只允许一席做。\n④ 不碰 jev 的**模型适配面**（你已定：模型差，先做框架；不换模型/不调提示词/不追概率质量）。\n⑤ 不重排 `docs/session-allocation.md` 里 W3/W4 的既有裁定（W3 必须 S5 独占）。"
+  },
+  "userDirective": "W2 — 可并行",
+  "skillDelivery": "relay",
+  "status": "ended",
+  "createdAt": 1790265422246,
+  "updatedAt": 1790292846625,
+  "roundPlans": [
+    {
+      "round": 1,
+      "items": [
+        {
+          "id": "w22",
+          "task": "建 tools/a1-check.mjs：把 A1-4 / A1-5 / A1-11 / A1-12 从 packages/vector/tests/b11-vector.test.mjs 与源码注释汇总成统一机检入口，逐项 PASS/FAIL 输出，并自带一条 --mutate 变异开关（改坏 RRF k 值须该判据报红）",
+          "owner": "s0",
+          "dependsOn": [],
+          "kind": "change",
+          "regressionRisk": "新增文件，不改既有 tools/**；风险是搬运判据时把 b11-vector.test.mjs 的断言重写成分支，造成「同一判据两处结论不一致」。确认方式：a1-check 与 b11 测试对同一判据结论必须一致 + npm test 计数不降（184）"
+        },
+        {
+          "id": "w25",
+          "task": "为 P1 三骨架补 lib/ 构建：packages/long-term、packages/consolidation、packages/forgetting。判据：npm run build --workspace dsh-mana-<pkg> exit 0，且 import('dsh-mana-<pkg>') 不再报 ERR_MODULE_NOT_FOUND",
+          "owner": "s0",
+          "dependsOn": [],
+          "kind": "change",
+          "regressionRisk": "三骨架构建配置可能外溢影响其他包 tsc/构建；风险二是 lib/ 产物被误纳入版本控制或覆盖既有产物。确认方式：只改这三个包自身构建配置；改后 git status 检查产物排除情况；npm run typecheck exit 0"
+        },
+        {
+          "id": "w23",
+          "task": "W2-3：先自证原 A5-2 判据是假阳性（panel.js:8 命中在注释里），再让 ui 取得仓内 Loader 通道真装配证据（装配计数归零，沿用 r0 模式）。不得碰任何 profile；如需扩装配入口，只出补丁建议给 S0",
+          "owner": "s4",
+          "dependsOn": [],
+          "kind": "change",
+          "regressionRisk": "改 packages/ui/** 可能让 client 产物引入 node 专有 API（真违规），或让产物从单文件裂成多文件。确认方式：剥离注释后再 grep 禁词（区分注释与代码），client 产物仍单产物，npm test 计数不降"
+        },
+        {
+          "id": "w24",
+          "task": "W2-4 范围裁定：实测确认 user-model / metacognition 两包全仓零消费者，判定接线点落在哪、是否必须先改 packages/core/** 冻结面、是否属于本轮范围（派单表依赖列写「B4.x 才接」）。能就地接线（不碰 core）则接线并给出「消费方调用后 user_model 表真增行」证据；不能则只出设计提案，不硬做",
+          "owner": "s1",
+          "dependsOn": [],
+          "kind": "survey",
+          "regressionRisk": "无回归面（只读）"
+        },
+        {
+          "id": "r22",
+          "task": "复核 a1-check 有没有牙：预注册变异（改坏 RRF k 值、把某条判据改成恒真）→ 真做一次，看是否真红；并逐条比对 a1-check 与 b11-vector.test.mjs 对同一判据的结论是否一致",
+          "owner": "verify",
+          "dependsOn": [
+            "w22"
+          ],
+          "kind": "review",
+          "regressionRisk": "无回归面（只读复核）"
+        },
+        {
+          "id": "r23",
+          "task": "复核两件证据真伪：① ui 的仓内装配是否真走 Loader（不是测试里渲染过就算）且装配计数真归零；② 三骨架 lib/ 是真构建产物（含导出符号、可 import 出成员）还是占位空文件",
+          "owner": "verify",
+          "dependsOn": [
+            "w23",
+            "w25"
+          ],
+          "kind": "review",
+          "regressionRisk": "无回归面（只读复核）"
+        },
+        {
+          "id": "c0",
+          "task": "固化在途交付：提交 packages/jev/src/index.ts(+237) 与 packages/vector/src/index.ts(+172)（既有会议已交付但 HEAD f448efc 不含），以及本轮三包 lib/ 产物与其构建配置。禁止 git checkout / 覆盖 / 丢弃任何在途文件",
+          "owner": "s0",
+          "dependsOn": [
+            "r22",
+            "r23"
+          ],
+          "kind": "change",
+          "regressionRisk": "把在途未提交文件误提交 / 漏提交 / 覆盖。确认方式：提交前后 git status 与 git diff --stat 对比；提交后相关文件内容哈希与提交前逐字相同；工作区无未预期的丢失"
+        },
+        {
+          "id": "rc0",
+          "task": "复核提交内容：逐字比对提交后的文件内容与各会议已交付内容一致（不是「文件在长」），且工作区无丢失的在途改动",
+          "owner": "verify",
+          "dependsOn": [
+            "c0"
+          ],
+          "kind": "review",
+          "regressionRisk": "无回归面（只读复核）"
+        }
+      ],
+      "createdAt": 1790265478435,
+      "note": "W2 波次第 1 轮：三项真缺项（A1 机检入口 / P1 三骨架 lib / ui 仓内装配证据）并行施工 + W2-4 范围裁定，wave2 独立复核，wave3 固化在途交付，wave4 复核提交内容"
+    },
+    {
+      "round": 2,
+      "items": [
+        {
+          "id": "d1fix",
+          "task": "退回重修 tools/a1-check.mjs：（a）补「判据项集等式」——预声明期望项 id 集并双向断言（缺项 ⇒ FAIL、多项 ⇒ FAIL），不得只打印 results.length；参照 packages/vector/tests/gate.mjs:20 与 jev/tests/gate.mjs 的既有计数等式形态；（b）接入调用者——根 package.json 加一个可发现的 script 入口；（c）落 S4 已验证的 r0 补丁（PKGS 加 ['dsh-mana-ui','mana-ui'] + line 9 注释同步）；（d）在 /tmp 副本试跑全 13 包装配并报告结果（不改仓库）；（e）报终稿 sha256 并冻结不再改",
+          "owner": "s0",
+          "dependsOn": [],
+          "kind": "change",
+          "regressionRisk": "改 a1-check 可能让变异自证腿与新项集等式互相打架（互斥条件写成任一项就报红，反而制造假红）；落 r0 补丁可能让 R0 腿由 6 包变 7 包后行为变化。确认方式：改后 --mutate 六变异器仍 exit 1、默认跑仍 exit 0；r0 跑一次 N=7→0；a0-check 无 FAIL；npm test 计数不降"
+        },
+        {
+          "id": "rvf1",
+          "task": "独立复核 s1 对 user-model / metacognition 的 Config 修复（宣称 schemastery 3.18.4 的 .default(null) 被静默丢弃 ⇒ 真 Loader 路径下 precisionTarget === undefined 而非 null）：自己重新推导机制（不采信它给的行号）、真跑真 Loader 路径取证、双向复现红→绿、核「既有 19 例因手写 config 绕过 Config 解析」这个论断、并确认没有碰坏既有行为（npm test / typecheck / a0-check）",
+          "owner": "verify",
+          "dependsOn": [],
+          "kind": "review",
+          "regressionRisk": "无回归面（只读复核）"
+        },
+        {
+          "id": "rvi",
+          "task": "对 d1fix 的终稿真做「删块实验」：删掉任一判据块或任一变异器后，项集等式必须报红；并复核它接入根 package.json 的入口真可跑、报终稿 sha256 锁定",
+          "owner": "verify",
+          "dependsOn": [
+            "d1fix"
+          ],
+          "kind": "review",
+          "regressionRisk": "无回归面（只读复核）"
+        },
+        {
+          "id": "c0",
+          "task": "固化在途交付：逐文件提交 packages/jev/src/index.ts、packages/vector/src/index.ts、packages/vector/package.json、tools/a1-check.mjs、tools/check-comment-guard.mjs（后两件是 untracked，不提交则 A0-14 与 A1 入口不可从 git 复现）。禁 git add -A；禁 checkout/覆盖/丢弃；lib/ 不入库",
+          "owner": "s0",
+          "dependsOn": [
+            "rvi",
+            "rvf1"
+          ],
+          "kind": "change",
+          "regressionRisk": "把在途未提交文件误提交/漏提交/覆盖；或 git add -A 把别席在途改动一起提交。确认方式：逐文件 git add（禁 git add -A）、提交前后 git status 与 diff 逐字对比、提交后源码哈希与提交前相同"
+        },
+        {
+          "id": "rc0",
+          "task": "复核提交：新建干净目录 git worktree/clone 后重跑 node tools/a0-check.mjs 与 node tools/a1-check.mjs，证明「14 PASS」与 A1 入口可从 git 复现（不是只在本机工作区）；并逐字比对提交内容与各会议交付一致",
+          "owner": "verify",
+          "dependsOn": [
+            "c0"
+          ],
+          "kind": "review",
+          "regressionRisk": "无回归面（只读复核）"
+        }
+      ],
+      "createdAt": 1790268740912,
+      "note": "Round 2：退回重修 a1-check（项集等式 + 接入调用者 + 落 r0 ui 已验证补丁）+ 独立复核 s1 的 F1 修复；wave2 复核 d1fix，wave3 固化提交，wave4 复核提交内容"
+    },
+    {
+      "round": 3,
+      "items": [
+        {
+          "id": "r0fix",
+          "task": "修 D-R0：tools/r0-assembly-check.mjs 的 PKGS 是硬编码 7 条而实有 13 包（6 包从未被覆盖），且删掉任一行（含刚加的 ui、或既有 working-memory）仍报 N→0 通过、a0-check 仍 PASS——判据与它守护的清单同源。修法：① PKGS 改为扫实际 packages/* 目录（参照 a0-check A0-5 已做过的同一修正）；② 加「期望集 == 实测集」断言，删项/多项均报红；③ 把 tools/a1-check.mjs 接入 a0-check 门链（现 grep -c 为 0，npm run check:a1 不在自动门链）；④ a1-check 输出中把「门判定」段放在 harnessFail 报错之前（现✅门通过 排在 ✗无牙 之前，只读判定段的人会漏）",
+          "owner": "s0",
+          "dependsOn": [],
+          "kind": "change",
+          "regressionRisk": "把 PKGS 改为扫实际目录后，原本不在清单里的 6 个包会被纳入装配，可能暴露真装配失败（那是真缺陷，不是回归）；也可能因某些包不能独立装配而报红，需区分「判据变严」与「行为变坏」。确认方式：改后 r0 跑一次并逐个列出每包装配结果；既有 7 包（含 core 最先、config 注入 storePath）行为逐字未变；a0-check 无 FAIL；删掉任一包的覆盖时项集断言必须报红"
+        },
+        {
+          "id": "d1d2",
+          "task": "修 D1/D2：① D1 —— user-model 那条回归用例断言的是 ?? null 归一后的产物，把死 .default(null) 写回去仍 6/6 绿，而同缺陷在 metacognition 侧能抓（它断言 Config.dict.<key>.meta 无自有 default）；两侧判据强度须一致。② D2 —— user-model/tests/skeleton.test.mjs:14 import ../src/index.ts 而宿主按包名走 lib，src 已修+lib 陈旧时测试全绿而宿主读旧行为。要判：该缺口应归谁的哪条判据覆盖，不拆东墙补西墙",
+          "owner": "s1",
+          "dependsOn": [],
+          "kind": "change",
+          "regressionRisk": "把 user-model 侧用例改成断言 schema 元信息（或等价强度）后，可能变成「只断言实现细节」而不再是行为回归；也可能与 metacognition 侧同形后两侧一起失去行为面。确认方式：写回 .default(null) ⇒ 必须红（双向实证）；同时保留一条走真 Config 的行为面断言；npm test 计数不降；typecheck exit 0"
+        },
+        {
+          "id": "rvr0",
+          "task": "复核 r0fix：① 删掉 PKGS 覆盖中任一包（含 ui 与既有包）后必须报红并点名，不得再出现自指等式；② 独立复现「13 包逐个装配」并列出每包结果与失败原因；③ 核既有 7 包行为未变（core 最先、storePath 注入、计数口径）；④ 核 a1-check 真的进了门链（跑 a0-check 时它被调用，而不是只在 package.json 里挂着）",
+          "owner": "verify",
+          "dependsOn": [
+            "r0fix"
+          ],
+          "kind": "review",
+          "regressionRisk": "无回归面（只读复核）"
+        },
+        {
+          "id": "rvd",
+          "task": "复核 d1d2：写回 .default(null) 两次（两包各一次）必须各自报红；核行为面断言未被替换成纯实现细节断言；核 src/lib 不同步这个缺口是否被具名判据覆盖",
+          "owner": "verify",
+          "dependsOn": [
+            "d1d2"
+          ],
+          "kind": "review",
+          "regressionRisk": "无回归面（只读复核）"
+        },
+        {
+          "id": "c0",
+          "task": "固化在途交付（干净克隆实测不过关：缺 7 个包、A0 塔成 7 PASS/7 FAIL）：逐文件提交 41 项未跟踪 + 5 项已改，含 7 个新包（metacognition/user-model/ui/long-term/consolidation/forgetting/scheduler）、packages/vector/src 七个新模块、packages/jev/src 三个新模块与 tests、packages/core/src/open.ts、tools/{a1-check,check-comment-guard}.mjs、根 package.json、tools/r0-assembly-check.mjs、packages/{jev,vector} 在途改动、docs/handoff/S*.md 交接单。禁 git add -A；lib/ 不入库",
+          "owner": "s0",
+          "dependsOn": [
+            "rvr0",
+            "rvd"
+          ],
+          "kind": "change",
+          "regressionRisk": "逐文件 add（禁 git add -A）避免把别席在途改动混入；提交前后 git status 与 diff 对比；提交后源码哈希与提交前逐字相同；lib/ 不入库"
+        },
+        {
+          "id": "rc0",
+          "task": "干净克隆复现验收：新建 git clone 后 npm test / node tools/a0-check.mjs / npm run check:a1 三项与本机工作区结果一致（A0 应回到 14 PASS 无 FAIL），不依赖任何未提交文件；并逐字比对提交内容与各会议交付一致",
+          "owner": "verify",
+          "dependsOn": [
+            "c0"
+          ],
+          "kind": "review",
+          "regressionRisk": "无回归面（只读复核）"
+        }
+      ],
+      "createdAt": 1790271320218,
+      "note": "Round 3：修 D-R0（PKGS 改扫实际目录 + 期望集断言）与 a1-check 接入门链；修 s1 侧 D1/D2 判据强度不一致；wave2 独立复核，wave3 固化提交，wave4 干净克隆复现"
+    },
+    {
+      "round": 4,
+      "items": [
+        {
+          "id": "c0",
+          "task": "固化提交（这是本轮头号缺陷：干净克隆缺 7 个包、41 项未跟踪，A0 从 14 PASS/0 FAIL 塔成 7 PASS/7 FAIL、R0 腿直接 FAIL）：逐文件提交全部在途交付",
+          "owner": "s0",
+          "dependsOn": [],
+          "kind": "change",
+          "regressionRisk": "逐文件 add（禁 git add -A）避免把别席在途改动混入；提交前后 git status 与 diff 逐字对比；提交后源码哈希与提交前相同；lib/ 不入库（既有 .gitignore 约定）；不得 checkout/覆盖/丢弃任何在途文件"
+        },
+        {
+          "id": "rc0",
+          "task": "干净克隆复现验收：新建 git clone（不含工作区未提交物）后跑 npm test / node tools/a0-check.mjs / npm run check:a1 / node tools/r0-assembly-check.mjs 四项，与本机工作区结果逐项对比（A0 应回到 15 PASS 无 FAIL、R0 应 N=13→0）；证明这些数字不依赖任何未提交文件",
+          "owner": "verify",
+          "dependsOn": [
+            "c0"
+          ],
+          "kind": "review",
+          "regressionRisk": "无回归面（只读复核）"
+        }
+      ],
+      "createdAt": 1790280310225,
+      "note": "Round 4：固化提交（干净克隆实测缺 7 包、A0 塌成 7 PASS/7 FAIL）+ 干净克隆复现验收；附主持人对三件拍板项的判定"
+    },
+    {
+      "round": 5,
+      "items": [
+        {
+          "id": "f5",
+          "task": "修 F5：tools/a0-check.mjs 的 --record-baseline 在写入失败时吞错——我实测：chmod 444 后跑，输出「基线记录失败: EACCES」但 exit=0、✅ 无 FAIL，记录根本没写成。须让写入失败可观测（exit ≠ 0 或与判据结果分离报告，不得报成功）",
+          "owner": "s0",
+          "dependsOn": [],
+          "kind": "change",
+          "regressionRisk": "改 --record-baseline 的退出码可能影响调用它的既有流程（若有人靠 exit 0 判断「基线已记」）；也可能把「记录失败但判据全绿」误改成「整体失败」而掩盖真判据结果。确认方式：① 写入失败时 exit ≠ 0 且消息可辨；② 写入成功时行为与改前逐字相同（exit 与输出一致）；③ a0-check 全量仍 PASS 15/FAIL 0/挂账 1"
+        },
+        {
+          "id": "rf5",
+          "task": "复核 f5：写入必失败（chmod 444）时退出码与输出必须可辨失败；写入成功时行为与改前一致；并核 W3 并发提交 acdcabe 是否破坏了本轮 W2 的任何成果（尤其 a1-check 从 6 项扩到 11 项后，项集等式与变异自证腿是否仍有效）",
+          "owner": "verify",
+          "dependsOn": [
+            "f5"
+          ],
+          "kind": "review",
+          "regressionRisk": "无回归面（只读复核）"
+        }
+      ],
+      "createdAt": 1790284269533,
+      "note": "Round 5（收口）：修 F5 未修完的 record-baseline 吞错（写入失败仍 exit 0），并核 W3 并发提交对本轮成果的影响；wave2 复核"
+    }
+  ]
+}

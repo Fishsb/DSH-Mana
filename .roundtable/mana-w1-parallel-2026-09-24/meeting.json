@@ -1,0 +1,264 @@
+{
+  "id": "mana-w1-parallel-2026-09-24",
+  "name": "mana-w1-parallel-2026-09-24",
+  "goal": "放行 `docs/session-allocation.md` §二 的 W1 波次。W0 已收口（commit ee9e22e）：冻结契约 `docs/contract/` 在盘、P0 六骨架已装配。S0（B1.0 开库器）由另一会话在途推进，本会议不重复接，只接并行四席：S1 / S2 / S3 / S4。\n\n⚠ 开工前已实测的三条前提（非引文档自述）：\n① 契约三元组：`_freeze.sha256` 两个核心文件**逐字未变**；`files.txt` 与 `_freeze.head` 已漂（因 S0 在途新增 `packages/core/src/open.ts` 与 lib 产物）⇒ **哈希腿可信，清单腿须待 S0 收口后重取**。\n② 新包**免 `npm install`** 即可落地：探针在共享根 `node_modules` 下 tsc exit 0，负向（故意写 `ctx.subagents`）正确报 TS2551 exit 2 ⇒ 四席新建包**不必碰根 package.json/lock**。\n③ `memory_items.vector BLOB`、`jev_log` 表、`inject_log.gate` 五枚举均已落盘 ⇒ 向量与 JEV 都有写入落点。另有实测：Ollama `127.0.0.1:11434` `/api/chat` + `think:false` + `logprobs:true` 返回 pos0 top_logprobs 五档（`Yes -0.5908` / `yes -1.5883` / `No -1.8870` / `no -2.8244`），单次 4878ms（**B 档浮动量，不得进阈值列**）。\n\n已知写面撞车处置（主持人已裁，专家照此办）：`册:555` 要求 B5.1 建「P2 三个骨架」= metacognition/user-model/ui，而 `docs/session-allocation.md §三` 把 `packages/ui/**` 判给 S4 ⇒ **S1 只建 metacognition + user-model 两个骨架，ui 骨架归 S4**，避免同目录两写者。",
+  "mode": "orchestrated",
+  "captainSessionId": "session-3fb24594-5ffd-4f0e-a998-cd0deb6c8ca4",
+  "charter": "《全局协作总纲》\n\n一、会议背景与核心目标\n放行 `docs/session-allocation.md` §二 的 W1 波次。W0 已收口（commit ee9e22e）：冻结契约 `docs/contract/` 在盘、P0 六骨架已装配。S0（B1.0 开库器）由另一会话在途推进，本会议不重复接，只接并行四席：S1 / S2 / S3 / S4。\n\n⚠ 开工前已实测的三条前提（非引文档自述）：\n① 契约三元组：`_freeze.sha256` 两个核心文件**逐字未变**；`files.txt` 与 `_freeze.head` 已漂（因 S0 在途新增 `packages/core/src/open.ts` 与 lib 产物）⇒ **哈希腿可信，清单腿须待 S0 收口后重取**。\n② 新包**免 `npm install`** 即可落地：探针在共享根 `node_modules` 下 tsc exit 0，负向（故意写 `ctx.subagents`）正确报 TS2551 exit 2 ⇒ 四席新建包**不必碰根 package.json/lock**。\n③ `memory_items.vector BLOB`、`jev_log` 表、`inject_log.gate` 五枚举均已落盘 ⇒ 向量与 JEV 都有写入落点。另有实测：Ollama `127.0.0.1:11434` `/api/chat` + `think:false` + `logprobs:true` 返回 pos0 top_logprobs 五档（`Yes -0.5908` / `yes -1.5883` / `No -1.8870` / `no -2.8244`），单次 4878ms（**B 档浮动量，不得进阈值列**）。\n\n已知写面撞车处置（主持人已裁，专家照此办）：`册:555` 要求 B5.1 建「P2 三个骨架」= metacognition/user-model/ui，而 `docs/session-allocation.md §三` 把 `packages/ui/**` 判给 S4 ⇒ **S1 只建 metacognition + user-model 两个骨架，ui 骨架归 S4**，避免同目录两写者。\n\n一之一、**用户原话**（未加工·最高优先级；与上文目标冲突时**以本条为准**）\n> W1 可并行开工\n> S0另一个会话在推进\n本会议的**唯一目的**是满足上面这句用户指令。产出偏离它 = 无效产出，无论多精彩。\n\n一之二、本会议的边界声明（**改动前必须对照**）\n- 要解决的现象：W1 波次的四个并行批次尚未开工：`packages/vector`/`packages/jev` 是不含实现的空骨架（`apply` 只有 `status()` 自证），`packages/scheduler` 与 `packages/ui` 目录根本不存在，四席各自没有任何判据测试。\n- 算解决的标准：四席各自批次产物落地并通过自包判据，且各写 `docs/handoff/S<n>.md` 六段齐全（交付文件 / 判据执行原文 / 反证判据 / 回归自检 / 未决项 / 契约版本）。具体：S2 的 JEV 单 token 原语 + 缓存/熔断/降级可枚举断言；S3 的 scheduler 目标栈+SOAR + waterfall next() 结构约束 + unhandledRejection 计数断言；S4 的双 entry 产物 + 面板可渲染；S1 的判据阈值层（连生成器与注册表）。\n- 怎么检查才算达标：① 各席 `node --test \"packages/<pkg>/tests/*.test.mjs\"` 退出码 0（禁止用管道取退出码，`node x | tail` 的 $? 是 tail 的）；② `npm run typecheck --workspace <pkg>` exit 0；③ A 档确定性锚点逐字比对（差 ≤1e-6），B 档浮动量不得进阈值列（绝对值只作测量条件说明）；④ 降级/门控类判据必须是**可枚举字段断言**（如 `degraded === true` 且 `gate` 非空字符串），不接受「看着像降级了」；⑤ A5-2 对 client 产物 grep `node:fs|node:sqlite|process.env` 命中 0；⑥ 反证判据 = 卸载该包后同一触发不再产生新行。\n- **明确不做 / 不许动**：禁写 `packages/core/**`（S0 独占、只读契约真源，含在途的 open.ts）、根 `package.json`/`package-lock.json`/`tsconfig.base.json`/`.gitattributes`、`docs/contract/**`（冻结只读）、任何他人包与 `docs/handoff/<他人>.md`；禁 `git add -A`/`git add .`（会把别席在途改动一起提交，只 `git add` 自己的包 + 自己的 handoff）；禁全局 `npm install`、禁全局 build（他席在途码会被编进产物，归属就乱了——要验只 build 自己那个包）；不装配到运行态 profile、不改 `~/.dsh/`；不删既有测试与既有断言；不改 `docs/session-allocation.md`（该档订正权归用户）。「顺带修好了 X」不算交付——若某改动必须越界，先报告主持人取得用户明示同意。\n- ⚠ 提出任何改动时，须自答一句：「这条改动会不会碰坏上面『不许动』里的东西？」\n  若会，必须在 [核心产出] 里点明**碰了哪面墙、用什么证据确认没碰坏**；没有证据就标「未验证」。\n  禁止用\"顺带修好了\"掩盖越界改动 —— 那是拆东墙补西墙的典型形态。\n\n二、团队与通信边界（单线制）\n主持人（DeepSeek）：全局编排与最终汇总，唯一对用户负责；也是你唯一的联系人与信息来源。\n你与其他席位的存在互不披露：不掌握其他专家的人数、标识、分工与连线。\n权限隔离：只做本职，严禁越权代管他人的工作；只有主持人可以创建/移除成员、修改连线、发起人类决策、结束会议。\n本职以外的请求或发现，不要自行处理，也不要臆断谁会处理 —— 在本轮发言里单列一行 [越界转派]：<事项> | 建议承接：<职责>，由主持人再分配。\n\n三、标准化协作协议\n- 每次发言开头标注 [当前状态]，结尾给出 [核心产出] 与 [下一步建议]。\n- [核心产出] 必须自包含：选定的方向、关键取舍与理由写进这一节，让不读过程的人也能完整获得结论。\n- 发言中有需要用户拍板的分歧时，在结尾单列一行 [建议决策]：<问题> | 选项：<A>/<B>/… | 推荐：<X> 理由：<一句话>；主持人据此触发人类决策。\n- 单一出口：专家的汇报只进会议记录（roundtable_speak），对用户的输出一律由主持人整轮收敛后统一汇总，专家不直接对用户播报。\n- 严禁输出\"好的\"\"收到\"等无信息量内容。\n- 节点发言通过 roundtable_speak 写入会议记录，供汇聚网关与主持人查阅；定向讨论使用 to 参数。\n\n四、全局约束与安全红线\n- 遇到分歧或无法独自决定的事项，立即建议主持人触发 [需人类决策]，严禁自行替用户拍板。\n- 严禁编造不存在的 API、数据或事实；不确定时明确说明。\n- 超预算（轮数/Token）时会议将自动闭麦暂停。",
+  "nodes": [
+    {
+      "id": "689d8992-2676-48ef-81a8-c8e2cc80cc58",
+      "key": "s1",
+      "role": "Mana【S1 判据/向量席】（临时角色，仓库无预设）。本席持有写面 packages/metacognition/**（B5.1 期）。批次 B5.1：可移植 shoucang 判据阈值层 —— ⚠ 必须连生成器 scripts/gen-criteria.mjs 与注册表 skill/engine/criteria.json 一起搬，只搬 lib/criteria.js 会导致数值漂移不可追。硬纪律：禁写 packages/core/**（只读契约）、根 package.json/lock/tsconfig.base、docs/contract/**、他人包；禁 git add -A；只在自包内 build/test，不得全局 build。",
+      "provider": "dshapi",
+      "model": "deepseek-v4.1-flash",
+      "status": "removed",
+      "joinedAt": 1790249305081
+    },
+    {
+      "id": "7b7e480a-a620-4f28-a885-acdeae02076c",
+      "key": "s2",
+      "role": "Mana【S2 JEV 席】（临时角色，仓库无预设）。本席持有写面 packages/jev/**。批次 B1.2：JEV = 本机 Ollama logprob 单 token 原语（/api/chat + think:false + logprobs:true + top_logprobs:5 + num_predict:1 + temperature:0，从 pos0 取 yes/no 归一）；串行 + 全局并发 ≤4 + 同 state-hash 缓存(TTL 300s) + 熔断 5 次 + 冷却 60s + 每 session 预算上限；降级必须落 degraded:true，禁 catch{return null}。硬纪律：禁写 packages/core/**、根配置、docs/contract/**、他人包；禁 git add -A；只在自包内 build/test。",
+      "provider": "dshapi",
+      "model": "deepseek-v4.1-flash",
+      "status": "removed",
+      "joinedAt": 1790249305253
+    },
+    {
+      "id": "6f8c3e16-4aa4-490b-a50c-2a243ca27334",
+      "key": "s3",
+      "role": "Mana【S3 调度席】（临时角色，仓库无预设）。本席持有写面 packages/scheduler/**（新建包，免 npm install 已实测可行）。批次 B2.2：scheduler 目标栈 + SOAR 三阶段循环，并建 P1 四个骨架。硬依赖仅 B0.2（已满足）。结构约束：骨架的 apply 必须注册一条 waterfall 监听器并调 next()（G9）；另须加 unhandledRejection 计数断言（cordis 4.0.4 实测：emit 分发 waterfall 时 async 监听器抛错变成 unhandledRejection，静默得多）。硬纪律：禁写 packages/core/**、根配置、docs/contract/**、他人包；禁 git add -A；只在自包内 build/test。",
+      "provider": "dshapi",
+      "model": "deepseek-v4.1-flash",
+      "status": "removed",
+      "joinedAt": 1790249305372
+    },
+    {
+      "id": "6f93dbc0-87f6-4a2b-9b3f-f8d2aa3a4396",
+      "key": "s4",
+      "role": "Mana【S4 UI 席】（临时角色，仓库无预设）。本席持有写面 packages/ui/**（含 client 半区，新建包）。批次 B6.1：Client 半区面板（激活值热力图 / 目标栈树 / 认知轨迹时间线），抄样板 dsh-plugin-roundtable 的 tsdown 双 entry；Client↔Host 走 Package-private JSON 方法（harness.handle / host.call），只有无损 JSON 可跨界。合规基线：Host 入口体积同量级 ~4KB（不把面板逻辑塞进入口）· Client 单产物 · client 不得引 node:fs/node:sqlite/process.env（A5-2 命中须为 0）。⚠ R5：不得照抄 shoucang 的 /api/shoucang-panel/vector/status2 端点，须自建产物侧落点（mana_trace 的 ui/render 行）。硬纪律：禁写 packages/core/**、根配置、docs/contract/**、他人包；禁 git add -A；只在自包内 build/test。",
+      "provider": "dshapi",
+      "model": "deepseek-v4.1-flash",
+      "status": "removed",
+      "joinedAt": 1790249305485
+    },
+    {
+      "id": "2f8e3d7f-e767-4124-a3de-592a64e57bc1",
+      "key": "verify",
+      "role": "Mana【独立复核席】（临时角色，仓库无预设）。本席**不产出任何改动**，只独立判「这是从根因解决，还是拆东墙补西墙」。本席持有写面仅 docs/handoff/S-verify.md（自写自的报告），其余一律只读。\n\n复核 competence 与被判对象对齐（四类表面各配一条手段）：\n① 数值类（判据阈值层/时间衰减）：**复跑生成器 + 逐值比对**，不接受「读代码看着对」——数值漂移只有重算才看得见；\n② 静默失败类（JEV 降级/门控）：**枚举字段断言**（degraded 恒等 true 且 gate 非空字符串），且须造一次真故障路径（不可达端点/超预算）看是否**留痕**，不接受「看起来降级了」；\n③ 结构类（waterfall next() 义务）：**断言监听器真被调用并透传**——造一个下游哨兵，看它有没有被吞掉；\n④ 产物类（client 半区）：对**产物** grep node:fs|node:sqlite|process.env 须 0 命中，并核单产物。\n\n硬纪律：只复跑、不代改；发现打补丁把证据（命令原文+输出原文+文件行号）报回主持人，**不得自己去改他人包**（那就是第二个写者）。禁 git add -A。不确定就写「未验证」，不得凑数。",
+      "provider": "dshapi",
+      "model": "deepseek-v4.1-flash",
+      "status": "removed",
+      "joinedAt": 1790249322235
+    },
+    {
+      "id": "1f53b062-a005-4485-a510-1c945fe6b6f6",
+      "key": "s2b",
+      "role": "Mana【S2b JEV 席·接续】（临时角色，仓库无预设）。**接续一次失败的任务**：前一席在交付前耗尽上下文、零产出（`packages/jev/src/index.ts` 未改一行）。\n\n本席持有写面：`packages/jev/**`（唯一）。批次 B1.2 的最小可交付子集。\n\n⚠ **任务边界刻意切窄**（前一席就是因为贪大而耗尽）：本轮**只做「单 token 原语 + 降级留痕」两件**，不做缓存/熔断/预算的完整实现（那是下一轮的事）。宁可小而真，不要大而空。\n\n硬纪律：禁写 `packages/core/**`、根配置、`docs/contract/**`、他人包；禁 git add -A；只在自包内 build/test；禁 npm install。",
+      "provider": "dshapi",
+      "model": "deepseek-v4.1-flash",
+      "status": "removed",
+      "joinedAt": 1790249966296
+    },
+    {
+      "id": "9e6d29c2-79c5-46b4-ad63-b2e640a23023",
+      "key": "s1v",
+      "role": "Mana【S1v 向量席·接续】（临时角色，仓库无预设）。本席持有写面 `packages/vector/**`（唯一）。\n\n批次 **B1.1 向量适配**（`docs/mana-rollout-plan.md` §1.1 L394 原文口径）：\n· **走纯 JS 通道**：复用本机 shoucang `lib/vec.js` 的 `cosine` / `embedMany` / `recallRanked`（**只读参考，不得改 shoucang 任何字节**）\n· **RRF 自实现**（约 30 行，k=60）\n· BLOB + **常驻 Float32Array**\n· sqlite-vec 作可选加速；⚠ **一旦启用 vec0，必须同时承接 W-1/W-2/W-3 三条语义**（否则不报错但语义偏离）\n· 降级**必须落显式字段**（`degraded:true` + 非空 `reason`），**禁 `catch{return null}`**（G8）\n\n⚠ **任务切窄警告**：本会议已有一席因贪大**耗尽上下文、零产出死亡**。请**先写 handoff 再展开**，宁可小而真。\n\n硬纪律：禁写 `packages/core/**`（只读契约真源）、根配置、`docs/contract/**`、他人包；禁 `git add -A`；只在自包内 build/test；禁 `npm install`。",
+      "provider": "dshapi",
+      "model": "deepseek-v4.1-flash",
+      "status": "removed",
+      "joinedAt": 1790251571907
+    },
+    {
+      "id": "3aee0a62-aa2b-4d8e-953e-b98103a7d9f7",
+      "key": "verify2",
+      "role": "Mana【独立复核席 2】（临时角色，仓库无预设）。接替前一复核席（它已因上下文耗尽关闭，留有一份 21.7 KB 的报告在 `docs/handoff/S-verify.md`）。\n\n本席**不产出任何改动**，只独立判「从根因解决，还是拆东墙补西墙」。写面仅 `docs/handoff/S-verify2.md`，其余一律只读。\n\n⚠ **强制工作纪律（前一席差点归零，请照办）**：\n1. **每判完一条就立刻写进 `docs/handoff/S-verify2.md`**，不要攒到最后一起写；\n2. 每次复核**只做派给你的那一项**，做完就 `roundtable_speak` 汇报，不顺手做别的；\n3. 判不出就写「未验证」，**不许凑数**；\n4. 只复跑、不代改；只报事实 + 命令原文 + 输出原文 + 行号；\n5. 退出码一律不经管道取（`node x | tail` 的 `$?` 是 tail 的）；\n6. ⚠ **判据必须不受空集欺骗**：先断言「有东西被测」（测试文件存在 + TAP `# tests N > 0`），再看 pass/fail。已知 `node --test \"dir/*.test.mjs\"` 在目录不存在时**静默 exit 0**（假绿）。",
+      "provider": "dshapi",
+      "model": "deepseek-v4.1-flash",
+      "status": "removed",
+      "joinedAt": 1790251572053
+    }
+  ],
+  "edges": [],
+  "decisions": [],
+  "budget": {
+    "maxRounds": 24,
+    "maxTokens": 3000000,
+    "usedRounds": 2,
+    "usedTokens": 39261
+  },
+  "round": 2,
+  "kbPath": "/home/lk/Mana/docs",
+  "skills": [
+    "cordis-plugin-development"
+  ],
+  "boundary": {
+    "goal": "W1 波次的四个并行批次尚未开工：`packages/vector`/`packages/jev` 是不含实现的空骨架（`apply` 只有 `status()` 自证），`packages/scheduler` 与 `packages/ui` 目录根本不存在，四席各自没有任何判据测试。",
+    "done": "四席各自批次产物落地并通过自包判据，且各写 `docs/handoff/S<n>.md` 六段齐全（交付文件 / 判据执行原文 / 反证判据 / 回归自检 / 未决项 / 契约版本）。具体：S2 的 JEV 单 token 原语 + 缓存/熔断/降级可枚举断言；S3 的 scheduler 目标栈+SOAR + waterfall next() 结构约束 + unhandledRejection 计数断言；S4 的双 entry 产物 + 面板可渲染；S1 的判据阈值层（连生成器与注册表）。",
+    "check": "① 各席 `node --test \"packages/<pkg>/tests/*.test.mjs\"` 退出码 0（禁止用管道取退出码，`node x | tail` 的 $? 是 tail 的）；② `npm run typecheck --workspace <pkg>` exit 0；③ A 档确定性锚点逐字比对（差 ≤1e-6），B 档浮动量不得进阈值列（绝对值只作测量条件说明）；④ 降级/门控类判据必须是**可枚举字段断言**（如 `degraded === true` 且 `gate` 非空字符串），不接受「看着像降级了」；⑤ A5-2 对 client 产物 grep `node:fs|node:sqlite|process.env` 命中 0；⑥ 反证判据 = 卸载该包后同一触发不再产生新行。",
+    "notDoing": "禁写 `packages/core/**`（S0 独占、只读契约真源，含在途的 open.ts）、根 `package.json`/`package-lock.json`/`tsconfig.base.json`/`.gitattributes`、`docs/contract/**`（冻结只读）、任何他人包与 `docs/handoff/<他人>.md`；禁 `git add -A`/`git add .`（会把别席在途改动一起提交，只 `git add` 自己的包 + 自己的 handoff）；禁全局 `npm install`、禁全局 build（他席在途码会被编进产物，归属就乱了——要验只 build 自己那个包）；不装配到运行态 profile、不改 `~/.dsh/`；不删既有测试与既有断言；不改 `docs/session-allocation.md`（该档订正权归用户）。「顺带修好了 X」不算交付——若某改动必须越界，先报告主持人取得用户明示同意。"
+  },
+  "userDirective": "W1 可并行开工\nS0另一个会话在推进",
+  "skillDelivery": "relay",
+  "status": "ended",
+  "createdAt": 1790249298862,
+  "updatedAt": 1790254236051,
+  "roundPlans": [
+    {
+      "round": 1,
+      "items": [
+        {
+          "id": "c1",
+          "task": "移植 shoucang 判据阈值层到 packages/metacognition（新建包）：连 skill/engine/criteria.json 真源 + scripts/gen-criteria.mjs 生成器 + 投影一起搬，建包/判据测试/docs/handoff/S1.md",
+          "owner": "s1",
+          "dependsOn": [],
+          "kind": "change",
+          "regressionRisk": "搬移会碰到 /mnt/d/FF/shoucang（外部仓，只读不得改）与 packages/core（契约只读）；须确认 shoucang 侧零写入（核 mtime+git status），且不改 packages/core 任何字节（核 _freeze.sha256 两个核心文件仍逐字相等）。"
+        },
+        {
+          "id": "c2",
+          "task": "落地 B1.2 JEV 到 packages/jev：Ollama 单 token logprob 原语 + 同 state-hash 缓存(TTL300s)/熔断 5 次/冷却 60s/并发≤4/预算上限 + 降级落 degraded:true，建判据测试/docs/handoff/S2.md",
+          "owner": "s2",
+          "dependsOn": [],
+          "kind": "change",
+          "regressionRisk": "会在 packages/jev 新增文件，既有骨架的 name/inject/apply 与 status() 自证行为不得失效（核骨架测试仍绿）；不得改 packages/core 的 jev_log 表结构与 docs/contract/degradation.md（只读契约）。"
+        },
+        {
+          "id": "c3",
+          "task": "建 packages/scheduler（新包）：目标栈 + SOAR 三阶段循环 + P1 四骨架，骨架 apply 必须注册 waterfall 监听器并调 next()，另加 unhandledRejection 计数断言，建测试/docs/handoff/S3.md",
+          "owner": "s3",
+          "dependsOn": [],
+          "kind": "change",
+          "regressionRisk": "新包会挂 agent/pre-step 同类扩展点，若漏调 next() 会静默吞掉下游（G9）——须造下游哨兵证明透传；新包不得污染根 package.json/lock（核其 mtime 与 git diff 为空）。"
+        },
+        {
+          "id": "c4",
+          "task": "建 packages/ui（新包）：Host 入口同量级 ~4KB + client 半区单产物，client↔host 走 package-private JSON，自建产物侧落点（mana_trace 的 ui/render 行），A5-2 三模式 0 命中，建测试/docs/handoff/S4.md",
+          "owner": "s4",
+          "dependsOn": [],
+          "kind": "change",
+          "regressionRisk": "client 产物若混入宿主专有 API（node:fs/node:sqlite/process.env）会在浏览器侧崩且失败不可观测；须对产物 grep 验证 0 命中，并核未新增第二个 client 产物。"
+        },
+        {
+          "id": "s0",
+          "task": "只读勘察：独立复跑 gen-criteria --check 与生成器一致性、核契约三元组现状、固定四类复核口径与命令，输出复核基线（不得改任何文件）",
+          "owner": "verify",
+          "dependsOn": [],
+          "kind": "survey",
+          "regressionRisk": "无回归面（只读）"
+        },
+        {
+          "id": "r1",
+          "task": "独立复核 c1：复跑生成器逐值比对，判「连生成器与注册表一起搬」是真可追还是只搬了投影（打补丁）；给命令原文+输出原文+文件行号",
+          "owner": "verify",
+          "dependsOn": [
+            "c1"
+          ],
+          "kind": "review",
+          "regressionRisk": "无回归面（只读）"
+        },
+        {
+          "id": "r2",
+          "task": "独立复核 c2：造真故障路径（端点不可达/超预算）验证降级落痕，判枚举字段断言是否真断言而非「看着像降级」",
+          "owner": "verify",
+          "dependsOn": [
+            "c2"
+          ],
+          "kind": "review",
+          "regressionRisk": "无回归面（只读）"
+        },
+        {
+          "id": "r3",
+          "task": "独立复核 c3：造下游哨兵验证 waterfall next() 真被调用并透传，判结构约束是否只是写在注释里",
+          "owner": "verify",
+          "dependsOn": [
+            "c3"
+          ],
+          "kind": "review",
+          "regressionRisk": "无回归面（只读）"
+        },
+        {
+          "id": "r4",
+          "task": "独立复核 c4：对产物 grep node:fs|node:sqlite|process.env 须 0 命中 + 核单产物 + 核 Host 入口体积同量级",
+          "owner": "verify",
+          "dependsOn": [
+            "c4"
+          ],
+          "kind": "review",
+          "regressionRisk": "无回归面（只读）"
+        }
+      ],
+      "createdAt": 1790249402622,
+      "note": "W1 第一轮：四席并行开工（各自写面互不相交），独立复核席 wave 1 先做只读基线勘察，wave 2 才复核四项改动（避开自产自审）。"
+    },
+    {
+      "round": 2,
+      "items": [
+        {
+          "id": "d1",
+          "task": "B1.1 向量适配到 packages/vector：纯 JS 余弦（BLOB + 常驻 Float32Array）+ 自实现 RRF(k=60) + 降级落显式字段，建判据测试",
+          "owner": "s1v",
+          "dependsOn": [],
+          "kind": "change",
+          "regressionRisk": "会新增 packages/vector 实现文件，既有骨架 name/inject/apply/status() 与 6 项骨架测试不得失效（含 G9 直通链）；不得改 shoucang 任何字节（核三件 mtime+sha256 前后一致）；不得改 packages/core（核两核心文件 sha256 仍等于 _freeze.sha256）。"
+        },
+        {
+          "id": "d2",
+          "task": "补 S4 未决项③：apply 接 ctx.slots 注成真面板组件（当前只是无 DOM 数据面），保持 client 单产物 + 三模式 0 命中 + Host 入口同量级",
+          "owner": "s4",
+          "dependsOn": [],
+          "kind": "change",
+          "regressionRisk": "A5-2 三个 grep 模式对 client 产物须仍 0 命中（注释里写字面量也会被数到——已验）；Host 入口体积须仍同量级；不得为了接 slot 而改 core 或装依赖。"
+        },
+        {
+          "id": "d3",
+          "task": "修 S3 被复核判定为「假旋钮」的 Config.enabled（三骨架 false 与 true 同形、apply 里零消费）+ 把 behavior:'skeleton' 变成真机检（当前注释承诺、测试面零命中）",
+          "owner": "s3",
+          "dependsOn": [],
+          "kind": "change",
+          "regressionRisk": "scheduler 现有 12 条判据须仍绿（加开关真消费不得弄断既有行为）；不得动 packages/core 契约与根配置。"
+        },
+        {
+          "id": "v2",
+          "task": "只读基线：核当前全仓判据现状（不受空集欺骗的尺子）+ 核四席交付物边界，并补上一轮未派的 r4（S4 产物面）",
+          "owner": "verify2",
+          "dependsOn": [],
+          "kind": "survey",
+          "regressionRisk": "无回归面（只读）"
+        },
+        {
+          "id": "r5",
+          "task": "复核 d1（B1.1 向量）：RRF k=60 逐值比对 + 降级可枚举断言 + 余弦与上游 shoucang 等价性",
+          "owner": "verify2",
+          "dependsOn": [
+            "d1"
+          ],
+          "kind": "review",
+          "regressionRisk": "无回归面（只读）"
+        },
+        {
+          "id": "r4",
+          "task": "复核 d2（slot 接线）：对产物 grep 三模式须 0 命中 + 核单产物 + 核 Host 入口体积同量级 + 判 slot 是否真注成而非注释声称",
+          "owner": "verify2",
+          "dependsOn": [
+            "d2"
+          ],
+          "kind": "review",
+          "regressionRisk": "无回归面（只读）"
+        },
+        {
+          "id": "r6",
+          "task": "复核 d3（假旋钮修复）：判 enabled=false 与 true 是否真不同形，且不要只改注释",
+          "owner": "verify2",
+          "dependsOn": [
+            "d3"
+          ],
+          "kind": "review",
+          "regressionRisk": "无回归面（只读）"
+        }
+      ],
+      "createdAt": 1790251609966,
+      "note": "W1 第二轮：B1.1 向量适配开工（B1.0 已就绪、阻塞解除）+ 三处第一轮暴露的缺口并发补口；独立复核席 wave 2 复核，且要把上一轮未验的 r4 补上。"
+    }
+  ]
+}

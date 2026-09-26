@@ -1,0 +1,27 @@
+{
+  "meetingId": "mana-v10-review-2026-09-25",
+  "entries": [
+    {
+      "path": "/home/lk/Mana/docs/plan-review-2026-09-24.md",
+      "size": 10624,
+      "mtimeMs": 1790245172611.4785,
+      "digest": "方案检查结论（149 行，2026-09-24 WSL 跨环境复核）：6 条 L1 级发现（环境已漂 5 项 / A0-1 逐字相等必假红 / G8 行锚错 23 行 / G6 失败形态比方案描述更不可观测（async 监听器不抛而变 unhandledRejection）/ B0.2∥B0.3 可并行与写面冲突 / 依赖图逻辑 vs 物理口径差）；§三 复核成立 7 条；§四 两件待拍板均已定案（DSH 留在 0.1.7-rc.1；Node 钉 ^22.22.0）。",
+      "ts": 1790289947158
+    },
+    {
+      "path": "/home/lk/Mana/docs/mana-project-status-plan.md",
+      "size": 27572,
+      "mtimeMs": 1790284891171.705,
+      "digest": "v6.3 实况订正版（448 行，订正基准 acdcabe，13 包）：以参考文档骨架为形、以本仓实测为实。六节：① JEV 批量（原文前提不成立：50 问单次 1046–1228ms vs 50 并发 7599ms；judgeSeries 显式串行；护栏六配置全部被 apply 消费；准入顺序 预算→缓存→熔断→半开→并发槽→模型）② 21 个 Prompt 本仓一个都不存在（全仓唯一命中是 schema 两个列名 jev_relevance/jev_worth_keeping——列在写者不在）③ 13 包表（含源码行数与状态）④ 阈值实况（仅 3 个数字真存在于代码：judgeWithOllama threshold 0.5、ACT-R τ=-2.0、attention jevThreshold 0.7 零消费者）⑤ 两条真实通道 ollama（缺省）/ systemone（须显式；端点 nano-gpt.com 非 openrouter）⑥ 降级链真实形态：三前缀可枚举 reason（ollama- 6 / systemone- 8 / jev- 4），三条硬纪律（禁止 catch{return null}、不可用与零值须可分辨、降级不缓存）。",
+      "ts": 1790289947150
+    },
+    {
+      "path": "/home/lk/Mana/docs/mana-rollout-plan.md",
+      "size": 121360,
+      "mtimeMs": 1790262907124.9414,
+      "digest": "落地册 v1.0（956 行，2026-09-24，WSL 适配轮后）：7 阶段 / 18 批次（3+5+2+2+2+2+2）/ 关键路径两种口径（最长链 8、不可并行 10）。§1 十五条「方案声称 vs 本机实测」相悖清单；§2 G1–G15 先决阻断项（全数纳入阶段 0 硬门槛，A0-13 归属）；§2.1 版本纪律五条（D SH 0.1.7-rc.1 / cordis 4.0.4，升级=重跑受影响判据非重写）；§2.2 W-1..W-4 vec0 语义；§3 分期与里程碑 M0–M7；§4 各阶段（阶段 0 判据 A0-1..A0-14、阶段 1 判据 A1-1..A1-14、阶段 2 A2-1..A2-8、阶段 3 A3-1..A3-5、阶段 4 A4-1..A4-4、阶段 5 A5-1..A5-5、阶段 6）；§6.0 三档分档规则（A 档确定性可进阈值列 / B 档浮动量不可 / 未验证须标）；§7 缺口；§8 决策记录 C1–C15；§10 会议异议归位（31 采纳 / 2 不成立 / 12 挂账）。",
+      "ts": 1790289947140
+    }
+  ],
+  "updatedAt": 1790289947158
+}

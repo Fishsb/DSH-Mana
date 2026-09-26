@@ -1,0 +1,1045 @@
+{
+  "id": "mana-full-line-parallel-2026-09-26",
+  "name": "mana-full-line-parallel-2026-09-26",
+  "goal": "把 Mana 仓剩余未开工的批次全量并行推进：圆桌会议**先产出可执行的《整体推进方案》**（含并发上限的实测核算、写面互斥切分、波次依赖图、每项可机检判据），随后按该方案**高并发全线推进落地**。",
+  "mode": "orchestrated",
+  "captainSessionId": "session-6375a247-736d-4e39-bef3-25aff63f6027",
+  "charter": "《全局协作总纲》\n\n一、会议背景与核心目标\n把 Mana 仓剩余未开工的批次全量并行推进：圆桌会议**先产出可执行的《整体推进方案》**（含并发上限的实测核算、写面互斥切分、波次依赖图、每项可机检判据），随后按该方案**高并发全线推进落地**。\n\n一之一、**用户原话**（未加工·最高优先级；与上文目标冲突时**以本条为准**）\n> 能多少并发就多少并发，全量并发推进，启用原作会议先做整体推进方案然后高并发全线推进\n本会议的**唯一目的**是满足上面这句用户指令。产出偏离它 = 无效产出，无论多精彩。\n\n一之二、本会议的边界声明（**改动前必须对照**）\n- 要解决的现象：Mana 仓剩余工程尚未推进：① B3.2 三道门控（Write/Recall/Injection）全仓 0 命中；② B7.1/B7.2 评估与加固未开工；③ A0 门 2 项 FAIL（A0-10 不碰既有件 / A0-12 跃迁腿）；④ 挂账 3 项（A1-5 / ARTIFACTS / W-1..3）。开工基线 HEAD `1b4a3cd`：A1 门 17 项 PASS 14·FAIL 0·挂账 3，A0 门 16 项 PASS 13·FAIL 2·挂账 1。\n- 算解决的标准：① 《整体推进方案》产出并落仓：含**并发上限的实测依据**（不是主张）、写面互斥切分表、波次依赖图、每项的可机检判据与回归面；② 方案中标注「可立即开工」的批次全部落地到仓；③ 收口时 A0/A1/R0 门复跑并给出读数与取数坐标。\n- 怎么检查才算达标：命令级可复跑：`node tools/a1-check.mjs`（判据腿 + 项集腿双过）、`node tools/a0-check.mjs`、`node tools/r0-assembly-check.mjs`、`npm test`；每批附**反证对拍**（造一次扰动 ⇒ 断言必报红 ⇒ 逐字节恢复）；证据格式 = `命令 → exit code → 关键读数 → 与开工基线的差 → 取数坐标(commit + checker-md5 + 时刻)`；四态语义 PASS/FAIL/HANG/NONE，**挂账与无实现者都不是 PASS**。\n- **明确不做 / 不许动**：① 不碰 shoucang 既有件（G9：与 Mana 争同一 `agent/pre-step` waterfall，漏调 next() 会静默掐死用户现有注入）；② 不改事件契约与领域模型（`packages/core/src/event-types.ts` 的 8 事件）；③ **禁 `npm i` / 禁装 sqlite-vec**（node_modules 变化即违约）；④ 物理删除永不发生（只做软删除可逆）；⑤ 不改运行中的 DSH 宿主；⑥ 不照抄 v10 的 OpenRouter 通道与 options 内 logprobs 写法（已裁定为冲突复发）。\n- ⚠ 提出任何改动时，须自答一句：「这条改动会不会碰坏上面『不许动』里的东西？」\n  若会，必须在 [核心产出] 里点明**碰了哪面墙、用什么证据确认没碰坏**；没有证据就标「未验证」。\n  禁止用\"顺带修好了\"掩盖越界改动 —— 那是拆东墙补西墙的典型形态。\n\n一之三、执行协议（**你获准动手改工作区**，但须按此交代）\n- 你的角色**不限于审查**：kind 为 `change` 的工作项，你就是执行者，请直接修改工作区文件并让改动真的生效（改源码 ≠ 生效：本插件产物在 `lib/`，宿主加载的是 profile 装载副本）。\n- 执行前：在 [核心产出] 里**先说清要碰哪些文件**，并说明这一步可能碰坏哪面墙。\n- 执行后：在 [核心产出] 里**列出你实际改动的文件路径**，并给出「原行为 + 凭什么确认它仍成立」的证据；给不出证据就标「未验证」。\n- 改完必须重建并同步产物，否则宿主仍加载旧代 —— 只改源码而不重建，一律视为**未生效**，不得声明完成。\n- 同树并发：**同一波次内不要与他人改同一文件**；需要改同一文件时，用 `depends_on` 把它排到后一波（写串行，读可并行）。\n- 越界即停：若某处改动确需触碰上面「不许动」的墙，**先停下并说明**，交主持人或用户拍板，不得自行放宽边界。\n\n二、团队与通信边界（单线制）\n主持人（DeepSeek）：全局编排与最终汇总，唯一对用户负责；也是你唯一的联系人与信息来源。\n你与其他席位的存在互不披露：不掌握其他专家的人数、标识、分工与连线。\n权限隔离：只做本职，严禁越权代管他人的工作；只有主持人可以创建/移除成员、修改连线、发起人类决策、结束会议。\n本职以外的请求或发现，不要自行处理，也不要臆断谁会处理 —— 在本轮发言里单列一行 [越界转派]：<事项> | 建议承接：<职责>，由主持人再分配。\n\n三、标准化协作协议\n- 每次发言开头标注 [当前状态]，结尾给出 [核心产出] 与 [下一步建议]。\n- [核心产出] 必须自包含：选定的方向、关键取舍与理由写进这一节，让不读过程的人也能完整获得结论。\n- 发言中有需要用户拍板的分歧时，在结尾单列一行 [建议决策]：<问题> | 选项：<A>/<B>/… | 推荐：<X> 理由：<一句话>；主持人据此触发人类决策。\n- 单一出口：专家的汇报只进会议记录（roundtable_speak），对用户的输出一律由主持人整轮收敛后统一汇总，专家不直接对用户播报。\n- 严禁输出\"好的\"\"收到\"等无信息量内容。\n- 节点发言通过 roundtable_speak 写入会议记录，供汇聚网关与主持人查阅；定向讨论使用 to 参数。\n\n四、全局约束与安全红线\n- 遇到分歧或无法独自决定的事项，立即建议主持人触发 [需人类决策]，严禁自行替用户拍板。\n- 严禁编造不存在的 API、数据或事实；不确定时明确说明。\n- 超预算（轮数/Token）时会议将自动闭麦暂停；某条轴的预算为 0 表示该轴不限制（永不闭麦）。",
+  "nodes": [
+    {
+      "id": "e9a7d425-0b86-4ace-beac-fc7645f513fd",
+      "key": "arch",
+      "role": "只审结构，不审实现细节。看模块边界与职责是否清晰、依赖方向是否单向、分层是否被穿透、数据流与状态归属是否唯一、演进是否留余地。以「改一处要动几个文件」度量耦合。必须做根因归并：把表面不同的问题收敛到少数几个结构性成因，不罗列孤立条目。产出：成因清单（每个成因对应哪些症状 + 最小改法）。",
+      "presetId": "arch",
+      "provider": "dshapi",
+      "model": "deepseek-v4.1-flash",
+      "reasoningEffort": "high",
+      "status": "removed",
+      "joinedAt": 1790355441287
+    },
+    {
+      "id": "337c57bc-25b8-4b71-9b45-6f120758322f",
+      "key": "impl",
+      "role": "只回答「这套方案真能写出来吗」，不评价设计品味。核对接口契约、并发与事务、性能与资源上限、迁移与回滚，以及第三方依赖的真实返回语义（如 INSERT 返回的是结果头还是主键、异步 API 的失败如何暴露），不得按直觉假设。产出：阻塞项清单（每条附已核对的真实语义）+ 最小可行改造序列。",
+      "presetId": "impl",
+      "provider": "dshapi",
+      "model": "deepseek-v4.1-flash",
+      "reasoningEffort": "high",
+      "status": "removed",
+      "joinedAt": 1790355441380
+    },
+    {
+      "id": "c6f40b54-26f4-42c0-a8c4-c7516e47b6a7",
+      "key": "data",
+      "role": "只审数据演进，不评架构风格。核对结构变更的向前与向后兼容、存量数据如何回填、双写期间读哪一份、回滚后数据能否回到一致态、有无幂等键与补偿、失败能否断点续跑。特别检查「改了代码但旧数据仍在」与「回滚后新数据残留」两类状态。产出：迁移步骤（每步带回滚点）+ 风险表。",
+      "presetId": "data",
+      "provider": "dshapi",
+      "model": "deepseek-v4.1-flash",
+      "reasoningEffort": "high",
+      "status": "removed",
+      "joinedAt": 1790355441486
+    },
+    {
+      "id": "42a8a503-ddfc-4c96-830e-2e46c3a2cd00",
+      "key": "perf",
+      "role": "只审性能与容量，不出功能建议。核算热点路径的复杂度与调用次数、数据量增十倍后的表现、并发上限与排队、内存或显存占用、超时与重试放大。每处结论须给量级估算与依据（代码位置或实测数字），禁止「可能较慢」这类无数字判断。产出：瓶颈清单（按先炸顺序排序）+ 每项的触发条件。",
+      "presetId": "perf",
+      "provider": "dshapi",
+      "model": "deepseek-v4.1-flash",
+      "reasoningEffort": "high",
+      "status": "removed",
+      "joinedAt": 1790355441603
+    },
+    {
+      "id": "d1a22069-da87-4b3d-91a9-5ef108076a10",
+      "key": "verify",
+      "role": "只复核他人结论，不提新方案。对每条待核结论先预注册判据再取证，逐条裁为「成立 / 部分成立 / 不可复现」，并给证据强度（原文、行号、命令输出、字节数）。证据不足即判不可复现，不得凭合理性推断为成立。严格区分「接口返回成功」与「结果真的达成」。与 repro 的实跑结论冲突时以实跑为准，并显式标出冲突。产出：核验表（结论 / 裁定 / 证据 / 反例）。",
+      "presetId": "verify",
+      "provider": "dshapi",
+      "model": "deepseek-v4.1-flash",
+      "reasoningEffort": "high",
+      "status": "removed",
+      "joinedAt": 1790355441704
+    },
+    {
+      "id": "da7e0c0b-671a-459e-a826-1b658edecb12",
+      "key": "accept",
+      "role": "只把目标转成可复验的判据，不讨论实现。每条判据写全四要素：判据内容、检查方式（命令 / 字节比对 / 审计态）、通过阈值、失败退回动作。阈值须先给一次实测值再定；无实测即标「待定，需用户拍板」，不得先定标准后补数据。禁止「性能良好」这类不可判定表述。产出：判据表，分「可自动检查」与「须人工判断」两组。",
+      "presetId": "accept",
+      "provider": "dshapi",
+      "model": "deepseek-v4.1-flash",
+      "reasoningEffort": "high",
+      "status": "removed",
+      "joinedAt": 1790355441875
+    },
+    {
+      "id": "b75f37a8-a4ac-4779-85c8-007cc19e10cc",
+      "key": "risk",
+      "role": "只盘点长期负担，不解决当下缺陷。看技术债累积速度、锁定风险、安全合规缺口、认知负担、升级与废弃路径。特别检查分布式一致性缺口：DB 与消息或缓存双写是否原子、有无 outbox 或补偿、有无幂等键。按「发生概率 × 修复代价」排序，明确哪些必须现在解决、哪些可挂账并写明挂账期限。产出：债务清单（每条含挂账期限）+ 「现在修 / 可挂账」的分界依据。",
+      "presetId": "risk",
+      "provider": "dshapi",
+      "model": "deepseek-v4.1-flash",
+      "reasoningEffort": "high",
+      "status": "removed",
+      "joinedAt": 1790355442023
+    },
+    {
+      "id": "ea0daf76-9825-4630-8ebe-8adcd4da34a6",
+      "key": "rollout",
+      "role": "只把结论排成可执行时间线，不重新论证方案。按「先跑通再优化」切分阶段，每阶段给交付物、验收判据、预计阻塞点、回滚方式。标出阶段之间的硬依赖与可并行部分。禁止把大改造塞进一步；每阶段必须可独立验证。产出：分期表 + 里程碑。",
+      "presetId": "rollout",
+      "provider": "dshapi",
+      "model": "deepseek-v4.1-flash",
+      "reasoningEffort": "low",
+      "status": "removed",
+      "joinedAt": 1790355442155
+    }
+  ],
+  "edges": [],
+  "decisions": [],
+  "budget": {
+    "maxRounds": 20,
+    "maxTokens": 500000,
+    "usedRounds": 15,
+    "usedTokens": 159009
+  },
+  "round": 15,
+  "kbPath": "docs",
+  "boundary": {
+    "goal": "Mana 仓剩余工程尚未推进：① B3.2 三道门控（Write/Recall/Injection）全仓 0 命中；② B7.1/B7.2 评估与加固未开工；③ A0 门 2 项 FAIL（A0-10 不碰既有件 / A0-12 跃迁腿）；④ 挂账 3 项（A1-5 / ARTIFACTS / W-1..3）。开工基线 HEAD `1b4a3cd`：A1 门 17 项 PASS 14·FAIL 0·挂账 3，A0 门 16 项 PASS 13·FAIL 2·挂账 1。",
+    "done": "① 《整体推进方案》产出并落仓：含**并发上限的实测依据**（不是主张）、写面互斥切分表、波次依赖图、每项的可机检判据与回归面；② 方案中标注「可立即开工」的批次全部落地到仓；③ 收口时 A0/A1/R0 门复跑并给出读数与取数坐标。",
+    "check": "命令级可复跑：`node tools/a1-check.mjs`（判据腿 + 项集腿双过）、`node tools/a0-check.mjs`、`node tools/r0-assembly-check.mjs`、`npm test`；每批附**反证对拍**（造一次扰动 ⇒ 断言必报红 ⇒ 逐字节恢复）；证据格式 = `命令 → exit code → 关键读数 → 与开工基线的差 → 取数坐标(commit + checker-md5 + 时刻)`；四态语义 PASS/FAIL/HANG/NONE，**挂账与无实现者都不是 PASS**。",
+    "notDoing": "① 不碰 shoucang 既有件（G9：与 Mana 争同一 `agent/pre-step` waterfall，漏调 next() 会静默掐死用户现有注入）；② 不改事件契约与领域模型（`packages/core/src/event-types.ts` 的 8 事件）；③ **禁 `npm i` / 禁装 sqlite-vec**（node_modules 变化即违约）；④ 物理删除永不发生（只做软删除可逆）；⑤ 不改运行中的 DSH 宿主；⑥ 不照抄 v10 的 OpenRouter 通道与 options 内 logprobs 写法（已裁定为冲突复发）。"
+  },
+  "userDirective": "能多少并发就多少并发，全量并发推进，启用原作会议先做整体推进方案然后高并发全线推进",
+  "skillDelivery": "relay",
+  "status": "ended",
+  "createdAt": 1790355423305,
+  "updatedAt": 1790377908094,
+  "roundPlans": [
+    {
+      "round": 1,
+      "items": [
+        {
+          "id": "r1-arch",
+          "task": "把剩余未开工批次（B3.2 三门 / B7.1 评估 / B7.2 加固 / A0 两项 FAIL / 3 项挂账）做**结构性归并**：每个症状收敛到少数结构性成因，并给出**写面互斥切分表**（哪些项碰同一文件 ⇒ 必须串行；哪些互斥 ⇒ 可并行）与**波次依赖图**。以「改一处要动几个文件」度量耦合。必须给文件:行依据。",
+          "owner": "arch",
+          "dependsOn": [],
+          "kind": "survey",
+          "regressionRisk": "无回归面（只读）",
+          "files": [
+            "packages/",
+            "tools/",
+            "docs/mana-rollout-plan.md"
+          ]
+        },
+        {
+          "id": "r1-perf",
+          "task": "量化**真实并发上限**：本机 12 核 / 15GB，但瓶颈不在 CPU。逐项给出数字依据：① `tools/checker-lock.mjs` 单实例锁（同 checker 并发会 exit 4/3，不排队）；② 产物内容腿重编译耗时（实测 ~13–20s）与 src/lib 一致性要求；③ `npm test` 全量耗时；④ 并发 build 互相污染在途码的风险。产出：**可并行席位数 N 的推导过程与依据**，以及每类操作（跑门 / 改 src / 跑测试 / 只读勘察）各自的并发上限。禁止「可能较慢」这类无数字判断。",
+          "owner": "perf",
+          "dependsOn": [],
+          "kind": "survey",
+          "regressionRisk": "无回归面（只读）",
+          "files": [
+            "tools/checker-lock.mjs",
+            "tools/a1-check.mjs",
+            "tools/a0-check.mjs"
+          ]
+        },
+        {
+          "id": "r1-data",
+          "task": "审 B3.2 三门的**数据面落点**：Write Gate / Recall Gate 的判定结果落哪张表哪些列（现有 `jev_log` 有 gate 列且 CHECK 限定 unavailable/budget —— 新增取值是契约变更吗？）；`memory_items` 现 25 列（刚补 reconsolidation_window_until/update_history）；`inject_log` 五类 gate 枚举。核对向前/向后兼容、存量回填、回滚一致性。特别检查「改了 gate CHECK 约束会不会让存量行失效」。给文件:行依据。",
+          "owner": "data",
+          "dependsOn": [],
+          "kind": "survey",
+          "regressionRisk": "无回归面（只读）",
+          "files": [
+            "packages/core/src/schema.ts",
+            "packages/attention/src/index.ts"
+          ]
+        },
+        {
+          "id": "r1-impl",
+          "task": "回答「B3.2 三门与 B7 真能写出来吗」：核对已有可移植件 `dsh-memory-jev` v0.4.1（MIT）的真实接口语义（不得按直觉假设）；核对 `attention` 已有 Injection Gate 实现（真实占据 `agent/pre-step`）与 Write/Recall 两门应挂在哪；指出接口契约、并发、事务上的阻塞项，附已核对的真实语义。产出：阻塞项清单 + 最小可行改造序列。",
+          "owner": "impl",
+          "dependsOn": [],
+          "kind": "survey",
+          "regressionRisk": "无回归面（只读）",
+          "files": [
+            "packages/attention/src/index.ts",
+            "packages/jev/src/",
+            "packages/vector/src/"
+          ]
+        },
+        {
+          "id": "r1-verify",
+          "task": "对方案里每一项产出**独立可机检判据**：判据必须能造负向对拍（扰动 ⇒ 必报红 ⇒ 逐字节恢复）。特别审：三门如何证明「真的按策略失败」（fail-open / fail-degraded / fail-closed 三态须各自可分辨）、A0-10/A0-12 两项 FAIL 如何真修而不只是让门变绿。逐条给：判据原文 / 检查命令 / 期望读数 / 反证扰动点。找不到真问题就写「未发现」，不许凑数。",
+          "owner": "verify",
+          "dependsOn": [],
+          "kind": "survey",
+          "regressionRisk": "无回归面（只读）",
+          "files": [
+            "tools/a1-check.mjs",
+            "tools/a0-check.mjs"
+          ]
+        },
+        {
+          "id": "r1-accept",
+          "task": "为「全量并发推进」定义**验收判据与 DoD**：什么状态才算这批真落地（四态 PASS/FAIL/HANG/NONE，挂账与无实现者都不是 PASS）；每批的装配判据 / 行为判据 / 反证判据三件套怎么写；证据格式如何强制（命令 → exit code → 关键读数 → 与开工基线的差 → 取数坐标）。产出：逐批验收清单，标注哪些项**当前无采集面**（须标 NONE 而非 PASS）。",
+          "owner": "accept",
+          "dependsOn": [],
+          "kind": "survey",
+          "regressionRisk": "无回归面（只读）",
+          "files": [
+            "docs/mana-rollout-plan.md",
+            "tools/r0-assembly-check.mjs"
+          ]
+        },
+        {
+          "id": "r1-risk",
+          "task": "审**风险与技术债**，重点 G9：Mana 的 Injection Gate 与 shoucang 争同一 `agent/pre-step` waterfall（两条独立注册链 panel-inject.js:773 + mcl.js:372）。核对：现有 attention 实现是否已真调 next()、漏调会否静默掐死用户现有注入、**为什么只盯一条链取证会假绿**、并发推进是否会放大该风险。再加：全量并行对工作树非独占性的放大（HEAD 漂移、脏树串味）。每条给位置与触发条件。",
+          "owner": "risk",
+          "dependsOn": [],
+          "kind": "survey",
+          "regressionRisk": "无回归面（只读）",
+          "files": [
+            "packages/attention/src/index.ts",
+            "packages/core/src/index.ts"
+          ]
+        },
+        {
+          "id": "r1-rollout",
+          "task": "把「高并发全线推进」翻译成**可执行的批次与波次安排**：把剩余工作映射进既有 7 阶段 18 批次（不重排、不新增阶段）；标出每批的可并行性（互斥写面 / 依赖 / 挂账阻塞）；给出**最大化并发**的推进序（哪些可同波，哪些必须等），并指出哪些项其实**被拍板或前置条件阻塞**（不可立即开工）。产出：波次表 + 每波席位分配。",
+          "owner": "rollout",
+          "dependsOn": [],
+          "kind": "survey",
+          "regressionRisk": "无回归面（只读）",
+          "files": [
+            "docs/mana-rollout-plan.md",
+            "docs/mana-work-summary.md"
+          ]
+        }
+      ],
+      "createdAt": 1790355490194,
+      "note": "第 1 轮 = 只读勘察：8 席各自从本专业面并行勘察，为《整体推进方案》取证（本轮零改动面，故全并发安全）"
+    },
+    {
+      "round": 2,
+      "items": [
+        {
+          "id": "c1",
+          "task": "修 attention 两条「让失败不可观测」的债：D1 跨会话单例状态按 sid 分区（pending/injectedRequests/injectedBlocks/lastJudgeProbability 四处，`:144/:146/:156/:165`，同文件 `:239` 已取到 sid 却未用）；D2 waterfall 替换型返回值的 undefined 防御（`:482` 的 `Array.isArray(downstream?.messages)?…:[]` —— 上游「调了 next() 但不 return」时宿主本步消息被整批吞掉且与正常态同形）。",
+          "owner": "impl",
+          "dependsOn": [],
+          "kind": "change",
+          "regressionRisk": "碰既有行为：① `agent/pre-step` 是 G9 争用点，改错会静默掐死用户现有 shoucang 注入（panel-inject.js:763 / mcl.js:372）；② `inject_log` 五类 gate 语义与 A1-13/A1-14 判据；③ I2「每条记忆每 session 最多注入一次」。确认方式：attention 现有 6 个测试文件全跑绿 + 新增「双会话交错」用例 + 保留 next-call-surface 的 DROP_NEXT 变异腿仍报红。",
+          "files": [
+            "packages/attention/src/index.ts",
+            "packages/attention/tests/"
+          ]
+        },
+        {
+          "id": "c2",
+          "task": "B3.2-R Recall Gate：把召回侧接上既有 `mana/jev/judge` waterfall（**不新挂 `agent/pre-step`**，该点已被四处占），用 `judgeType:'rel_<id>'` 区分问法；判定不可用 ⇒ 显式降级并落痕（fail-degraded），**三态必须各自可分辨**。",
+          "owner": "perf",
+          "dependsOn": [],
+          "kind": "change",
+          "regressionRisk": "碰既有行为：① `vector` 的召回三态（vector/lexical/degraded）与 `rankBy`（rrf/local_score）—— 降级时标 jev_prob 会把「没判」读成「判了且低分」；② A1-4 RRF 判据；③ `mana/recall` 事件形状。确认方式：vector 与 long-term 现有测试全绿 + 负向对拍「去掉 degraded 标记 ⇒ 必红」。",
+          "files": [
+            "packages/long-term/src/",
+            "packages/vector/src/"
+          ]
+        },
+        {
+          "id": "c3",
+          "task": "A1-5 转真判据（挂账 → 可判）：`decay(14)=0.500000` 三锚点接真实现并**证明判据真有牙**（改半衰期 ⇒ 必红）。同时把 `packages/reconsolidation/src/index.ts:13` 与 `columns.ts:5` 转述的「26 列」订正为实测 **25 列**（文档漂移，不影响行为）。",
+          "owner": "data",
+          "dependsOn": [],
+          "kind": "change",
+          "regressionRisk": "碰既有行为：① `long-term/src/decay.ts` 是 A1-5 的实现者，改它会影响 A2-1/A2-2 锚点；② C14「派生量唯一写者」要求 decay 公式只此一处；③ `packages/forgetting` 的 Pavlik 强度更新是**另一套**公式，不得混。确认方式：long-term 现有 3 个测试文件全绿 + 三锚点逐字复现 + 负向对拍「改半衰期 ⇒ A1-5 必红」。",
+          "files": [
+            "packages/forgetting/src/",
+            "packages/long-term/src/decay.ts",
+            "packages/reconsolidation/src/index.ts"
+          ]
+        },
+        {
+          "id": "c4",
+          "task": "修 A0-10 与并行结构不相容（唯一硬阻塞）：把 `tools/a0-check.mjs` 的基线 `expect` 从固定 `[\"docs/contract/\"]` 扩为「**本波全席声明写面并集**」（该文件 `:571` 的越界腿**已经是按路径判归属**，只需扩数据源）。**不许放宽判据语义** —— 写面并集外的改动仍必须判红。",
+          "owner": "rollout",
+          "dependsOn": [],
+          "kind": "change",
+          "regressionRisk": "碰既有行为：① A0-10 的四条负向探针（HEAD 移动 / 既有件被改被删 / 在途件消失 / 基线缺失）；② `--record-baseline` 的「干净树 + 唯一基线席」前置门（`:1046-1071`）—— **不得放宽它**；③ 预算/基线文件格式（`tools/.a0-10-baseline.json`，gitignored）。确认方式：四条负向探针逐条复跑报红 + 负向对拍「写面并集外动一件 ⇒ 必红」。",
+          "files": [
+            "tools/a0-check.mjs"
+          ]
+        },
+        {
+          "id": "r1",
+          "task": "独立审查 c1（attention 两条债）。判：是**从根因解决**还是**拆东墙补西墙的补丁**？必须核对：① D1 改成按 sid 分区后，**并发会话下 A 会话候选是否还可能进 B 会话**（构造双会话交错实证）；② D2 的 undefined 防御是否只是把「吞消息」换成「抛异常」而**没有恢复既有语义**；③ 是否削弱了既有 G9 防护（next() 调用位置、DROP_NEXT 变异腿是否仍有牙）。给出：结论 + 位置证据 + 反例。找不到真问题就写「未发现」。",
+          "owner": "risk",
+          "dependsOn": [
+            "c1"
+          ],
+          "kind": "review",
+          "regressionRisk": "无回归面（只读审查）",
+          "files": [
+            "packages/attention/src/index.ts",
+            "packages/attention/tests/"
+          ]
+        },
+        {
+          "id": "r2",
+          "task": "独立审查 c2（Recall Gate）。逐条裁「成立 / 部分成立 / 不可复现」：① 三态（vector/lexical/degraded）是否**真的各自可分辨**（不是三态同形）；② 降级时 `rankBy` 是否仍误标 `jev_prob`；③ 是否**新增**了对 `agent/pre-step` 的注册（若新增 ⇒ 违反边界，直接判红）；④ 判定不可用时是「显式降级留痕」还是「静默跳过」。给证据强度（行号/命令输出）。证据不足即判不可复现。",
+          "owner": "verify",
+          "dependsOn": [
+            "c2"
+          ],
+          "kind": "review",
+          "regressionRisk": "无回归面（只读审查）",
+          "files": [
+            "packages/long-term/src/",
+            "packages/vector/src/"
+          ]
+        },
+        {
+          "id": "r3",
+          "task": "独立审查 c3（A1-5）。按 DoD 四要素核：① 判据内容是否可自动检查；② 检查方式（命令）是否真存在；③ 通过阈值是否有**实测值**（不是先定标准后补数据）；④ 失败退回动作。特别核：**A1-5 是否真的从 HANG 转成可判**，还是只把挂账文案改了；负向对拍（改半衰期 ⇒ 必红）是否**真跑过**。四态语义：挂账与无实现者都不是 PASS。",
+          "owner": "accept",
+          "dependsOn": [
+            "c3"
+          ],
+          "kind": "review",
+          "regressionRisk": "无回归面（只读审查）",
+          "files": [
+            "packages/forgetting/src/",
+            "docs/mana-rollout-plan.md"
+          ]
+        },
+        {
+          "id": "r4",
+          "task": "独立审查 c4（A0-10 基线口径改造）。判：这是**从根因解决**还是**把闸门放宽成能过**？必须核：① 写面并集**从哪里来**（若可被写方自定义 ⇒ 等于无闸）；② 写面并集外的改动是否**仍然必红**（造扰动实证）；③ `--record-baseline` 的干净树前置门是否被削弱（那才是真拆墙）；④ 改造后 A0-10 还能否发现「未跟踪文件建后即删」这类盲区。给结论 + 反例。",
+          "owner": "arch",
+          "dependsOn": [
+            "c4"
+          ],
+          "kind": "review",
+          "regressionRisk": "无回归面（只读审查）",
+          "files": [
+            "tools/a0-check.mjs"
+          ]
+        }
+      ],
+      "createdAt": 1790357952838,
+      "note": "第 2 轮 = 高并发落地：Wave1 四组写面互斥的改动并行；Wave2 由不持改动的四席做独立审查（禁止自产自审）"
+    },
+    {
+      "round": 3,
+      "items": [
+        {
+          "id": "f1",
+          "task": "**c4 退回重修（1 行真解）**：`tools/a0-check.mjs:620` 的 `const facePre = EXPECT.length ? EXPECT : (basePre?.expect ?? [])` 改为 `const facePre = basePre?.expect ?? []` —— 让**命令行自选的宽并集在预检这一步失效**；确需换面必须走 `--record-baseline`（那三道门已验证完好）。**同时**修三条附带项：`:44/:600/:755` 的 `exit 2` 文案与实现（`4`）不一致；`:626` 的 `catch { return null }` 补 reason；`exit 4` 预检不得被任何自选宽面绕开。",
+          "owner": "rollout",
+          "dependsOn": [],
+          "kind": "change",
+          "regressionRisk": "碰既有行为：① `--record-baseline` 三道前置门（干净树 / 唯一基线席 / 非空理由）—— **一字不许改**（arch 席已实测 md5 `49a1c71f…` 完好）；② `--write-face` 只许收窄的守卫；③ 退出码 0/1/2/3 语义（新增 4 不复用 2）。确认方式：**重造 arch 席那条决定性反例**（命令自选宽并集 ⇒ 必须 exit 4 拒绝）；四条既有负向探针逐条复跑报红。",
+          "files": [
+            "tools/a0-check.mjs"
+          ]
+        },
+        {
+          "id": "f2",
+          "task": "**c1 补四条缺口（N1–N4）**：① **N1** 上界逐出**静默绕过 I2**（`:269-273`，256 会话后热分区被删 ⇒ 同 requestId 再注入一次）⇒ 逐出改「落痕 + 重置该会话去重集」并配判据（I2 是硬不变式，内存上界是工程选择，冲突时应让不变式**留痕地让路**）；② **N2** 逐出丢 `injectedBlocks` ⇒ reset 永久漏报；③ **N3** 无 sid 分支零痕迹（`mana/plugin/inactive` 全仓 0 消费方）⇒ 至少落 trace；④ **N4** 空 `sessionId` 在 `:326` emit 内抛 ⇒ 校验下沉到 `perception.perceive`，避免 `perceive()` 收到异常且零 trace。",
+          "owner": "impl",
+          "dependsOn": [],
+          "kind": "change",
+          "regressionRisk": "碰既有行为：① `agent/pre-step`（G9 争用点）；② I2 不变式与 `inject_log` 五类 gate 语义（A1-13/A1-14）；③ 上一轮刚加的双会话隔离（`:427`）与 D2 守卫（`:541`）—— **不得回退它们**。确认方式：attention 全部测试（含新增 session-isolation 7 例）全绿 + `next-call-surface` 的变异腿仍报红 + 新增「逐出后 I2 违例必须留痕」负向对拍。",
+          "files": [
+            "packages/attention/src/",
+            "packages/attention/tests/"
+          ]
+        },
+        {
+          "id": "f3",
+          "task": "**c2 补两处**：① **主键冲突（verify 席实测）** —— `packages/long-term/src/recall-gate.ts:189` **逐候选复用同一 `requestId`** ⇒ `jev_log.id` 主键冲突 ⇒ **3 条判定只落 1 行**，其余被写成库外 `traceError`，使 A1-8 的 Recall 支路**结构上不可判**。修法：逐候选派生**唯一** requestId。② **必须补「N 条候选 ⇒ `jev_log` 增量 == judged 条数」判据**（否则修了也没人看得见）。③ 附带：`sessionId` 未透传 ⇒ session 预算护栏对召回面失效，一并补。",
+          "owner": "perf",
+          "dependsOn": [],
+          "kind": "change",
+          "regressionRisk": "碰既有行为：① `jev_log` 是 A1-8 的判据表（gate 列窄 CHECK 限 unavailable/budget，**不得扩词表**）；② `framework.ts` 的缓存键 = `state_hash` + question（requestId 变更**不得**破坏缓存命中语义）；③ 上一轮三态可分辨性（verify 席已确认成立）**不得回退**。确认方式：long-term 与 jev 测试全绿 + 新增「多候选 ⇒ 行数相等」判据 + 负向对拍（复用同 id ⇒ 必红）。",
+          "files": [
+            "packages/long-term/src/",
+            "packages/jev/src/"
+          ]
+        },
+        {
+          "id": "f4",
+          "task": "**c3 补判据带牙腿 + 两处纠错**：① **N5（最重要）**：A1-5 判据块（`tools/a1-check.mjs:829-884`）**零 import 真核、`pass(` 计数 = 0** ⇒ 结构上不可能 PASS。**但本席只许改判据块的「带牙性」，不得改等级**（HANG→PASS 的定级属判据登记席，另派）。本席须交付的是**「h 参数真被消费」与「t<0 抛」两条带牙腿的实现与证据**（accept 席实测：忽略 `h` 的死旋钮核可让三锚点**全过**）。② **N6**：`packages/long-term/src/params.ts:21` 的 `20.2027…` 为错值（正确 `14/ln2 = 20.19773057244549`）。③ **N7**：`forgetting/src/index.ts` 的 `IMPLEMENTED_A15_EXPO",
+          "owner": "data",
+          "dependsOn": [],
+          "kind": "change",
+          "regressionRisk": "碰既有行为：① `decay` 与 Pavlik 是两套公式不得混；② `D=0.5`（幂律，秒）与 `HALF_LIFE_DAYS=14`（天）不是同一个量；③ A1-5 的**四态等级不得由本席改**（仍是 HANG）；④ `long-term` 的 `skeleton.test.mjs` 逐名 deepEqual 腿**不得削弱**。确认方式：forgetting/long-term 既有测试全绿 + 两条带牙腿各自「扰动 ⇒ 必红」实证 + `params.ts` 改值后三锚点仍逐字复现。",
+          "files": [
+            "packages/long-term/src/params.ts",
+            "packages/forgetting/src/",
+            "tools/a1-check.mjs"
+          ]
+        },
+        {
+          "id": "g1",
+          "task": "**复审 c4 重修（f1）** —— 你是上一轮**判定它失败**的席位，由你复审最合适。必须重造你自己那条决定性反例：`--expect packages/ --expect tools/ --expect docs/ --only A0-10` ⇒ **必须 exit 4 拒绝**（上一轮是 exit 0 PASS 全绿）。并核：① `--record-baseline` 三道门 md5 是否仍 `49a1c71f…` 未动；② `--write-face` 收窄守卫仍成立；③ 退出码文案与实现是否一致（`:44/:600/:755`）；④ `:626` 的 `catch` 是否补了 reason。判：**真修好 / 仍可绕**。",
+          "owner": "arch",
+          "dependsOn": [
+            "f1"
+          ],
+          "kind": "review",
+          "regressionRisk": "无回归面（只读审查）",
+          "files": [
+            "tools/a0-check.mjs"
+          ]
+        },
+        {
+          "id": "g2",
+          "task": "**复审 c1 补缺（f2）** —— 你是上一轮判定它「根因解决」但列出 N1–N4 的席位。逐条核 N1–N4 是否**真闭合**：① N1 逐出是否**留痕 + 重置去重集**（真跑 256 会话，核对 I2 不再被静默绕过）；② N2 `injectedBlocks` 是否随逐出正确清理（reset 不再漏报）；③ N3 无 sid 分支是否**可观测**；④ N4 空 sessionId 是否不再炸调用方且**有 trace**。特别核：**上一轮已有的双会话隔离与 D2 守卫是否被回退**（改造可能拆掉刚修好的墙）。",
+          "owner": "risk",
+          "dependsOn": [
+            "f2"
+          ],
+          "kind": "review",
+          "regressionRisk": "无回归面（只读审查）",
+          "files": [
+            "packages/attention/src/",
+            "packages/attention/tests/"
+          ]
+        },
+        {
+          "id": "g3",
+          "task": "**复审 c2 补缺（f3）** —— 你是上一轮发现主键冲突的席位。核：① `recall-gate.ts` 的多候选 **requestId 是否真唯一**（真跑 N 条候选 ⇒ `jev_log` 增量 == judged 条数，不再只落 1 行）；② 降级路径是否**仍不标 `jev_prob`**、`rankBy` 仍回落 `local_score`（**不得回退上一轮已确认成立的三态**）；③ 是否**新增**了 `agent/pre-step` 注册（新增即判红）；④ `sessionId` 透传后 session 预算护栏是否真生效。⚠ 并重申你上轮的裁定：**`recallGate` 仍无生产调用方 ⇒ 仍记 NONE**，除非 f3 补出了调用方。",
+          "owner": "verify",
+          "dependsOn": [
+            "f3"
+          ],
+          "kind": "review",
+          "regressionRisk": "无回归面（只读审查）",
+          "files": [
+            "packages/long-term/src/",
+            "packages/jev/src/"
+          ]
+        },
+        {
+          "id": "g4",
+          "task": "**复审 c3 补缺（f4）** —— 你是上一轮证实「A1-5 结构上不可能 PASS」并列出 D-A/D-B/D-C/D-D 的席位。核：① **N5 两条带牙腿是否真有牙**（`h` 参数被忽略 ⇒ 必红；`t<0` 不抛 ⇒ 必红）—— 真造扰动实证；② N6 的 `20.19773057244549` 是否已订正且三锚点仍逐字复现；③ N7 的自指清单是否换成互覆盖腿（**真删一项 + 改 1 ⇒ 必须报红**）。④ 重申四态：**A1-5 若仍是 HANG，不得记已解决** —— 除非 f4 真把等级接上并给出了 PASS 分支（本批**未授权**改等级，故预期仍是 HANG，请如实裁）。",
+          "owner": "accept",
+          "dependsOn": [
+            "f4"
+          ],
+          "kind": "review",
+          "regressionRisk": "无回归面（只读审查）",
+          "files": [
+            "tools/a1-check.mjs",
+            "packages/forgetting/src/"
+          ]
+        }
+      ],
+      "createdAt": 1790361551172,
+      "note": "第 3 轮 = 按四份审查的发现并发修缺陷（Wave1 四组写面互斥）+ 由原审查席复审（Wave2，不同席接手不同项，禁自产自审）"
+    },
+    {
+      "round": 4,
+      "items": [
+        {
+          "id": "g1",
+          "task": "**复审 f1（c4 重修）** —— 你是上一轮判定它失败的席位。**必须重造你自己那条决定性反例**：`node tools/a0-check.mjs --expect packages/ --expect tools/ --expect docs/ --only A0-10` ⇒ 上一轮 `exit 0` PASS 全绿，本轮必须 `exit 4` 拒绝。另核：① `--record-baseline` 三道门 md5 是否仍 `49a1c71f…` 未动（真墙未被拆）；② `--write-face` 收窄守卫仍成立（真收窄 exit 0 / 越界 exit 4）；③ 三处 `exit 2` 文案是否已改 `4` 且 `:1262` 的 `recordFailed ⇒ exit 2` 语义正确未动；④ `catch` 是否补了可枚举 reason。裁定：**真修好 / 仍可绕**。",
+          "owner": "arch",
+          "dependsOn": [],
+          "kind": "review",
+          "regressionRisk": "无回归面（只读审查）",
+          "files": [
+            "tools/a0-check.mjs"
+          ]
+        },
+        {
+          "id": "g2",
+          "task": "**复审 f2（c1 补缺 N1–N4）** —— 你是上一轮列出 N1–N4 的席位。逐条核是否**真闭合**：① **N1** 逐出是否**留痕 + 让路**（真跑 256 会话，核 I2 不再被静默绕过，且逐出行可被外部读到 —— impl 席自报用了 `mana_trace` 一行 + `gate='reset'` + `reason='session-state-evicted'` + 进程内有界 `evictionLog`）；② **N2** `droppedTrackedBlocks` 是否真报出（impl 席自认「边界未消失，只做到漏报量被报出来」—— 请核这个自认是否诚实）；③ **N3** 无 sid 分支是否**可观测**（`mana/plugin/inactive` 仍零消费方）；④ **N4** 空 sessionId 是否不再炸调用方（impl 席自报「不建分区",
+          "owner": "risk",
+          "dependsOn": [],
+          "kind": "review",
+          "regressionRisk": "无回归面（只读审查）",
+          "files": [
+            "packages/attention/src/",
+            "packages/attention/tests/"
+          ]
+        },
+        {
+          "id": "g3",
+          "task": "**复审 f3（c2 补缺）** —— 你是上一轮发现主键冲突的席位。核：① **主键冲突是否真修**（真跑 N 条候选 ⇒ `jev_log` 增量 == judged 条数，行 id 是否逐条等于 `out.judgeIds`；perf 席自报新增 `judgeIdFor(batch,key)` 派生 `${batch}#rel_${key}`）；② 三态可分辨与「降级不标 jev_prob、`rankBy` 回落 `local_score`」**是否被回退**；③ 是否**新增** `agent/pre-step` 注册（新增即判红）；④ `sessionId` 透传后 session 预算护栏是否真生效（perf 席自报修 ③ 时**一度越界**转发 `threshold`/`requestType`/`source` 后**撤回**，只留两条纯增量列 —— 请核实撤回是否干净、有",
+          "owner": "verify",
+          "dependsOn": [],
+          "kind": "review",
+          "regressionRisk": "无回归面（只读审查）",
+          "files": [
+            "packages/long-term/src/",
+            "packages/jev/src/"
+          ]
+        },
+        {
+          "id": "g4",
+          "task": "**复审 f4（c3 补缺）** —— 你是上一轮证实「A1-5 结构上不可能 PASS」并列出 D-A/D-B/D-C/D-D 的席位。核：① **N5 两条带牙腿是否真有牙**（死旋钮核 ⇒ 必红；无 `t<0` guard 核 ⇒ 必红；且判据面缺导出 ⇒ 必红）—— **真造扰动实证**，不要采信自报；② **N6** 订正值 `20.19773057244549` 是否到位（⚠ data 席报**派单位置不符**：`20.2027` 实际在 `packages/forgetting/src/params.ts:21` 而非 `long-term/src/params.ts` —— 请核这条更正是否属实）；③ **N7** 自指清单是否换成真对照（data 席自报三处对照物逐名集合相等 + 「多一项也要红」反向腿；请真删一项 + 改 1 实证必红）。⚠ **重申四态**：data ",
+          "owner": "accept",
+          "dependsOn": [],
+          "kind": "review",
+          "regressionRisk": "无回归面（只读审查）",
+          "files": [
+            "tools/a1-check.mjs",
+            "packages/forgetting/src/"
+          ]
+        }
+      ],
+      "createdAt": 1790363183124,
+      "note": "第 3 轮 Wave2 = 由原审查席复审（四位审查席本轮零改动，被审项由别人实现 ⇒ 无自产自审）"
+    },
+    {
+      "round": 5,
+      "items": [
+        {
+          "id": "h1",
+          "task": "**f1 第二次重修（3 行内）**：arch 席两次复审均判「未修好」，本轮修他新找到的死代码。**病因**：新增的「`--write-face` 不得比基线并集更宽」守卫（`:126-129`）是**死代码** —— `:110` 的 IIFE 在模块顶层调用 `:306` 才定义的 `A010_BASELINE`，抛 TDZ `ReferenceError` 后被 `:115` `catch { return [] }` **吞成空集**，守卫退回只比对本轮 `--expect`。**真解法**：① `A010_BASELINE` 定义上移或守卫内联字面路径；② 把 `:115` 的 catch 改为**响亮 `exit 4`**（「拿不到」与「是空的」不可分辨，正是本轮缺陷的直接成因）。**验收（必须自造）**：arch 席的绕过实证 `--expect packages/ --w",
+          "owner": "rollout",
+          "dependsOn": [],
+          "kind": "change",
+          "regressionRisk": "碰既有行为：① `--record-baseline` 三道前置门（arch 两轮实测 md5 `49a1c71f…` 完好）—— **一字不许改**；② 上一轮已修好的「预检只认基线真源」（`:664`/`:754`）与 `--expect` 被忽略时的响亮告知（`:748-753`）**不得回退**；③ `:1395` 的 `recordFailed ⇒ exit 2` **确属正确，不得动**。确认方式：arch 席两轮反例（`--expect packages/ --only A0-10` 单宽值 + `--expect packages/ --write-face packages/` 双宽值）**两条都必须 exit 4**；R-1〜R-8 八条既有探针全吻合。",
+          "files": [
+            "tools/a0-check.mjs"
+          ]
+        },
+        {
+          "id": "h2",
+          "task": "**f2 补三条新发现（risk 席本轮实测）**：① **N1′（最重）** `lossFree=true` 时**静默丢弃 pending 候选** ⇒ 随后落 `gate='skip_no_candidate'`，与「本来就没候选」**同形**；算式（`src/index.ts:338`/`:480`）只看 `injectedRequests`/`injectedBlocks`，**漏了 `pending` 项** ⇒ 补 pending 进算式并报 `droppedPending`。② **D3′** 无 sid 分支 `return await next()` 原样透传 `undefined` ⇒ 上游吞决策时**不抛**（而对照分支必抛）⇒ 补同一条 D2 守卫。③ **D4′（本批新引入）** 逐出与 N4 的**旁路 `ctx.emit` 在 `ingest` 同步栈内**",
+          "owner": "impl",
+          "dependsOn": [],
+          "kind": "change",
+          "regressionRisk": "碰既有行为：① N1/N3/N4 上一轮已修好（risk 席判定「真修好」）⇒ **不得回退**；② 双会话隔离与 D2 守卫（V-⑤/V-⑥ 已两轮确认不回退）⇒ **不得拆**；③ `inject_log` 五类 gate 语义（A1-13/A1-14）；④ N2 的既有边界（被逐出会话此后无 `reset` 行）本轮**不必修**（risk 席已核实自认诚实）。确认方式：`eviction-and-gaps.test.mjs` 8 例 + attention 全部 50 例全绿；新增「丢 pending 必被报出」与「旁路 emit 不外溢」两条负向对拍。",
+          "files": [
+            "packages/attention/src/",
+            "packages/attention/tests/"
+          ]
+        },
+        {
+          "id": "h3",
+          "task": "**f3 补两条路径 + 文档改条件式**（verify 席本轮实测）：`judgeIds` 的「与 `jev_log.id` 一一对应」承诺在**两条路径**下不成立 —— ① **重复候选键** ⇒ 主键冲突复发（声明 3、实落 2）；② **候选抛错** ⇒ 声明 3、实落 2。而唯一的反证腿 `recall-gate-jevlog.test.mjs:216` 的 `assert.notEqual(count,3)` 对此**无感**（落 2 行照样绿）⇒ **是同等强度的补丁**。修：① 两条路径各自处理并**可观测**；② **反证腿加强**为「库里行集 == `out.judgeIds` **集合**」的声明面对账（覆盖重复键/抛错两条反例）；③ `judgeIds` 的文档承诺**改条件式**（若做不到普遍成立，就如实写明条件）。",
+          "owner": "perf",
+          "dependsOn": [],
+          "kind": "change",
+          "regressionRisk": "碰既有行为：① 三态可分辨与「降级不标 `jev_prob`」已两轮确认成立 ⇒ **不得回退**；② `sessionId`/`turnId` 透传是**纯增量**（verify 已确认撤回干净）⇒ **不得回退**；③ 不得扩 `jev_log.gate` 词表（窄 CHECK）；④ 不得新增 `agent/pre-step` 注册。确认方式：`recall-gate-jevlog.test.mjs` 6 例 + long-term 39/39 + jev 46/46 全绿；两条新反例各自「扰动 ⇒ 必红」。",
+          "files": [
+            "packages/long-term/src/",
+            "packages/jev/src/"
+          ]
+        },
+        {
+          "id": "h1r",
+          "task": "**第三次复审 f1** —— 你已判它失败**两次**。本轮是第二次重修。**必须重跑你的两条反例**：① 单宽值 `--expect packages/ --only A0-10`；② 双宽值 `--expect packages/ --write-face packages/` + 真实篡改件 ⇒ **两条都必须 exit 4**（上一轮 ① 已修好、② 仍假绿 PASS 1 · FAIL 0）。另核：③ `:115` 的 catch 是否改成了**响亮 `exit 4`**（这是本轮的核心修法之一）；④ `--record-baseline` 三道门是否仍 `49a1c71f…` 未动；⑤ 上一轮已修好的 `:664`/`:754`/`:748-753` **是否被回退**。裁定：**真修好 / 仍可绕**。若第三次仍可绕，请给出你建议的最终处置。",
+          "owner": "arch",
+          "dependsOn": [
+            "h1"
+          ],
+          "kind": "review",
+          "regressionRisk": "无回归面（只读审查）",
+          "files": [
+            "tools/a0-check.mjs"
+          ]
+        },
+        {
+          "id": "h2r",
+          "task": "**第三次复审 f2** —— 逐条核 N1′/D3′/D4′ 是否**真闭合**：① **N1′** 真跑 256+ 会话，核 `lossFree` 算式是否已含 `pending`，丢候选是否**可数**（`droppedPending`），而不是仍与「本来没候选」同形；② **D3′** 无 sid 分支是否补上了同一条 D2 守卫（上游吞决策时**必抛**，与对照分支一致）；③ **D4′** 旁路 `ctx.emit` 是否移出 `ingest` 同步栈（真造监听器抛错 ⇒ 核**不再冒泡进 `perceive()`**）。⚠ 并核**不得回退**：N1/N3/N4（你上轮判「真修好」）、双会话隔离、D2 守卫。",
+          "owner": "risk",
+          "dependsOn": [
+            "h2"
+          ],
+          "kind": "review",
+          "regressionRisk": "无回归面（只读审查）",
+          "files": [
+            "packages/attention/src/",
+            "packages/attention/tests/"
+          ]
+        },
+        {
+          "id": "h3r",
+          "task": "**第三次复审 f3** —— 核你本轮找到的两条路径是否**真闭合**：① **重复候选键**（声明 3、实落 2）现在是否可观测/已处理；② **候选抛错**（声明 3、实落 2）同上；③ **加强后的反证腿**是否真能抓这两条（真造重复键 ⇒ 必红、真造抛错 ⇒ 必红 —— 上一轮 `assert.notEqual(count,3)` 对「落 2 行」无感）；④ `judgeIds` 文档承诺是否已改**条件式**且与实现一致。⚠ 并核三态、`jev_prob`、sessionId 透传**未回退**。",
+          "owner": "verify",
+          "dependsOn": [
+            "h3"
+          ],
+          "kind": "review",
+          "regressionRisk": "无回归面（只读审查）",
+          "files": [
+            "packages/long-term/src/",
+            "packages/jev/src/"
+          ]
+        }
+      ],
+      "createdAt": 1790363841656,
+      "note": "第 5 轮 = 按第 4 轮复审发现的新缺陷并发修（Wave1 三组写面互斥）+ 三席第三次复审"
+    },
+    {
+      "round": 6,
+      "items": [
+        {
+          "id": "j1",
+          "task": "**第三次复审 f1** —— 你已判它失败**两次**。本轮是第二次重修。**必须重跑你两条反例**：① 单宽值 `--expect packages/ --only A0-10`；② 双宽值 `--expect packages/ --write-face packages/` + 真实篡改件 ⇒ **两条都必须 exit 4**（上轮 ① 已修好、② 仍假绿 PASS 1 · FAIL 0）。另核：③ `:115` 的 catch 是否真改成**响亮 exit 4**；④ `A010_BASELINE` 定义是否真上移消除了 TDZ（交付者自报用 `grep -c 更宽` 判别实验从 0 → 1）；⑤ 交付者自报「全文件 24 处 catch 逐处判定，同族缺陷 2 处已全修」—— **请核这 2 处是否真修、其余 22 处的判定是否诚实**（不许把「保守方向」当挡箭牌）；⑥ `--",
+          "owner": "arch",
+          "dependsOn": [],
+          "kind": "review",
+          "regressionRisk": "无回归面（只读审查）",
+          "files": [
+            "tools/a0-check.mjs"
+          ]
+        },
+        {
+          "id": "j2",
+          "task": "**第三次复审 f2** —— 逐条核 N1′/D3′/D4′ 是否真闭合：① **N1′** 真跑 256+ 会话，核逐出算式是否已**收成单点**（交付者自报 `makeEvictionRecord()`，`pending` 计入 `lossFree`，报 `droppedPending`）；丢候选是否**真可数**而非仍与「本来没候选」同形；② **D3′** 两条分支是否真**共用唯一抛点**（`assertUsableDecision()`）；③ **D4′** 四类旁路 `ctx.emit` 是否真**全部出同步栈**（`safeEmitDeferred()`）—— 真造监听器抛错核**不再冒泡进 `perceive()`**。④ 交付者自报「同普查发现『丢东西不报数』还有 1 处（`maxFocusItems` 超限）已补」—— 请核。⑤ **驳回一条**：交付者自报曾把缺 ",
+          "owner": "risk",
+          "dependsOn": [],
+          "kind": "review",
+          "regressionRisk": "无回归面（只读审查）",
+          "files": [
+            "packages/attention/src/",
+            "packages/attention/tests/"
+          ]
+        },
+        {
+          "id": "j3",
+          "task": "**第三次复审 f3** —— 交付者说它**没有只修报出来的那条路径**，而是把「判定键 ⇒ `jev_log.id` 唯一」当**不变量**重过了一遍，找到**三条**：① 重复候选键（去重 + `duplicateKeys` 报出）；② 候选抛错（`threwKeys`，**不进** `judgeIds`）；③ **拼接式非单射**（`#` 可出现在分量里 ⇒ `encodeIdPart` 转义 + `judgeIdParts` 反解），**且自标为「加固」而非已复现缺陷**。判据从「无感腿」换成 `assertRowsMatchDeclaration` 三条腿。\n\n**必须核**：① 三条路径各自**扰动 ⇒ 必红**（真造再验，不采信自报）；② 判据升级后是否真能抓「|新增行| ≠ |声明|」（交付者自报新腿首版用「按前缀筛全表」导致 **RG-JL-⑥ 误绿**，后改**快照差",
+          "owner": "verify",
+          "dependsOn": [],
+          "kind": "review",
+          "regressionRisk": "无回归面（只读审查）",
+          "files": [
+            "packages/long-term/src/",
+            "packages/jev/src/"
+          ]
+        }
+      ],
+      "createdAt": 1790365098286,
+      "note": "第 5 轮 Wave2 = 三席第三次复审（审查席零改动）"
+    },
+    {
+      "round": 7,
+      "items": [
+        {
+          "id": "k1",
+          "task": "**f2 收尾三条**（risk 席第三次复审）：① **删残码** `:896-897` 的 `swallowedUpstream` 归一化 —— 它留在守卫（`:880`）**之后**，当前不可达但构成潜在可绕；② **`finish` 的 catch 只包 `writeInjectLog`** —— 现在把 `ctx.emit` 的异常也记成「inject_log 写入失败」，而实测该行**已写成功**（**归因错**，比没记更坏）；③ **主广播同步派发但兜住异常并计数**（采纳 risk 席选项 B）：`mana/attention` 需同 tick 可见**不能出栈**，但「可见」与「异常冒泡炸宿主」是两件事 —— `mana/decision`（**全仓零消费者**）抛错会炸 `pre-step`。④ 分类表注明 `mana/decision` 是零消费者。",
+          "owner": "impl",
+          "dependsOn": [],
+          "kind": "change",
+          "regressionRisk": "碰既有行为：① N1′/D3′/D4′ 三次复审已判「真修好」⇒ **不得回退**；② 双会话隔离、D2 守卫、G9/R0 前置（「直通链不得改写 next 的返回值」）⇒ **不得拆**；③ `inject_log` 五类 gate 语义（A1-13/A1-14）—— ③ 的改动**不得**改变「每次 pre-step 必留痕」的既有保证。确认方式：attention 全部 56 例 + `f2-new-gaps` 6 例 + `eviction-and-gaps` 8 例全绿；新增「emit 抛错不得污染落库归因」负向对拍。",
+          "files": [
+            "packages/attention/src/",
+            "packages/attention/tests/"
+          ]
+        },
+        {
+          "id": "k2",
+          "task": "**f3 收尾四条**（verify 席第三次复审）：① **不变量补成双向** —— 现在只查了「声明多于行」**一个方向**；verify 席在**反向**造出可触发路径：真 jev 降级分支**先落痕后调 `next()`**（`packages/jev/src/index.ts:297-320`），下游监听器抛错 ⇒ `jev_log` 真增 **3 行** 而 `judgeIds=[]` ⇒ **声明少于行**，同一条不变量的反方向违约。⇒ 补双向判据（含 ★ 反向路径作负例）。② **根因修在 `jev/src/index.ts:297-320`** 的「先落痕后调 `next()`」调用顺序。③ `recall-gate.ts:315-318` 措辞改**条件式**，并在 `reason` **区分两类失败**（「判定链不可用」vs「下游抛错」—— 现在串味）。④ 收窄路径③",
+          "owner": "perf",
+          "dependsOn": [],
+          "kind": "change",
+          "regressionRisk": "碰既有行为：① 路径①②真修好、③真加固（verify 已确认）⇒ **不得回退**；② 三态可分辨、降级不标 `jev_prob`、`sessionId/turnId` 纯增量透传 ⇒ **不得回退**；③ 不得扩 `jev_log.gate` 词表（窄 CHECK）；④ 不得新增 `agent/pre-step` 注册；⑤ `jev` 的六项护栏语义（缓存/熔断/冷却/并发/预算/超时）**不得改**。确认方式：`recall-gate-jevlog` 7 例 + long-term 39/39 + jev 46/46 全绿；双向不变量各有「扰动 ⇒ 必红」。",
+          "files": [
+            "packages/long-term/src/",
+            "packages/jev/src/"
+          ]
+        },
+        {
+          "id": "k1r",
+          "task": "**第四次复审 f2（收尾）** —— 核三条是否真闭合：① `:896-897` 残码是否**真删**（不是注释掉）；② `finish` 的 catch 是否**只包 `writeInjectLog`** —— 真造 `ctx.emit` 抛错 ⇒ 核**不再**被记成「落库失败」，且该行**仍真写入**；③ 主广播是否「同步派发 + 兜异常 + 计数」而非出栈（`mana/attention` 需同 tick 可见）；④ `mana/decision` 零消费者是否已注明。⚠ 并核 N1′/D3′/D4′、双会话隔离、D2 守卫、G9/R0 前置**未回退**。",
+          "owner": "risk",
+          "dependsOn": [
+            "k1"
+          ],
+          "kind": "review",
+          "regressionRisk": "无回归面（只读审查）",
+          "files": [
+            "packages/attention/src/",
+            "packages/attention/tests/"
+          ]
+        },
+        {
+          "id": "k2r",
+          "task": "**第四次复审 f3（收尾）** —— 核四条是否真闭合：① **双向不变量**是否真补上（**正反两个方向**各造扰动 ⇒ 必红），★ 反向路径（真 jev 降级分支先落痕后调 `next()` ⇒ 下游抛错 ⇒ 声明少于行）是否真被堵住；② 根因是否修在 `jev/src/index.ts:297-320` 的**调用顺序**上（而不是只在 recall-gate 侧加判据）；③ `reason` 是否真**区分两类失败**（「判定链不可用」vs「下游抛错」）；④ 路径③的证据措辞是否已收窄（不再拿「现有键不含 `#`」这个**与源码不符**的依据）。⚠ 并核三态、`jev_prob`、sessionId 透传、护栏语义**未回退**。",
+          "owner": "verify",
+          "dependsOn": [
+            "k2"
+          ],
+          "kind": "review",
+          "regressionRisk": "无回归面（只读审查）",
+          "files": [
+            "packages/long-term/src/",
+            "packages/jev/src/"
+          ]
+        }
+      ],
+      "createdAt": 1790365787834,
+      "note": "第 7 轮 = 两个收尾修复（Wave1 写面互斥）+ 两席第四次复审（审查席零改动）"
+    },
+    {
+      "round": 8,
+      "items": [
+        {
+          "id": "m1",
+          "task": "**第四次复审 f2（收尾批）** —— 核三条是否真闭合：① `:896-897` 残码是否**真删**（不是注释掉）；② `finish` 是否拆成**三段各自 try/catch**（归因分别 `inject_log 写入失败`/`mana_trace 写入失败`/`注入审计广播失败`，且 `inject_log` 提到 `mana_trace` 之前）—— 真造 `ctx.emit` 抛错 ⇒ 核**不再**被记成「落库失败」且该行**仍真写入**；③ 主广播是否「**同步派发不变** + 兜异常 + 计数（前缀 `sync:`）」而非出栈；④ `mana/decision` 零消费者是否已注明。⑤ 它自报**同类普查第三处**：`ingest` 两条主记账 + `decision` 段原先是**裸 `core.writeTrace`**（写失败会冒泡进 `perception.p",
+          "owner": "risk",
+          "dependsOn": [],
+          "kind": "review",
+          "regressionRisk": "无回归面（只读审查）",
+          "files": [
+            "packages/attention/src/",
+            "packages/attention/tests/"
+          ]
+        },
+        {
+          "id": "m2",
+          "task": "**第四次复审 f3（收尾批）** —— 核四条是否真闭合：① **双向不变量**是否真补上（新增 `RG-JL-★` 腿），★ 反向路径（jev 降级分支先落痕后 `await next()` ⇒ 下游抛错 ⇒ 声明少于行）是否真被堵住；② **根因是否修在 jev 生产侧**（降级出口返回体加 `traceWritten`；下游抛错不吞、把事实挂 `Symbol.for('mana.jev.judge.traceWritten')` 再原样抛）—— 而非只在 recall-gate 侧盖症状；③ 消费侧**三分类**（`true` 进声明 / `false` 不进 / **`null`=不可知** 进 `reason` 点名，**不静默倒向任一侧**）是否真实现；④ `failureKind` 是否真拆两义（`no-finite-probability`/`downstream-thr",
+          "owner": "verify",
+          "dependsOn": [],
+          "kind": "review",
+          "regressionRisk": "无回归面（只读审查）",
+          "files": [
+            "packages/long-term/src/",
+            "packages/jev/src/"
+          ]
+        }
+      ],
+      "createdAt": 1790366763776,
+      "note": "第 7 轮 Wave2 = 两席第四次复审（审查席零改动）"
+    },
+    {
+      "round": 9,
+      "items": [
+        {
+          "id": "n1",
+          "task": "**f2 收尾补齐（F-1/F-2）**（risk 席第四次复审）：它判你 ①–⑤ 全落地、⑥ 不回退，**但普查不完整，新发现 2 处同病因**：① **F-1** `:437` 逐出留痕的 `core.writeTrace` 被 `:452` **空 catch** 包住（注释自称「走旁路事件」，实际 catch 体内只有注释）⇒ 实测 `mana_trace` 写坏时**逐出 32 次、零留痕、零事件**；② **F-2** `:722-741` 无 sid 分支两条记账同为**空 catch** ⇒ `injectRows=0` 且 `inactive` 只报 `ERR_NO_SESSION_ID`、**不含失败真因**。修法：`:437` 改用你已建的 `writeTraceGuarded`；`:722-741` 各自 try + `reportBypass`。③ 另报一处读数竞",
+          "owner": "impl",
+          "dependsOn": [],
+          "kind": "change",
+          "regressionRisk": "碰既有行为：① ①–⑤ 四条已被 risk 席判「真修好」⇒ **不得回退**；② N1′/D3′/D4′、双会话隔离、D2 守卫、G9/R0 前置 ⇒ **不得拆**；③ `inject_log` 五类 gate 语义与「每次 pre-step 必留痕」的既有保证**不得削弱**。确认方式：attention 全部 60 例 + `f2-new-gaps` 10 例 + `eviction-and-gaps` 8 例全绿；新增「写失败必须出现对应归因」判据 + 负向对拍（造写失败 ⇒ 必须有点名的归因，不得零留痕）。",
+          "files": [
+            "packages/attention/src/",
+            "packages/attention/tests/"
+          ]
+        },
+        {
+          "id": "n2",
+          "task": "**f3 收尾补齐（⑥ 正常出口 + 枚举拆分）**（verify 席第四次复审）：它判反向路径**真修好且是根因修**、★ 腿**真有牙**、假绿自我纠错**真到位**，**但**：① **⑥（本轮最严重）** **正常出口不带 `traceWritten`**（实测 key 列表无该字段），而注释声称「两条出口都给」⇒ **DROP `jev_log` 造落痕失败 ⇒ 实测声明 2 / 行 0**，`failureKind=null`、reason 无迹可查 ⇒ 「**声明多于行**」且**无字段报警**。⇒ 把 `traceWritten` 挂到**正常出口**（`jev/src/index.ts:345-352`）并**补双向判据**（负例用 DROP `jev_log`）。② **`written=false`（落痕失败）与 `null`（不可知）在 `failureKind` ",
+          "owner": "perf",
+          "dependsOn": [],
+          "kind": "change",
+          "regressionRisk": "碰既有行为：① 反向路径修复（生产侧挂 `Symbol.for` 事实 + 原样抛；消费侧同名符号读而不 import，保住 `inject=['mana-core']` 依赖方向）⇒ **不得回退**；② 三态、`jev_prob`、sessionId 透传、`jev` 六项护栏 ⇒ **不得回退**；③ 不得扩 `jev_log.gate` 词表（窄 CHECK）；④ 不得新增 `agent/pre-step` 注册。确认方式：`recall-gate-jevlog` 8 例 + long-term 39/39 + jev 46/46 + framework 23/23 + judge-chain 5/5 全绿；正常出口的负例（DROP `jev_log`）**必须报红**。",
+          "files": [
+            "packages/long-term/src/",
+            "packages/jev/src/"
+          ]
+        },
+        {
+          "id": "n1r",
+          "task": "**第五次复审 f2** —— 核 F-1/F-2 是否真闭合：① `:437` 是否真改用 `writeTraceGuarded` —— 真造 `mana_trace` 写坏 ⇒ 核**逐出仍有留痕或至少有点名归因**（修前：逐出 32 次、零留痕、零事件）；② `:722-741` 是否真各自 try + `reportBypass`，`inactive` 是否**带失败真因**（不再只报 `ERR_NO_SESSION_ID`）；③ 读数竞争窗口是否拆表（或给出不拆的理由）。⚠ 并核 ①–⑤ 四条与 N1′/D3′/D4′、双会话隔离、D2 守卫、G9/R0 前置**未回退**。**若仍有同病因残余，请明说还有几处** —— 这是你第四次发现同类残余。",
+          "owner": "risk",
+          "dependsOn": [
+            "n1"
+          ],
+          "kind": "review",
+          "regressionRisk": "无回归面（只读审查）",
+          "files": [
+            "packages/attention/src/",
+            "packages/attention/tests/"
+          ]
+        },
+        {
+          "id": "n2r",
+          "task": "**第五次复审 f3** —— 核 ⑥ 是否真闭合：① **正常出口是否真带上 `traceWritten`** —— 真造 DROP `jev_log` ⇒ 核**必须报红**（修前：声明 2 / 行 0、`failureKind=null`、无迹可查）；② `written=false` 与 `null` 是否已**分开表述/枚举**；③ 「声明 == 行」是否真收成**一处断言器**且在**两条出口都跑**。⚠ 并核反向路径修复、★ 腿有牙性、三态、`jev_prob`、sessionId 透传**未回退**。⚠ 重申：`recallGate` 仍无生产调用方 ⇒ **本项仍记 NONE**。",
+          "owner": "verify",
+          "dependsOn": [
+            "n2"
+          ],
+          "kind": "review",
+          "regressionRisk": "无回归面（只读审查）",
+          "files": [
+            "packages/long-term/src/",
+            "packages/jev/src/"
+          ]
+        }
+      ],
+      "createdAt": 1790367411891,
+      "note": "第 8 轮 = 收尾补齐（F-1/F-2 + ⑥ 正常出口）+ 两席第五次复审"
+    },
+    {
+      "round": 10,
+      "items": [
+        {
+          "id": "p1",
+          "task": "**第五次复审 f2（收尾补齐）** —— 核 F-1/F-2 是否真闭合：① `:437` 是否真改用 `writeTraceGuarded` —— 真造 `mana_trace` 写坏 ⇒ 核**逐出必有点名归因**（修前：逐出 32 次、零留痕、零事件）；② `:722-741` 是否真各自 try + 各自归因（`mana_trace`/`inject_log` 分别点名），且 `ERR_NO_SESSION_ID` 是否仍区分「为何走到本分支」与「记账为何失败」；③ 读数竞争是否真**拆表**（`sync:` 与旁路分两张表、同写入点同上限，`emitFailureCounts()` 暴露各自条数与窗口淘汰数，`deferredEmitFailures()` 保留合并视图 ⇒ 既有消费者零改动）—— 请核「既有消费者零改动」是否属实。④ 它自报**普查新发现并修掉两类残余**：四",
+          "owner": "risk",
+          "dependsOn": [],
+          "kind": "review",
+          "regressionRisk": "无回归面（只读审查）",
+          "files": [
+            "packages/attention/src/",
+            "packages/attention/tests/"
+          ]
+        },
+        {
+          "id": "p2",
+          "task": "**第五次复审 f3（收尾补齐）** —— 核 ⑥ 是否真闭合：① **正常出口是否真带上 `traceWritten`** —— 真造落痕失败（交付者说用 `ALTER TABLE ... RENAME` 可逆手法，因边界④禁物理删除）⇒ 核**必须报红**（修前：声明 2 / 行 0、`failureKind=null`、无迹可查）；② **消费侧新增 `traceFlag===false` 分支**（`untracedKeys`，候选**不进** `judgeIds`）是否真让「声明 == 行」在正常出口成立；③ **枚举是否真拆分**（`trace-failed` 可知 vs `trace-unavailable` 不可知；`untracedKeys`/`traceUnknownKeys` 分列；它另**自加** `not-attempted` 覆盖早退三条）—— 核 `not-a",
+          "owner": "verify",
+          "dependsOn": [],
+          "kind": "review",
+          "regressionRisk": "无回归面（只读审查）",
+          "files": [
+            "packages/long-term/src/",
+            "packages/jev/src/"
+          ]
+        }
+      ],
+      "createdAt": 1790368375876,
+      "note": "第 9 轮 Wave2 = 两席第五次复审（审查席零改动）"
+    },
+    {
+      "round": 11,
+      "items": [
+        {
+          "id": "q1",
+          "task": "**f2 最后三条残余**（risk 席第 5 次普查）：① **R-1** `:1007-1012` 的 `catch { reportBypass('注入审计广播失败') }` 是**死路径**（`emitSyncGuarded` **从不抛**，全仓无测试能触发）⇒ **真删**或让它可达（二选一，说明理由）；② **R-2** 文件头分类表第 7 行 / §7 表仍写「三段记账各自的失败兜底」，而逐出那段**已无 try/catch** ⇒ **同步文档与实现**；③ 核 16 处 `catch {` 中「体内只有注释或 `return null`」的 7 处，逐处给判定（会报红 / 仍静默）。",
+          "owner": "impl",
+          "dependsOn": [],
+          "kind": "change",
+          "regressionRisk": "碰既有行为：① F-1/F-2/③ 拆表/④ 两类残余 已被 risk 席判「真修好」⇒ **不得回退**；② ①–⑤、N1′/D3′/D4′、双会话隔离、D2 守卫、G9/R0 前置 ⇒ **不得拆**；③ `inject_log` 五类 gate 语义与「每次 pre-step 必留痕」**不得削弱**。确认方式：attention 全部 66 例 + `f2-new-gaps` 16 例 + `eviction-and-gaps` 8 例全绿；若删 R-1，须证明删除后**无覆盖损失**。",
+          "files": [
+            "packages/attention/src/",
+            "packages/attention/tests/"
+          ]
+        },
+        {
+          "id": "q2",
+          "task": "**f3 三处判据级缺口**（verify 席第 5 次复审）：① **Q1** `judged` 出口 `reason` **仍恒 `null`**，而注释 `:578` 写「唯一的归因计算点、**三处出口都取它**」⇒ **文档强于代码**（实测仅 2 处调用）⇒ 给 `judged` 出口补 `annotate`（或**收回** `:578` 措辞，二选一说明理由）；② **Q2** 早退 `not-attempted` 在 `*.mjs` 里 **0 断言**（变异成 `null` 后现有断言**全绿**）⇒ **补判据**或**如实改记「仍静默」**（**不许两处口径并存**）；③ **Q3** 两条「仍静默」判定要改准：服务面 `traceError` **调用方直接可读**（verify 实跑读到 `no such table: jev_log`）⇒ 标「可立判据（未立）」而",
+          "owner": "perf",
+          "dependsOn": [],
+          "kind": "change",
+          "regressionRisk": "碰既有行为：① ⑥ 与 ② 已被 verify 席判「真修好」（含消费侧分支**承重**）⇒ **不得回退**；② 三态可分辨、`jev_prob`、sessionId 透传、`jev` 六项护栏、反向路径修复 ⇒ **不得回退**；③ 不得扩 `jev_log.gate` 词表；④ **不得**为此新增 `agent/pre-step` 注册。确认方式：`recall-gate-jevlog` 10 例 + long-term 39/39 + jev 46/46 + framework 23/23 + judge-chain 5/5 全绿；Q2 判据**必须能证伪**。",
+          "files": [
+            "packages/long-term/src/",
+            "packages/jev/src/"
+          ]
+        },
+        {
+          "id": "q3",
+          "task": "**跨包同病因收口（只收一处）**：`packages/core/src/db.ts:130` 的 `probeVecVersion` —— **本仓注释自己点名过的 G8 先例**（`catch { return null }` 把「未装扩展」与「探测失败」混为一谈），且**有真消费者**（`vecVersion()` 服务面）。⇒ 区分两类失败，给**可枚举归因**，补一条判据。",
+          "owner": "data",
+          "dependsOn": [],
+          "kind": "change",
+          "regressionRisk": "碰既有行为：① `probeVecVersion` 是 W-1..3（vec0 三语义，**HANG**）的探测面 ⇒ 改动**不得**把 HANG 变成假 PASS；② 边界③「禁装 sqlite-vec」⇒ **不得**为了让探测失败消失而装扩展；③ `packages/core` 被 16 包 import ⇒ 必须**保持签名兼容**（只加归因，不改返回形态）。确认方式：core 105 例全绿 + A0-8 的 vec 探测腿不倒退 + 负向对拍（未装 ⇒ 归因点名「未装」而非 null）。",
+          "files": [
+            "packages/core/src/db.ts"
+          ]
+        },
+        {
+          "id": "q3r",
+          "task": "**独立审查 q3（core probeVecVersion 归因）** —— 你是**未参与本批改动**的席位。判：**从根因解决 还是 补丁**？必须核：① 两类失败（未装扩展 / 探测失败）是否**真可分辨**（不是换了个措辞）；② 改动是否**保持签名兼容**（core 被 16 包 import —— 造一次 import 冒烟）；③ **是否把 W-1..3 的 HANG 变成了假 PASS**（这是本仓最防的形态：探测面改动可能让「未验证」看起来像「已验证」）—— 真跑 A0-8 的 vec 探测腿核对其读数**未倒退**；④ 负向对拍：未装扩展 ⇒ 归因须**点名「未装」**而非 null。给结论 + 位置证据 + 反例。",
+          "owner": "arch",
+          "dependsOn": [
+            "q3"
+          ],
+          "kind": "review",
+          "regressionRisk": "无回归面（只读审查）",
+          "files": [
+            "packages/core/src/db.ts"
+          ]
+        },
+        {
+          "id": "q1r",
+          "task": "**第六次复审 f2** —— 核三条残余是否真闭合：① **R-1** 死 catch 是否**真删**或**真可达**；若删核**无覆盖损失**；② **R-2** 文件头分类表是否已与实现同步（逐行比对）；③ 那 7 处「体内只有注释或 `return null`」的 catch 逐处判定是否**诚实**。⚠ 并核 F-1/F-2/③拆表/①–⑤、N1′/D3′/D4′、双会话隔离、D2 守卫、G9/R0 前置**未回退**。**这是第 6 次查同一不变量 —— 若已清零，请明确说「未发现残余」。**",
+          "owner": "risk",
+          "dependsOn": [
+            "q1"
+          ],
+          "kind": "review",
+          "regressionRisk": "无回归面（只读审查）",
+          "files": [
+            "packages/attention/src/",
+            "packages/attention/tests/"
+          ]
+        },
+        {
+          "id": "q2r",
+          "task": "**第六次复审 f3** —— 核 Q1/Q2/Q3：① `judged` 出口 `reason` 是否不再恒 null（或注释是否已**如实收回**）；② 早退 `not-attempted` 是否**已有判据**（变异成 `null` ⇒ **必红**）或已**如实改记「仍静默」**（不许两处口径并存）；③ 服务面 `traceError` 是否改标「可立判据（未立）」；第二家实现是否**按事实**改写。⚠ 并核 ⑥、②、三态、`jev_prob`、sessionId 透传**未回退**。⚠ 重申：`recallGate` 仍无生产调用方 ⇒ **本项仍记 NONE**。",
+          "owner": "verify",
+          "dependsOn": [
+            "q2"
+          ],
+          "kind": "review",
+          "regressionRisk": "无回归面（只读审查）",
+          "files": [
+            "packages/long-term/src/",
+            "packages/jev/src/"
+          ]
+        }
+      ],
+      "createdAt": 1790369414884,
+      "note": "第 11 轮 = 最后一批小修（3 组写面互斥）+ 三席独立复审；随后进收口窗口"
+    },
+    {
+      "round": 12,
+      "items": [
+        {
+          "id": "z1",
+          "task": "**f3 三处缺口最终收口**（perf 席上一轮只勘察未改，位置已由它自己给全）：① **Q1** `packages/long-term/src/recall-gate.ts:661` 的 `judged` 出口 `reason: null` 仍在，而注释 `:578-582`「三处出口都取它」与实测（`annotate` 仅 2 处调用）不符 ⇒ 补 `annotate`（或如实收回措辞，二选一说明理由）；② **Q2** 枚举 `:165`、早退赋值 `:436/:438/:440` —— 测试目录 `not-attempted` **0 断言**（变异成 `null` 全绿）⇒ 补判据或如实改记「仍静默」（不许两处口径并存）；③ **Q3** 文件头普查表 `~:113` 三处措辞：行#5 归「会报红」与 Q2 冲突；服务面应改「**可立判据（未立）**」；第二家实现应改「**j",
+          "owner": "perf",
+          "dependsOn": [],
+          "kind": "change",
+          "regressionRisk": "碰既有行为：① ⑥ 与 ② 已被 verify 席判「真修好」⇒ **不得回退**；② 三态可分辨（`not-attempted`/`trace-failed`/`trace-unavailable`）、`jev_prob`、sessionId 透传、`jev` 六项护栏、反向路径修复 ⇒ **不得回退**；③ 不得扩 `jev_log.gate` 词表；④ **不得**新增 `agent/pre-step` 注册。确认方式：`recall-gate-jevlog` 10 例 + `recall-gate` 7 例 + long-term 39/39 + jev 46/46 + framework 23/23 + judge-chain 5/5 全绿；Q2 判据**必须能证伪**（变异成 `null` ⇒ 必红）。",
+          "files": [
+            "packages/long-term/src/",
+            "packages/jev/src/"
+          ]
+        },
+        {
+          "id": "z1r",
+          "task": "**第七次（最终）复审 f3** —— 核 Q1/Q2/Q3 是否真闭合：① `recall-gate.ts:661` 的 `judged` 出口 `reason` 是否不再恒 null（或注释是否已**如实收回**）；② 早退 `not-attempted` 是否**已有判据**（变异成 `null` ⇒ **必红**），或已**如实改记「仍静默」**（不许两处口径并存）；③ 文件头普查表三处措辞是否改准（行#5；服务面「可立判据（未立）」；第二家实现「judged 出口静默」）。⚠ 并核 ⑥、②、三态、`jev_prob`、sessionId 透传**未回退**。⚠ **重申钉子**：`recallGate` 仍无生产调用方 ⇒ **B3.2-R 仍记 NONE**（收口报告必须保留此条）。",
+          "owner": "verify",
+          "dependsOn": [
+            "z1"
+          ],
+          "kind": "review",
+          "regressionRisk": "无回归面（只读审查）",
+          "files": [
+            "packages/long-term/src/",
+            "packages/jev/src/"
+          ]
+        },
+        {
+          "id": "z2",
+          "task": "**独立审查 q3（core `probeVecVersion` 归因）** —— 交付者（data 席）自报：`db.ts` +88/-9 全在 `probeVecVersion` 块内；`index.ts` +35/-4（`vecProbe()` 服务方法）；新增 6 例测试。三条红线自报：**不把 HANG 变假 PASS**（真跑 `vec0-semantics.mjs` ⇒ 三项仍 `HANG`、`vecVersion:null`）、**不装扩展**、**签名兼容**（`probeVecVersion(db): string | null` 逐字未变）。真装配读数：`failure:\"not-installed\"` / `reason:\"no such function: vec_version\"` / `errorCode:\"ERR_SQLITE_ERROR\"`。它还**主动上",
+          "owner": "arch",
+          "dependsOn": [],
+          "kind": "review",
+          "regressionRisk": "无回归面（只读审查）",
+          "files": [
+            "packages/core/src/db.ts",
+            "packages/core/src/index.ts"
+          ]
+        },
+        {
+          "id": "z3",
+          "task": "**第六次复审 f2（最后一批残余）** —— 交付者（impl 席）自报：① **R-1** `finish` 第 ③ 段死 `try/catch` **真删**（理由：`emitSyncGuarded` 契约从不抛 ⇒ 不可达；**无覆盖损失有机器证明**：失败读数入口唯一，X-③/Z-⑤ 仍绿）；② **R-2** 分类表第 7 行与 `finish` 说明段两处「三段」改「两段」，与实现逐行对齐；③ 本包 9 处 catch **全部带变量、全部记账**（0 处裸 catch）；仓内其它 **16 处裸 catch 判为「会报红 8 / 仍静默 8」**，明确点出**至少 4 处可修**（`probeVecVersion`、`forgetting`、`llm`、`metacognition` 的 null 二义）—— 其中 `probeVecVersion` **已由本会议另一席修",
+          "owner": "risk",
+          "dependsOn": [],
+          "kind": "review",
+          "regressionRisk": "无回归面（只读审查）",
+          "files": [
+            "packages/attention/src/",
+            "packages/attention/tests/"
+          ]
+        }
+      ],
+      "createdAt": 1790370878512,
+      "note": "第 12 轮（最后一轮）= f3 三处缺口收口 + 三席终审（含 q3 独立审查与 f2 第六次复审）"
+    },
+    {
+      "round": 13,
+      "items": [
+        {
+          "id": "t1",
+          "task": "**两处收口（本轮最后一批）**：① **归因链路半截（arch 席判「部分成立」）** —— 我已核实属实：新增的 `vecProbe()` **零消费者**（全仓 grep 只命中 core 自身），且它点名的决策点根本到不了 —— `tools/probes/vec0-semantics.mjs:22-23` **只 import `node:sqlite`/`node:fs`**（不 import core），HANG 依据是 `existsSync`（`:51`），原因串 `:54` **写死**「未安装」⇒ 你 `db.ts:130` 点名的「不可观测」**依旧不可观测**。⇒ **接上归因链路**（探针 HANG 分支接入归因，**不动任何判据档位**），或**如实标注**该链路未接上。② **行尾回归（我已独立核实）**：本批 18 件改动里 **8 件丢了文件末尾换行**",
+          "owner": "data",
+          "dependsOn": [],
+          "kind": "change",
+          "regressionRisk": "碰既有行为：① `probeVecVersion(db): string | null` 签名**逐字不得变**（arch 已验 15/15 依赖包 import 冒烟全绿）；② **不得**把 W-1..3（vec0 三语义，现 **HANG**）变成假 PASS —— 探针三项必须仍 `HANG`、`vecVersion:null`；③ 边界③「禁装 sqlite-vec」⇒ **不得**为了让探测失败消失而装扩展；④ 行尾恢复**不得**动任何行的内容（只补末尾 `\\n`）。确认方式：core 111 例全绿 + `vec0-semantics.mjs` 三项仍 HANG + 8 件文件 `tail -c 1` 全为 `0a` 且 `git diff --stat` 内容行数不变。",
+          "files": [
+            "packages/core/src/db.ts",
+            "packages/core/src/index.ts",
+            "packages/forgetting/src/",
+            "packages/jev/src/index.ts",
+            "packages/long-term/src/"
+          ]
+        },
+        {
+          "id": "t1r",
+          "task": "**复审 t1** —— 你是判它「部分成立」的席位（零改动面）。核：① **归因链路是否接上** —— 真跑 `tools/probes/vec0-semantics.mjs`，核 HANG 分支的原因串是否**不再写死**、是否真能读到归因（而不是只加了个没人调的函数）；② 三项是否**仍 HANG**（不得变假 PASS）；③ 我独立核实的**行尾回归**（本批 8/18 件丢末尾换行）是否**真恢复**（`tail -c 1` 须为 `0a`，且 `git diff --stat` 内容行数不变）；④ `probeVecVersion` 签名是否仍逐字未变。裁定：**真修好 / 仍半截**。",
+          "owner": "arch",
+          "dependsOn": [
+            "t1"
+          ],
+          "kind": "review",
+          "regressionRisk": "无回归面（只读审查）",
+          "files": [
+            "packages/core/src/",
+            "tools/probes/"
+          ]
+        }
+      ],
+      "createdAt": 1790371590649,
+      "note": "第 13 轮 = 最后一批（归因链路接上 + 行尾回归恢复）+ arch 复审；随后进收口"
+    },
+    {
+      "round": 14,
+      "items": [
+        {
+          "id": "u1",
+          "task": "**收口：独立复跑三件套（装配 / 行为 / 反证）** —— 你是安全/风险席。**这是收口窗口**：全席已停手，**只有你在跑**。\n\n① **装配判据**：`node tools/r0-assembly-check.mjs`（判据 = **服务可读**，不是「调用没抛错」）；\n② **行为判据**：`npm test` 全量（用例数 + exit code）；\n③ **反证判据**：卸载后不再产生新行（R0 已含）。\n\n⚠ **本轮你被授权跑这些命令**（收口窗口全席停手，不再有并发冲突）。\n\n**必须给**：每条命令的 `命令 → exit code → 关键读数 → 取数坐标(HEAD + 时刻)`。\n读数落仓内（文件名带 `u1-`）。\n\n**并裁定**：这批 13 轮改动累计是否引入了**回归**（对比开工基线：`npm test` 492 → 现值；A1 门 17 项；A0",
+          "owner": "risk",
+          "dependsOn": [],
+          "kind": "review",
+          "regressionRisk": "无回归面（只读 + 跑判据）",
+          "files": [
+            "tools/r0-assembly-check.mjs"
+          ]
+        },
+        {
+          "id": "u2",
+          "task": "**收口：独立复跑两道门（A0 / A1）并盘点残留** —— **收口窗口，全席已停手，只有你在跑**。\n\n① `node tools/a0-check.mjs`（16 项）；\n② `node tools/a1-check.mjs`（17 项 + 判据腿/项集腿双过）；\n⚠ 注意：`a0-check` 会**同时持有 a1 锁**（`:139`/`:142`）⇒ **两门必须串行跑**，不许并发。\n\n**必须给**：每条命令的 `命令 → exit code → 关键读数 → 取数坐标(HEAD + 时刻)`。读数落仓内（文件名带 `u2-`）。\n\n**并盘点**（这是收口报告的核心）：\n- **四态汇总**：PASS / FAIL / **HANG** / **NONE** 各几项，逐项点名 HANG 与 NONE（挂账与无实现者**都不是 PASS**）；\n- **本批改动的四态归属",
+          "owner": "arch",
+          "dependsOn": [],
+          "kind": "review",
+          "regressionRisk": "无回归面（只读 + 跑判据）",
+          "files": [
+            "tools/a0-check.mjs",
+            "tools/a1-check.mjs"
+          ]
+        }
+      ],
+      "createdAt": 1790373226632,
+      "note": "第 14 轮 = 收口窗口：全席停手，两席分别独立复跑三件套与两道门（串行，避免锁冲突）"
+    },
+    {
+      "round": 15,
+      "items": [
+        {
+          "id": "v1",
+          "task": "**收口窗口最后两处**：① **重建两包 lib 消 mtime 假红**：`npm run build -w packages/long-term`（幂等）+ 同 `-w packages/forgetting` —— risk 席已用 `tsc` 重编译逐文件 md5 比对证明 **long-term 6/6、forgetting 7/7 与仓内 lib 逐字节相同**（内容一致，只是 mtime 早于 src）。② **修 W2-5 的 mtime 假红**（两席独立报告，arch 席给出最小改法 **1 行**）：`tools/a1-check.mjs:1113` 对 `fresh === false` **直接判红**，而**同一文件同一轮**的 ARTIFACTS 已把 mtime 定性为**可被 `cp`/`touch` 伪造的代理指标**并给 HANG ⇒ **同一份实现",
+          "owner": "rollout",
+          "dependsOn": [],
+          "kind": "change",
+          "regressionRisk": "碰既有行为：① `W2-5` 与 `ARTIFACTS` 两条腿的既有语义 —— 改后**内容腿仍必须能判红**（真过期产物 ⇒ 仍报红，只是不再单凭 mtime）；② 重建 lib 是**幂等动作**，不得改变任何行为（risk 席已证内容逐字节相同）；③ `tools/a1-check.mjs` 的**退出码语义**（0/1/2/3/4）不得变；④ 不得放宽 `--require-fresh-artifacts` 的既有语义。确认方式：`node tools/a1-check.mjs` 复跑 ⇒ 期望 **PASS 14 · FAIL 0 · 挂账 3**（回到开工基线）；负向对拍：**真造一个过期 src**（改 src 不重建）⇒ **必须仍判红**。",
+          "files": [
+            "tools/a1-check.mjs",
+            "packages/long-term/lib/",
+            "packages/forgetting/lib/"
+          ]
+        },
+        {
+          "id": "v1r",
+          "task": "**收口终审 v1**（零改动面）—— ① 核两包 lib 重建后 `W2-5` 是否**转绿**；② **核 W2-5 的修法是否「放宽闸门」而非「修假红」** —— 真造一个**真过期**产物（改 src 不重建）⇒ **必须仍判红**（若不再报红，就是拆东墙）；③ 核 `ARTIFACTS` 与 `W2-5` 两腿是否**档位已统一**（不再自相矛盾）；④ 核 `a1-check` 退出码语义未变；⑤ 核期望项数仍 **17**（未增删判据项）。①–⑤ 逐条给读数。",
+          "owner": "arch",
+          "dependsOn": [
+            "v1"
+          ],
+          "kind": "review",
+          "regressionRisk": "无回归面（只读审查）",
+          "files": [
+            "tools/a1-check.mjs"
+          ]
+        }
+      ],
+      "createdAt": 1790374466976,
+      "note": "第 15 轮 = 收口窗口最后两处（重建两包 lib + 修 W2-5 mtime 假红）+ arch 终审"
+    }
+  ]
+}

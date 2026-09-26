@@ -1,0 +1,27 @@
+{
+  "meetingId": "mana-w1-parallel-2026-09-24",
+  "entries": [
+    {
+      "path": "/home/lk/Mana/docs/contract/threshold-discipline.md",
+      "size": 1617,
+      "mtimeMs": 1790246732830.7422,
+      "digest": "阈值三档分档（G1 产物）：A 档=确定性值可逐字复现（RRF [1,1]=0.032787 / decay(14)=0.500000 / journal_mode 读回 / exit code / 计数 / 版本号）⇒ 可进阈值列；B 档=浮动量同机跨采样差 1.2–13 倍（各类绝对毫秒、相似度采样值）⇒ 不可进阈值列，只进「测量条件说明」；未验证 ⇒ 不得升格。\nB 档正确写法：① 比值上界（推荐，如 vec0÷暴力余弦 ≤2.0×）② 同进程 A/B 对照比值 ③ 绝对毫秒只作测量条件说明。\n⚠ 决策证据列同适用分档：不得只在下游分档而上游裸用。\n本仓机检：a0-check.mjs 的 A0-1/A0-2/A0-3 全部只取 A 档判据，不含任何绝对毫秒。",
+      "ts": 1790249519525
+    },
+    {
+      "path": "/home/lk/Mana/docs/contract/degradation.md",
+      "size": 1654,
+      "mtimeMs": 1790246732833.3103,
+      "digest": "降级约定 5 条（G8 产物，全员适用）：① 禁 catch{return null}，降级必须落显式字段；② 「不可用」与「零值」必须可分辨（概率不可用 ⇒ null 不得用 0 冒充；判定失败 ⇒ 'unknown' 不得默认 'no'）；③ 每次降级须同时给 degraded:true + reason（非空字符串）；④ gate 是枚举列（injected/skip_no_candidate/skip_below_threshold/degraded_unavailable/reset），生产侧写死、消费侧只读，不得留空或用 undefined；⑤ fail-closed 不得吞掉「未判」（A1-14）：注入块数==0 且 inject_log 仍新增 gate='degraded_unavailable' 行，两条都要真。\n成因：Injection Gate 正常态与故障态表面同形（都是「没注入」）⇒ 必须先被判据覆盖，否则永远查不出来。",
+      "ts": 1790249519513
+    },
+    {
+      "path": "/home/lk/Mana/docs/session-allocation.md",
+      "size": 16309,
+      "mtimeMs": 1790245172611.736,
+      "digest": "W1 波次与写面所有权（本会议的行动依据）：\n· W1 = S0:B1.0 | S1:S1 | S2:B1.2 | S3:B2.2 | S4:B6.1；W1 是唯一高扇出点，必须先完成 B0.3（已收口）。W0 纯串行无法并行。\n· 写面所有权表（同一时刻一个路径只有一个写者）：根 package.json/lock/tsconfig.base/.gitattributes = S0；packages/core/** = S0（W1 起只读）；docs/contract/** = S0 冻结后全员只读；vector = S1；jev = S2；scheduler = S3；metacognition = S1(B5.1 期)；perception/working-memory/attention = S5(B2.1 期)；docs/handoff/<会话>.md = 各自。\n· 两条硬规矩：① 禁 git add -A / git add .（会把别席在途改动一起提交）② 冻结期不 build 全局产物（他席在途码会被编进你的产物）。\n· 交接单固定 6 段（缺段即未交付）：交付文件 / 判据执行原文 / 反证判据 / 回归自检 / 未决项 / 契约版本。\n· 本档自述「未经验证」：写面所有权是基于「批次→包」的设计推导，非实测；未覆盖阶段 3-6。\n· 关键：§八 已知约束 4 条，含「W1 是唯一高扇出点」与「环境漂移未回写方案正文，订正权归用户」。",
+      "ts": 1790249519501
+    }
+  ],
+  "updatedAt": 1790249519525
+}
