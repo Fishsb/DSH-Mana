@@ -10,8 +10,15 @@
  *   · ⑤ 留痕        `trace.ts`     —— **本包自有命名空间**，不冒充 S1 五类
  *
  * ── ⚠ 本包**当前必然走降级路径**（如实交代，不掩饰）───────────────────────────────────────
- *   `packages/core/src/schema.ts` 的 `memory_items` 实测**只有 26 列**，
+ *   `packages/core/src/schema.ts` 的 `memory_items` **实测 25 列**（补列前 **23** 列，见下 ⚠ 订正），
  *   `reconsolidation_window_until` 与 `update_history` **grep 命中 = 0**（v10 §36 的 12 列一个都没有）。
+ *   ⚠ **列数订正（2026-09-26，A1-5 席实测，纯文档漂移、不影响行为）**：本行原写「26 列」，
+ *     那是把 v10 参考档的列数当成了本仓的。实测读数两条腿：① DDL 文本
+ *     `packages/core/src/schema.ts:37-76` 逐列数 = **25**（L-00 补列后；补列前 = 23）；
+ *     ② 真库 `/home/lk/.dsh/memory/mana.db` 的 `PRAGMA table_info(memory_items)` 在
+ *     L-00 补列**前**读回 **23** 列（缺的正是那两列）。同型订正见 `docs/mana-v10-status-plan.md:1840`
+ *     与 `docs/mana-v10-landing-plan.md:85`（两者已先行订正）。本包**不**把列数写进任何断言
+ *     （钉死列数会在每次契约补列后假红），故此处只订正注释。
  *   ⇒ 在 **L-00 契约补列**执行之前，`openWindow` / `applyContentUpdate` / `closeDueWindows`
  *     在本仓真库上**一律返回 `degraded:true` + 非空 reason `schema-missing:...` + 一条留痕**，
  *     并**不写库**。这不是"本包没做"，而是本包对"列不在"的**显式三态**：

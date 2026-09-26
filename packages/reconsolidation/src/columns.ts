@@ -2,7 +2,8 @@
  * **列存在性探测（三态）**与列清单 —— 本包对 L-00（契约补列）的**显式依赖面**。
  *
  * ── 为什么必须探测而不是直接假设「列在」（本仓 2026-09-25 实测）────────────────────────
- *   `packages/core/src/schema.ts` 的 `memory_items` **实测只有 26 列**，
+ *   `packages/core/src/schema.ts` 的 `memory_items` **实测 25 列**（补列前 **23** 列；原写「26 列」
+ *   是把 v10 参考档的列数当成本仓的 —— 订正读数两条腿见 `src/index.ts` 文件头的 ⚠ 订正段），
  *   v10 §36 的 12 列（含 `reconsolidation_window_until` / `update_history`）**一个都没有**
  *   （逐列 grep 命中 = 0；证据见 `docs/handoff/S26.md`）。
  *   ⇒ 本包若直接 `UPDATE memory_items SET reconsolidation_window_until = ?`：
