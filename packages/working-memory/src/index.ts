@@ -43,6 +43,17 @@ import {
   type ManaCoreService,
   type ManaStage,
 } from 'dsh-mana-core'
+import {
+  compressChunks,
+  handoff,
+  injectPlan,
+  type CompressStrategy,
+  type CompressionResult,
+  type HandoffConfig,
+  type HandoffResult,
+  type InjectPlanResult,
+  type KeepSelector,
+} from './compression.ts'
 
 /**
  * 取第 i 个 stage 的**裸名标签**（同 attention 的安全阀：noUncheckedIndexedAccess 下
@@ -55,6 +66,19 @@ function stageLabel(i: number): ManaStage {
 }
 
 export const name = 'mana-working-memory'
+
+/**
+ * v10 §30.2 第三层（长期记忆注入）的**预算缺省值** = 2000。
+ *
+ * ⚠ 单位是**字符**，**不是 token**。v10 原文写「预算 < 2000 token」；本仓的既有判据一律
+ *   按**字符**（attention.injectionBudgetChars=4000 字符 / working-memory.budgetChars=4000 字符 /
+ *   metacognition 画像门 3000 字符）⇒ 本键沿用字符口径，**不**声称与 v10 的 2000 token 等价。
+ *   token 只能由分词器算；本仓**不引入**「0.6 token/字符」这类代理指标去冒充真 token
+ *   （代理指标非判据 —— 那会把「预算合不合规」变成一个不可核的数字）。
+ * ⚠ 与 `budgetChars` **独立**（后者是**工作记忆集**的上界，本键是**注入面**的上界）：
+ *   二者同为 4000 只是巧合，改一个**不得**带动另一个。
+ */
+export const LAYER3_DEFAULT_BUDGET_CHARS = 2000
 
 export const inject: string[] = ['mana-core']
 
@@ -113,6 +137,44 @@ export interface ManaWorkingMemoryService {
   push(att: ManaAttention): boolean
   /** 当前快照（深拷贝，调用方改不到内部状态）。 */
   snapshot(): WorkingMemorySnapshot
+  /**
+   * **v10 §30.2 第一层：工作记忆内压缩** —— 把最旧的溢出条目折叠成 1 条确定性摘要。
+   *
+   * ⚠ **不影响两闸语义**：本方法只在现有内容上做「折叠最旧」，产出的新数组**必然更短**
+   *   （size 与 chars 双双下降）⇒ 不可能把任一上界顶破（既有的 push 路径一格未动）。
+   * ⚠ **记账由返回值携带**（beforeChunks/afterChunks/beforeChars/afterChars/savedChars），
+   *   且累加进 `compressionStats()`；**不写 mana_trace**（8 事件契约不动）。
+   * ⚠ `apply=false` 时**只试算不落地**（dry-run），供调用方先看账再决定 —— 二者都返回同样完整的记账。
+   */
+  compress(options?: {
+    capacityChunks?: number
+    strategy?: CompressStrategy
+    selector?: KeepSelector
+    apply?: boolean
+  }): CompressionResult
+  /**
+   * **v10 §30.2 第二层：会话级压缩** —— 窗口占用超阈值时产出五段式交接摘要。
+   * 只产摘要、**不处置原文**（原文去向归调用方，见 compression.ts 文件头）。
+   */
+  handoff(windowChars: number, config?: HandoffConfig): HandoffResult
+  /**
+   * **v10 §30.2 第三层：长期记忆注入** —— 按预算（**字符**口径）挑选要注入的内容。
+   * `budgetChars <= 0` = 不设闸（无上限）；超预算从最旧开始丢并**逐条记账**。
+   */
+  injectPlan(budgetChars?: number): InjectPlanResult
+  /**
+   * **压缩累计记账**（调用方读这几项就能分辨「压过」与「从没压过」）。
+   * ⚠ 独立于 `snapshot()`/`status()` 的既有键集：既有判据对那两个面的键集有逐字断言，
+   *   故压缩账**另开一个面**，不往既有面上叠键（叠键 = 让既有断言变红，那不是本包该付的代价）。
+   */
+  compressionStats(): {
+    runs: number
+    compressedRuns: number
+    foldedChunks: number
+    savedChars: number
+    degradedRuns: number
+    lastFailure: string | null
+  }
   status(): {
     plugin: string
     wired: boolean
@@ -217,12 +279,72 @@ export function apply(ctx: Context, config: Config): void {
     return didEvict
   }
 
+  // ── v10 §30.2 三层压缩：累计记账（**与两闸的账分账**，互不污染）──────────────
+  // ⚠ 这几枚计数器只被 compress() 推进；push 两闸路径一个字都没碰它们
+  //   ⇒ 「两闸语义零改动」在本文件里是**结构事实**（不是承诺）。
+  let compressionRuns = 0
+  let compressedRuns = 0
+  let foldedChunks = 0
+  let savedChars = 0
+  let degradedRuns = 0
+  let lastCompressionFailure: string | null = null
+
+  /**
+   * **第一层压缩入口**（service 与判据共用同一函数 ⇒ 读数不会两处各算一遍）。
+   *
+   * `apply=false` = **试算**：走完压缩逻辑与记账，但**不替换**内部 `chunks`。
+   *   ⇒ 「先看账、后落地」是可能的，且两种模式的记账字段完全同形（可比对）。
+   */
+  const compress = (options: {
+    capacityChunks?: number
+    strategy?: CompressStrategy
+    selector?: KeepSelector
+    apply?: boolean
+  } = {}): CompressionResult => {
+    // ⚠ 缺省容量取**本包配置**（不与两闸语义冲突：同一个 capacityChunks 键，只是读来当压缩上界）。
+    const cap = options.capacityChunks ?? config.capacityChunks
+    const result = compressChunks(chunks, cap, options.strategy, options.selector)
+
+    // 记账：每次都计一次 runs；压缩成功/降级分别计（0 与「没跑过」可分辨）。
+    compressionRuns += 1
+    if (result.compressed) {
+      compressedRuns += 1
+      foldedChunks += result.foldedChunks
+      savedChars += result.savedChars
+    }
+    if (result.degraded) {
+      degradedRuns += 1
+      lastCompressionFailure = result.failure
+    }
+
+    // apply 默认 true（调用方显式传 false 才是试算）。
+    if (options.apply !== false && result.compressed) {
+      chunks.length = 0
+      for (const c of result.chunks) chunks.push(c)
+    }
+    return result
+  }
+
   const service: ManaWorkingMemoryService = {
     plugin: name,
     push,
     // 键序（W5 断言按字典序排序后比对，故键序本身不承载语义）
     snapshot: () => ({ chunks: chunks.map((c) => ({ ...c })), ...counts() }),
     status: () => ({ plugin: name, wired: true, ...metrics() }),
+    compress,
+    handoff: (windowChars, hcfg) =>
+      // 缺省窗口 = 预算闸的配置值（本仓唯一的「窗口」尺寸口径就是 budgetChars）；
+      // 调用方可显式覆盖（判据就是这么造边界腿的）。
+      handoff(chunks, windowChars, hcfg),
+    injectPlan: (budgetChars) => injectPlan(chunks, budgetChars ?? LAYER3_DEFAULT_BUDGET_CHARS),
+    compressionStats: () => ({
+      runs: compressionRuns,
+      compressedRuns,
+      foldedChunks,
+      savedChars,
+      degradedRuns,
+      lastFailure: lastCompressionFailure,
+    }),
   }
 
   /**

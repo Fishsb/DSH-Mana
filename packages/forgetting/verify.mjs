@@ -40,6 +40,9 @@ const TEST_FILES = [
   // ⚠ **c3 席（N5 带牙腿 + N7 互覆盖腿）6 → 9**：新增 ⑥ 死旋钮核必红 / ⑦ 无 t<0 guard 必红 /
   //  ⑧ 带牙腿自身的负向对拍。登记数**必须同步**，否则本文件少三条腿时外部防线不报。
   ['tests/a15-anchor.test.mjs', 9],
+  // ⚠ **W2-C4 席新增（§16.3 活性分级），必须在此登记**：不登记 ⇒ 本文件被清空/截断时，
+  //   外部防线压根不看它 ⇒ 假绿复发（见本档开头那条教训）。口径与前几条逐条一致。
+  ['tests/activity.test.mjs', 9],
 ]
 const HERE = fileURLToPath(new URL('.', import.meta.url))
 

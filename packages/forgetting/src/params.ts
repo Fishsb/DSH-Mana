@@ -134,3 +134,43 @@ export const ARCHIVE_INTERVALS: readonly IntervalSpec[] = Object.freeze([
   { name: 'declining', label: '衰退中（降低注入优先级）', lo: -A_RETIRE_MARGIN, loInclusive: false, hi: 0 },
   { name: 'archive', label: '归档（retired=true，可恢复）', lo: null, loInclusive: false, hi: -A_RETIRE_MARGIN },
 ])
+
+/**
+ * ── v10 §16.3 记忆活性分级（热 / 温 / 冷）的**召回轴**边界（天）─────────────────
+ *
+ * 判据原文（v10:688-694，逐字）：
+ *   「热 = 近期被召回 ⇒ 每轮注入，高优先级」/「温 = 中期未召回 ⇒ 按需注入」/
+ *   「冷 = 长期零召回 ⇒ 降级提纯，归档」
+ *
+ * ⚠ **v10 §16.3 通篇不给数**（只有「近期 / 中期 / 长期」三个序数词）⇒ 本包必须自定两个边界，
+ *   而「自定」在本仓的合法形态只有一种：**从既有常数派生，不新造孤立魔数**
+ *   （先例 = `ARCHIVE_RETENTION_DEFAULT_DAYS = S_max`，理由见上）。故这里两条都派生自
+ *   `S_MAX`（本包唯一带判据锚点的强度上界，A3-4 夹具 `Smax=30`）：
+ *
+ *   · 冷线 `= S_MAX`（30 天）：超过**一个完整强度上界**没有任何一次召回 ——
+ *     按本包自己的留存核，`retention(S_MAX; S=S_MAX) = exp(-1) = 0.367879`，
+ *     **恰好等于本包 A3-4 的判据锚点值**（`retention(7;S=7)=0.367879`）：
+ *     即「留存率掉到判据锚点那条线」⇒ 冷。这不是巧合挑数，是可复算的派生关系。
+ *   · 热线 `= S_MAX / 2`（15 天）：半个强度上界，`retention = exp(-0.5) = 0.606531`。
+ *     取「一半」的理由：热线要表达的是「还在**上坡**的那一段」—— 尚未耗掉半个上界。
+ *
+ * ⚠ **这两条是本包的策略值，不是校准结论**：v10 无值、本机也无召回间隔分布可校准
+ *   （实测 `memory_items` 行数 = 0）⇒ 注册表按 `preregistered:false / samples:0` 登记，
+ *   `thresholdStatus()` 必须回 `calibrated:false`。按 `docs/mana-rollout-plan.md:520`，
+ *   **校准前不得据「没超线」判通过**（由 `src/activity.ts` 的读数面如实带出，不靠注释承诺）。
+ *
+ * ⛔ **本文件不定义任何 τ**：激活轴的边界（`τ±余量`）全部由 `archive.ts#classify` 持有，
+ *   本包对 τ 只有一个来源（`long-term` 真源，缺失走 `TAU_FALLBACK`）。
+ *   §16.3 的分级**只读** `classify()` 的区间，禁止在此再写一份 `τ+1.0` / `τ−0.5`。
+ */
+export const ACTIVITY_RECENT_MAX_AGE_DAYS = S_MAX / 2
+
+/**
+ * 冷线：距最近一次召回**超过**该天数即「长期零召回」（§16.3 的「冷」）。
+ *
+ * ⚠ **开闭语义（边界必须显式）**：判定用 `age > ACTIVITY_COLD_MIN_AGE_DAYS`，
+ *   故**恰好等于该天数仍属「温」**；恰好在 **0** 处归「热」。两侧闭侧由判据钉死
+ *   （`tests/activity.test.mjs` ③ 给出真读数），不靠读者猜 ——
+ *   本仓「阈值临界」必须各有断言。
+ */
+export const ACTIVITY_COLD_MIN_AGE_DAYS = S_MAX

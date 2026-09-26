@@ -19,6 +19,8 @@
  *                       `equivalentHalfLifeDays(S) = S·ln2`（与 long-term 的 decay 同一核的证据）
  *  · `archive.ts`   —— 四区间归档 `A>τ+1.0 / τ<A≤τ+1.0 / τ-0.5<A≤τ / A≤τ-0.5`（**B4.2 ②**）
  *  · `prune.ts`     —— 修剪**只读候选视图**（**B4.2 ④**；不写库、不触发归档）
+ *  · `activity.ts`  —— **§16.3 记忆活性分级**（热/温/冷）：两轴合取（召回轴 + 只读 `classify()` 的激活轴），
+ *                       无访问记录者激活轴记 ⊥ 不参与判级（防新记忆被静默判冷）；与 retirement 有对账面
  *  · `criteria.ts`  —— **包内阈值注册表**（形态参考 metacognition 的 criteria.json；
  *                       本表**不新增机检 ID**，见落地册:547 ④）
  *
@@ -119,6 +121,23 @@ import {
 import { strengthAfterRepeat, strengthAfterRepeats, strengthDelta, strengthDeltaRaw, type PavlikParams } from './strength.ts'
 import { pruneCandidates, pruneViewSummary, type PruneView, type PruneViewOptions } from './prune.ts'
 import { CRITERIA_REGISTRY, calibrationConsistency, uncalibratedIds } from './criteria.ts'
+import {
+  ACTIVITY_LEVELS,
+  ACTIVITY_LEVEL_LABELS,
+  activityOf,
+  activityRetirementJunction,
+  activitySummary,
+  classifyActivity,
+  coldCandidates,
+  defaultActivityBoundaries,
+  recencyLevel,
+  type ActivityBoundaries,
+  type ActivityLevel,
+  type ActivityReading,
+  type ActivityRetirementJunction,
+  type ActivitySnapshot,
+  type ActivityView,
+} from './activity.ts'
 
 export const name = 'mana-forgetting'
 
@@ -226,6 +245,23 @@ export interface ManaForgetting {
    *   （c3 accept 席实测）。判据腿若只吃锚点，就比实现面**更弱**。
    */
   decayKernelTeeth(options: DecayKernelTeethOptions): DecayKernelTeethReading
+  /**
+   * **§16.3 记忆活性分级**：单条 —— 热 / 温 / 冷（两轴合取：召回轴 + 激活轴）。
+   *
+   * ⚠ 缺省 `tau` = 装配期解析出的 τ（与 `classify` 同一个源），**不另立第二个 τ**。
+   * ⚠ 无访问记录的条目：激活轴记 ⊥ **不参与**判级（防 `baseLevel([]) = -Infinity` 把新记忆静默判成冷）。
+   */
+  activityOf(snap: ActivitySnapshot, tau?: number, boundaries?: ActivityBoundaries): ActivityReading
+  /** **§16.3 整批分级**（只读视图；缺桶显式给空数组）。 */
+  classifyActivity(items: readonly ActivitySnapshot[], tau?: number, boundaries?: ActivityBoundaries): ActivityView
+  /** 「冷」候选清单（**只列，不是执行** —— 与 `retireCandidates` 同纪律）。 */
+  coldCandidates(view: ActivityView): readonly ActivityReading[]
+  /** 活性级 vs 归档区间的**两口径对账**（不一致必须可见，不得各自成说）。 */
+  activityRetirementJunction(view: ActivityView): ActivityRetirementJunction
+  /** 分级视图一行摘要（面板用）。 */
+  activitySummary(view: ActivityView): string
+  /** 生效的召回轴边界（从注册表读；**未校准**状态由 `classifyActivity` 的 `boundariesCalibrated` 带出）。 */
+  activityBoundaries(): ActivityBoundaries
   /** 修剪**只读候选视图**（不写库、不触发归档）。 */
   pruneCandidates(items: readonly ActivationSnapshot[], tau?: number, options?: PruneViewOptions): PruneView
   /** 修剪视图的一行摘要（面板用）。 */
@@ -331,6 +367,13 @@ function makeForgetting(ctx: Context): ManaForgetting {
       }
       return decayAnchorReadings(kernel, eps)
     },
+    activityOf: (snap: ActivitySnapshot, t: number = tauEff, b?: ActivityBoundaries) => activityOf(snap, t, b),
+    classifyActivity: (items: readonly ActivitySnapshot[], t: number = tauEff, b?: ActivityBoundaries) =>
+      classifyActivity(items, t, b),
+    coldCandidates,
+    activityRetirementJunction,
+    activitySummary,
+    activityBoundaries: defaultActivityBoundaries,
     pruneCandidates: (items: readonly ActivationSnapshot[], t: number = tauEff, options?: PruneViewOptions) =>
       pruneCandidates(items, t, options),
     pruneViewSummary,
@@ -406,12 +449,54 @@ export const A15_EXPORT_FACE: readonly string[] = Object.freeze([
   'decayKernelTeeth',
 ] as const)
 
+/**
+ * ⚠ **§16.3 活性分级的判据面另立一张清单**（与 A1-5 同处置，理由逐条相同）：
+ *   · `IMPLEMENTED_EXPORTS` 被 `skeleton.test.mjs` 的**独立清单逐名集合相等**钉死
+ *     ⇒ 往它里面加名字会让**既有判据红**，而「改判据让它变绿」正是本仓禁止的动作；
+ *   · 本表与判据侧的字面量表（`tests/activity.test.mjs` ⑦）**逐名集合相等** ⇒ 改一处即红。
+ *   ⚠ 本表**不把自身之外**的任何清单算作对照物，也不混进 IMPLEMENTED_EXPORTS / A1-5 判据面。
+ */
+export const ACTIVITY_GRADING_EXPORT_FACE: readonly string[] = Object.freeze([
+  'ACTIVITY_LEVELS',
+  'ACTIVITY_LEVEL_LABELS',
+  'ACTIVITY_EXPORT_FACE',
+  'defaultActivityBoundaries',
+  'recencyLevel',
+  'activityOf',
+  'classifyActivity',
+  'coldCandidates',
+  'activityRetirementJunction',
+  'activitySummary',
+] as const)
+
 export { A1_5_ANCHOR_POINTS, decayAnchorReadings, decayKernelTeeth } from './retention.ts'
 export type { DecayAnchorPoint, DecayAnchorReading, DecayKernelLike, DecayKernelTeethOptions, DecayKernelToothReading, DecayKernelTeethReading } from './retention.ts'
 export { strengthDelta, strengthDeltaRaw, strengthAfterRepeat, strengthAfterRepeats, pavlikParams } from './strength.ts'
 export type { PavlikParams } from './strength.ts'
 export { pruneCandidates, pruneViewSummary } from './prune.ts'
 export type { PruneCandidate, PruneView, PruneViewOptions } from './prune.ts'
+// ── §16.3 记忆活性分级（热/温/冷）─────────────────────────────────────────────
+export {
+  ACTIVITY_LEVELS,
+  ACTIVITY_LEVEL_LABELS,
+  ACTIVITY_EXPORT_FACE,
+  defaultActivityBoundaries,
+  recencyLevel,
+  activityOf,
+  classifyActivity,
+  coldCandidates,
+  activityRetirementJunction,
+  activitySummary,
+} from './activity.ts'
+export type {
+  ActivityBoundaries,
+  ActivityLevel,
+  ActivityReading,
+  ActivityRetirementJunction,
+  ActivitySnapshot,
+  ActivityView,
+} from './activity.ts'
+export { ACTIVITY_RECENT_MAX_AGE_DAYS, ACTIVITY_COLD_MIN_AGE_DAYS } from './params.ts'
 export {
   CRITERIA_REGISTRY,
   CRITERIA_IDS,

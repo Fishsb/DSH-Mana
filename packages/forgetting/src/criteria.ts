@@ -23,6 +23,8 @@
 import {
   A_RETIRE_MARGIN,
   A_STRONG_MARGIN,
+  ACTIVITY_COLD_MIN_AGE_DAYS,
+  ACTIVITY_RECENT_MAX_AGE_DAYS,
   ARCHIVE_RETENTION_CALIBRATED,
   ARCHIVE_RETENTION_DEFAULT_DAYS,
   PAVLIK_A,
@@ -133,6 +135,43 @@ const entries: readonly CriteriaEntry[] = deepFreezeDeep([
     calibrator: null,
     rollback: '不传 scoreThreshold ⇒ 回确定性激活缺口档（逐位等价于改造前不存在该视图）',
     read: 'src/prune.ts#pruneCandidates（仅 scoreThreshold 显式传入时读取）',
+  },
+  {
+    id: 'forgetting.activity.recentMaxAgeDays',
+    probe: { registryPath: ['forgetting', 'activity', 'recentMaxAgeDays'] },
+    value: ACTIVITY_RECENT_MAX_AGE_DAYS,
+    owner: 'packages/forgetting/src/params.ts#ACTIVITY_RECENT_MAX_AGE_DAYS',
+    preregistered: false,
+    preregisteredCriterion: null,
+    samples: 0,
+    conclusion:
+      '**insufficient-data（v10 无值）** —— v10 §16.3 只有「近期/中期/长期」三个序数词，**不给数**；' +
+      '本机 `memory_items` 行数 = 0 ⇒ 无召回间隔分布可校准。' +
+      '取值 = S_MAX/2 = 15 天（从本包唯一带判据锚点的强度上界派生，不新造孤立魔数）。' +
+      '⚠ 这是**策略值不是校准结论**：thresholdStatus() 必须回 calibrated:false；' +
+      '按落地册:520，校准前不得据「没超线」判通过',
+    recheck: '产生真实召回间隔分布（≥30 条带 last_accessed_at 的行）后按「分级命中率」预注册判据校准',
+    calibrator: null,
+    rollback: '改回 S_MAX/2（即 15）—— 或整档不启用（分级读数恒带 calibrated:false，调用方可拒用）',
+    read: 'src/activity.ts#activityOf / #classifyActivity（边界经 thresholdValue() 读入，不内联字面量）',
+  },
+  {
+    id: 'forgetting.activity.coldMinAgeDays',
+    probe: { registryPath: ['forgetting', 'activity', 'coldMinAgeDays'] },
+    value: ACTIVITY_COLD_MIN_AGE_DAYS,
+    owner: 'packages/forgetting/src/params.ts#ACTIVITY_COLD_MIN_AGE_DAYS',
+    preregistered: false,
+    preregisteredCriterion: null,
+    samples: 0,
+    conclusion:
+      '**insufficient-data（v10 无值）** —— 同上一项。取值 = S_MAX = 30 天；' +
+      '派生依据可复算：age 达该值时 retention(S_MAX; S=S_MAX) = exp(-1) = 0.367879，' +
+      '**恰等于本包 A3-4 判据锚点** retention(7;S=7)=0.367879 ⇒ 「留存掉到锚点线」即冷。' +
+      '⚠ 边界为**左开**：age > 30 才是冷，age == 30 仍属温（由 tests/activity.test.mjs ③ 断言）',
+    recheck: '同上一项（真实召回间隔分布到手后一并校准）',
+    calibrator: null,
+    rollback: '改回 S_MAX（即 30）—— 或整档不启用',
+    read: 'src/activity.ts#activityOf / #classifyActivity',
   },
   {
     id: 'forgetting.tauFallback',
@@ -273,6 +312,8 @@ export function registryMatchesParams(): { ok: boolean; mismatches: string[] } {
     ['forgetting.archive.retireMargin', A_RETIRE_MARGIN, (criteriaEntry('forgetting.archive.retireMargin').value)],
     ['forgetting.archive.retentionDays', ARCHIVE_RETENTION_DEFAULT_DAYS, (criteriaEntry('forgetting.archive.retentionDays').value)],
     ['forgetting.tauFallback', TAU_FALLBACK, (criteriaEntry('forgetting.tauFallback').value)],
+    ['forgetting.activity.recentMaxAgeDays', ACTIVITY_RECENT_MAX_AGE_DAYS, (criteriaEntry('forgetting.activity.recentMaxAgeDays').value)],
+    ['forgetting.activity.coldMinAgeDays', ACTIVITY_COLD_MIN_AGE_DAYS, (criteriaEntry('forgetting.activity.coldMinAgeDays').value)],
   ]
   void ARCHIVE_RETENTION_CALIBRATED
   const mismatches = pairs.filter(([, a, b]) => !Object.is(a, b)).map(([id]) => id)
