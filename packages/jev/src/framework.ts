@@ -13,7 +13,12 @@
  *
  * ── 判据口径（与 docs/mana-v5-plan.md §6.4 逐字对齐）─────────────────────────
  * 缓存：同 `state_hash` + 同 question，TTL 300s；熔断：连续失败 ≥5 打开；冷却 60s 后半开；
- * 并发：全局 ≤4；预算：每 session 调用上限。
+ * 并发：全局 ≤ `maxConcurrency`（W1-2 缺省 32，硬上限 120）；预算：每 session 调用上限。
+ *
+ * ── W1-2 新增的扇出入口（`judgeFanout`）─────────────────────────────────────
+ * 逐项独立过护栏、独立落痕、部分失败不中断整批；并发上限**只认** `guard.config.maxConcurrency`
+ * （刻意不收第二只并发旋钮）。它与 `judgeSeries`（串行）不是替代关系：
+ * **串行是并发上限 = 1 的特例**，两条通路都在，行为可由同一条配置推出。
  *
  * ⚠ 本模块**不做**模型适配：不换模型、不调提示词、不追概率质量。判定值一律来自
  *   `ollama.ts` 的单 token 原语（或它的缓存副本），本模块只决定「要不要去判」。
@@ -31,8 +36,31 @@ import {
   type JudgeOptions,
 } from './ollama.ts'
 
-/** 全局并发上限的缺省（方案硬约束 G14：实测 50 并发 5785ms ⇒ 并发是硬约束）。 */
-export const JEV_DEFAULT_MAX_CONCURRENCY = 4
+/**
+ * 全局并发上限的缺省（W1-2 提到 32）。
+ *
+ * ── 为什么从 4 提到 32（实测依据，不是偏好）────────────────────────────────────
+ * 旧的 4 出自阶段 0 的**本机替身**读数（G14：本机 Ollama 50 并发 5785ms ⇒ 并发是硬约束）。
+ * 本机替身只有一块 GPU，并发对它确实近乎平坦；但**真 JEV 是远端服务**，官方能力是
+ * **120 并发**（实测 120/120 成功）。拿替身的约束去限制真通道 = 把能力关在门里。
+ *
+ * 缺省取 **32**（而非顶格的 120）的理由是**冲击面**，不是吞吐：
+ * 缺省是**无人值守的第一个值**（进程一起来就用它），而 120 是「服务端自报的能力」——
+ * 真打到 120 需要显式配置（那时配置者已经知道自己在打什么）。32 是二者之间的稳妥缺省：
+ * 比旧的 4 高 8 倍（收益立刻可见），又留出 3.75 倍余量（真被限流时不会一上来就 429）。
+ * ⚠ 与方案 docs/mana-next-plan.md:194 的「缺省 32」**同值**（那是本仓已拍板的数值）。
+ */
+export const JEV_DEFAULT_MAX_CONCURRENCY = 32
+
+/**
+ * 全局并发上限的**硬上限**（120 = 真 JEV 实测吃满的能力，方案 §N3-2「上限 120」）。
+ *
+ * 为什么要有它（而不是"配多少就是多少"）：超过服务端能力之后，多出来的请求不会变成吞吐，
+ * 只会变成 **429/超时**，而 429 在本系统里会落成 degraded 行 ⇒ 看板上"降级率上升"，
+ * 但根因在**配置**而不是在模型。把上限显式写出来，让"打过头"在**配置面**就被拒绝
+ * （Config.maxConcurrency 的 Schema 用 .max(120)），而不是等到库里的降级行里才发现。
+ */
+export const JEV_MAX_CONCURRENCY_LIMIT = 120
 
 /** 熔断前允许的连续失败次数（方案 §6.4）。 */
 export const JEV_DEFAULT_BREAKER_FAILURES = 5
@@ -43,8 +71,18 @@ export const JEV_DEFAULT_COOLDOWN_SECONDS = 60
 /** 判定缓存 TTL 秒数（方案 §6.4）。 */
 export const JEV_DEFAULT_CACHE_TTL_SECONDS = 300
 
-/** 每 session 判定次数上限缺省（方案 §6.4「每次 session 设置 JEV 调用预算上限」）。 */
-export const JEV_DEFAULT_SESSION_BUDGET = 200
+/**
+ * 每 session 判定次数上限缺省（W1-2 从 200 提到 **2000**）。
+ *
+ * ⚠ **本键是被本次并发上调迫着改的，不是独立的新偏好**（写清因果，免得被当成顺手调参）：
+ * 真实形态是「50 问 × 120 并发 = 6000 问」——一次集合判定就能打光 200 的预算，
+ * 于是**并发刚被打开，预算就先闭麦**，表现为"真通道接上了但全在降级"（让失败不可观测）。
+ * ⇒ 200 是"每轮 4 次并发"时代的数；并发提到 32/120 后它必须同步放大。
+ * 取 2000（而非更大）：它是**每次 session 调用数**的闸，作用是拦住跑飞的循环；
+ * 120 并发 × 单批（≥1 请求/席）仍在 2000 以内 ⇒ 正常批次不会被预算拦下，
+ * 而真正的失控（上万次）仍会被拦。预算护栏本身语义未动（仍是"含缓存命中与拒绝"的计数）。
+ */
+export const JEV_DEFAULT_SESSION_BUDGET = 2000
 
 /** 未带 `sessionId` 的调用归到这个预算桶（**显式**，不留 undefined 表状态）。 */
 export const JEV_UNSCOPED_SESSION = '(unscoped)'
@@ -559,4 +597,85 @@ export async function judgeSeries(
   const out: GuardedJudgeOutcome[] = []
   for (const item of items) out.push(await judgeWithGuard({ ...item, guard }))
   return out
+}
+
+/** 扇出里的一项：与 `judgeWithGuard` 同参，只是多一个**稳定项键**（用于逐项归因）。 */
+export interface FanoutItem extends Omit<GuardedJudgeOptions, 'guard'> {
+  /**
+   * 稳定项键（幂等键口径）。落进每一行的 `requestId` ⇒ 「这一行属于哪一项」在库里可查。
+   * 缺省用数组下标 `#<i>`（显式，不留 undefined）。
+   */
+  key?: string
+}
+
+/**
+ * **扇出判定一批**（W1-2 新增）：N 项同时进飞，**每项独立过全部护栏、独立落痕**。
+ *
+ * ── 并发上限从哪来（不是本函数自己的旋钮）────────────────────────────────────
+ * 上限**只有一处**：`guard.config.maxConcurrency`（即 `Config.maxConcurrency`）。
+ * 本函数**刻意不接受** `concurrency` 参数 —— 收一个"本批的并发数"等于开出**第二个**并发旋钮，
+ * 而两个旋钮的算术关系（min？相乘？本批覆盖全局？）没有任何判据能钉住 ⇒ 必然漂移。
+ *
+ * ── 与 `judgeSeries` 的关系（两者都必须留着）────────────────────────────────
+ * `judgeSeries`：**一个都不并发**（同一时刻最多 1 项在飞）。它是"并发是硬约束"时代的口径，
+ *   也是并发上限被配成 1 时的**等价通路**（判据用它做反证对拍：降 1 ⇒ 耗时显著上升）。
+ * `judgeFanout`：把 N 项一起投进同一套护栏，由槽位自然排序。
+ * ⇒ 不是替代关系：**串行是并发上限=1 的特例**，两条通路都在，行为可由同一条配置推出。
+ *
+ * ── 三条结构保证（都可不看代码即可验）────────────────────────────────────────
+ * ① **部分失败不中断整批**：单项的异常被就地转成**该**项的 `GuardedJudgeOutcome`
+ *    （`degraded:true` + 可枚举 reason + `value:'unknown'`），其余项照跑；
+ *    返回数组的**长度与顺序**与入参逐位对应（`out[i]` 恒属于 `items[i]`）。
+ * ② **逐项落痕**：每项都走 `judgeWithGuard` ⇒ 成功/降级/被拒**各自**一行 `jev_log`。
+ *    本函数**不自己写库**（`makeJevOutcome` 仍是唯一落痕出口）。
+ * ③ **不做整批熔断传播**：一项失败不把整批打成降级 —— 每项的判定只由它自己的结果决定。
+ */
+export async function judgeFanout(
+  items: readonly FanoutItem[],
+  guard: JevGuard,
+): Promise<GuardedJudgeOutcome[]> {
+  return Promise.all(items.map((item, index) => judgeFanoutItem(item, guard, index)))
+}
+
+/** 单项扇出：任何异常都就地转成该项目的显式降级（**不**让它冒泡打断整批）。 */
+async function judgeFanoutItem(
+  item: FanoutItem,
+  guard: JevGuard,
+  index: number,
+): Promise<GuardedJudgeOutcome> {
+  const { key, ...rest } = item
+  const requestId = key && key.trim() ? key : `#${index}`
+  try {
+    return await judgeWithGuard({ ...rest, guard, requestId })
+  } catch (error) {
+    // ⚠ 走到这里说明**护栏之外的**东西抛了（judgeWithGuard 自身把网络/解析类失败都转成了降级）。
+    //   即便如此也不许让整批塌掉：转成该项的降级行，并**点名这是扇出兜底**（可枚举前缀），
+    //   否则"这一项为什么降级"会被记成模型面的问题（归因串味）。
+    const reason = `jev-fanout-item-threw: ${error instanceof Error ? error.message : String(error)}`
+    return {
+      ...makeJevOutcome(
+        {
+          requestId,
+          requestType: rest.requestType ?? 'jev',
+          source: rest.source ?? 'mana-jev',
+          stateHash: stateHash(rest.state),
+          value: 'unknown',
+          probability: null,
+          degraded: true,
+          reason,
+          candidates: [],
+          normalization: null,
+          model: rest.model ?? JEV_DEFAULT_MODEL,
+          endpoint: rest.endpoint ?? OLLAMA_DEFAULT_ENDPOINT,
+          sessionId: rest.sessionId,
+          turnId: rest.turnId,
+          channel: rest.channel ?? OLLAMA_CHANNEL,
+        },
+        { db: rest.db, atIso: (rest.now ?? (() => new Date()))().toISOString() },
+      ),
+      fromCache: false,
+      sessionSpend: guard.sessionSpend(rest.sessionId),
+      circuitState: guard.circuitState(),
+    }
+  }
 }

@@ -41,10 +41,13 @@ import { checkConfigConsumed, checkLiveRediness, checkTestFile, selfTest } from 
 const OFFLINE = {
   'framework.test.mjs': 23,
   'systemone.test.mjs': 23,
+  // W1-2 新增：真通道可启用/可验证 + 并发可配到 120 + 批次与扇出（9 条，零网络）
+  'w12-real-channel.test.mjs': 9,
 }
 const COUNTED_OTHER = {
   'b12-jev.test.mjs': 11,
-  'live/systemone-live.test.mjs': 5,
+  // W1-2：live 从 5 条扩到 9 条（L6 服务面真跑 / L7 批量 / L8 120 并发 / L9 数组必 400 反证）
+  'live/systemone-live.test.mjs': 9,
 }
 /** ③ 腿真跑的文件（**只跑离线面**）。 */
 const FILES = Object.keys(OFFLINE)

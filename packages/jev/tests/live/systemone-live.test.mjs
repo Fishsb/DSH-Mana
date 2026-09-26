@@ -42,6 +42,9 @@ const {
   SYSTEMONE_API_KEY_ENV,
   SYSTEMONE_DEFAULT_ENV_FILE,
   SYSTEMONE_ALLOWED_MODELS,
+  // W1-2：live 腿要用到通道常量与"真发出去的形状"（L6 比 status() 同源、L9 造坏请求）
+  SYSTEMONE_CHANNEL,
+  SYSTEMONE_DEFAULT_PATH,
 } = await import(SYS)
 
 const dirs = []
@@ -200,3 +203,186 @@ test('L5 真通道 · 落痕 + 成本口径：jev_log 落真行，cost_usd **不
     close()
   }
 })
+
+// ══ W1-2 真跑腿：真 JEV 缺失的那三项能力必须**真机可验**（不是"代码写了"）════════
+//
+// 为什么这四条必须真跑（而不是加到离线文件里）：它们要证的三件事**本质上只有真端点能证**——
+//   ① 真通道被启用后，`status()` 报的通道/模型**就是真发出去的那一套**；
+//   ② 「一次请求塞 N 问」在**真服务端**上确实比一问一请求快一个量级（批量是真的）；
+//   ③ 「120 并发」在**真服务端**上确实吃得住（并发是真的），而不是本机替身的平坦读数。
+// 离线桩对这三件事**只能**证明"代码按我写的形状拼了请求"，证明不了服务端收下了它。
+//
+// ⚠ 成本与延迟是 **B 档浮动量**：只打印与被比**数量级**，不进绝对阈值断言
+//   （唯一例外是"数组必 400"——那是**协议面**的事实，端点一改就必须红）。
+
+/** 走**服务面**（真装配 core + jev）真跑：这才是"通道被启用且可验证"的端到端形态。 */
+async function mountLive(overrides = {}) {
+  const { Context } = await import('@deepseek-ai/cordis')
+  const coreMod = await import(CORE)
+  const jevMod = await import(new URL('../../src/index.ts', import.meta.url).href)
+  const dir = mkdtempSync(join(tmpdir(), 'mana-jev-live-w12-'))
+  dirs.push(dir)
+  const ctx = new Context()
+  ctx.plugin(coreMod, { storePath: join(dir, 'mana.db') })
+  await new Promise((r) => setTimeout(r, 150))
+  ctx.plugin(jevMod, overrides)
+  await new Promise((r) => setTimeout(r, 300))
+  const svc = ctx.get('mana-jev')
+  if (!svc) assert.fail('mana-jev 服务不可读（真跑腿无法成立）')
+  return { ctx, svc, db: ctx.get('mana-core').db, stop: () => ctx.stop?.() }
+}
+
+const pct = (xs, p) => xs[Math.min(xs.length - 1, Math.floor(xs.length * p))]
+
+test('L6 服务面真跑：status() 报的通道/模型就是真发出去的那一套（含落痕 model 列）', async (t) => {
+  requireCredential()
+  const { svc, db, stop } = await mountLive({ channel: 'systemone' })
+  try {
+    const s = svc.status()
+    assert.equal(s.channel, SYSTEMONE_CHANNEL, 'status().channel 必须是真通道')
+    assert.ok(s.model.startsWith('jev-'), `status().model 必须是 JEV 本体名：${s.model}`)
+    assert.equal(s.credentialPresent, true, `凭据已在 ~/jev/.env 里却报 present=false（探测口径与判据面必须同源）`)
+    assert.equal(JSON.stringify(s).includes('sk-'), false, 'status() 不得回显任何 key 形态')
+
+    const out = await svc.judgeGuarded({
+      state: '系统崩了三天无法收款，紧急！',
+      question: '是否紧急或时间敏感？',
+      apiKey: requireCredential(),
+      source: 'mana-jev-w12-live',
+    })
+    assertNotDegraded(out, 'L6 服务面真跑')
+    assert.equal(out.channel, SYSTEMONE_CHANNEL, '落痕的通道标注必须是 systemone')
+    assert.equal(out.endpoint, s.endpoint, '实发端点必须等于 status() 报的端点')
+    assert.equal(out.model, s.model, '实发模型必须等于 status() 报的模型')
+    assert.ok(String(out.servedModel).includes('typesafe/jev-1.13-'), `服务端自报模型必须含 typesafe/jev-1.13-*：${out.servedModel}`)
+    const rows = db.prepare('SELECT result_value, degraded, cost_usd FROM jev_log ORDER BY rowid').all()
+    assert.equal(rows.length, 1, `真判定必须恰落一行（实测 ${rows.length}）`)
+    assert.equal(rows[0].degraded, 0)
+    t.diagnostic(`[L6] channel=${s.channel} model=${s.model} served=${out.servedModel} noul=${out.probability} ${out.latencyMs}ms cost=${out.costUsd}`)
+  } finally {
+    await stop()
+  }
+})
+
+test('L7 批量真跑：50 问**一次请求**全部返回（≈1.7s 量级），一问一请求做同量级对照', async (t) => {
+  const key = requireCredential()
+  const { svc, db, stop } = await mountLive({ channel: 'systemone', sessionBudget: 100, cacheTtlSeconds: 0 })
+  try {
+    const N = 50
+    const questions = {}
+    for (let i = 0; i < N; i += 1) questions[`q${i}`] = { type: 'noul', instructions: `第 ${i} 问：该陈述是否涉及主题 ${i}？` }
+    const t0 = Date.now()
+    const out = await svc.judgeBatch({
+      state: '系统崩了三天无法收款，紧急！',
+      question: '（批量主问回退文本）',
+      questions,
+      primaryQuestion: 'q0',
+      apiKey: key,
+      source: 'mana-jev-w12-live',
+    })
+    const batchMs = Date.now() - t0
+    assert.equal(out.degraded, false, `批量真跑不得降级：${out.reason}`)
+    const got = Object.keys(out.answers ?? {})
+    assert.equal(got.length, N, `50 问必须**全回**（实测 ${got.length}）`)
+    assert.ok(out.probability !== null, '主问题必须有可达的契约单值面')
+
+    // 对照：**一次一问**（同一服务面、同一通道、同量级输入）—— 只取前 3 问，避免把对照本身变成负担
+    const single = []
+    for (let i = 0; i < 3; i += 1) {
+      const a = Date.now()
+      const one = await svc.judgeGuarded({
+        state: `单问对照 ${i}`,
+        question: `该陈述是否涉及主题 ${i}？`,
+        apiKey: key,
+        source: 'mana-jev-w12-live',
+      })
+      assertNotDegraded(one, `L7 对照单问#${i}`)
+      single.push(Date.now() - a)
+    }
+    const rows = db.prepare('SELECT count(*) c FROM jev_log').get().c
+    assert.equal(Number(rows), 4, `批量 1 行 + 对照 3 行（实测 ${rows}）`)
+    t.diagnostic(
+      `[L7] 50问单请求=${batchMs}ms（${(batchMs / N).toFixed(1)}ms/问） · 单问均值=${Math.round(single.reduce((a, b) => a + b, 0) / single.length)}ms · ` +
+        `模型=${out.servedModel} · 成本=${out.costUsd}`,
+    )
+    // ⚠ 断的是**数量级**（B 档浮动量不做绝对阈值）：批量把 50 问压进一次往返，
+    //   其总耗时不应当高于"一问一请求"的单次耗时量级 —— 真退回串行时这条必红。
+    const singleAvg = single.reduce((a, b) => a + b, 0) / single.length
+    assert.ok(
+      batchMs < singleAvg * N * 0.5,
+      `50 问单请求若退化成 N 次往返，总耗时会到 ${Math.round(singleAvg * N)}ms 量级；实测 ${batchMs}ms`,
+    )
+  } finally {
+    await stop()
+  }
+})
+
+test('L8 并发真跑：120 项扇出（缺省通道）⇒ ok=120/120、p95 < 5s、逐项留痕 120 行', async (t) => {
+  const key = requireCredential()
+  const N = 120
+  const { svc, db, stop } = await mountLive({
+    channel: 'systemone',
+    maxConcurrency: N,
+    sessionBudget: N * 2,
+    cacheTtlSeconds: 0,
+    concurrencyWaitTimeoutMs: 120_000,
+  })
+  try {
+    const t0 = Date.now()
+    const outs = await svc.judgeFanout(
+      Array.from({ length: N }, (_, i) => ({
+        key: `w12-live-${i}`,
+        state: `系统崩了三天无法收款，紧急 #${i}（并发腿）`,
+        question: '是否紧急或时间敏感？',
+        sessionId: 'w12-live',
+        apiKey: key,
+        source: 'mana-jev-w12-live',
+      })),
+    )
+    const wallMs = Date.now() - t0
+    const ok = outs.filter((o) => !o.degraded)
+    const lat = ok.map((o) => o.latencyMs).sort((a, b) => a - b)
+    const rows = Number(db.prepare('SELECT count(*) c FROM jev_log').get().c)
+    t.diagnostic(
+      `[L8] ok=${ok.length}/${N} wall=${wallMs}ms p50=${pct(lat, 0.5)}ms p95=${pct(lat, 0.95)}ms max=${lat[lat.length - 1]}ms ` +
+        `${(N / (wallMs / 1000)).toFixed(1)} req/s 行=${rows} 峰值在飞=${svc.guardState().peakInFlight}`,
+    )
+    assert.equal(outs.length, N, '扇出不得丢项')
+    assert.equal(ok.length, N, `必须 120/120 成功；降级样本：${outs.filter((o) => o.degraded).slice(0, 2).map((o) => o.reason).join(' | ')}`)
+    assert.equal(rows, N, `逐项落痕：120 项恰 120 行（实测 ${rows}）`)
+    assert.equal(svc.guardState().peakInFlight, N, `护栏峰值必须恰为 ${N}（真并发而非排队）`)
+    assert.ok(pct(lat, 0.95) < 5000, `p95 必须 < 5000ms，实测 ${pct(lat, 0.95)}ms`)
+  } finally {
+    await stop()
+  }
+})
+
+test('L9 反证：`questions` 传**数组** ⇒ 服务端必 400（协议面事实，端点一改必须红）', async (t) => {
+  const key = requireCredential()
+  // ⚠ 这是本批唯一**故意发坏请求**的腿：它要证的是"map 不是风格偏好，而是协议要求"。
+  //   用裸 fetch 而不是经服务面 —— 服务面的 TS 类型已经不允许数组，构造不出这个请求。
+  const res = await fetch(`${SYSTEMONE_DEFAULT_ENDPOINT}${SYSTEMONE_DEFAULT_PATH}`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', authorization: `Bearer ${key}` },
+    body: JSON.stringify({
+      model: SYSTEMONE_DEFAULT_MODEL,
+      state: '反证：数组形态',
+      questions: [{ type: 'noul', instructions: '是否紧急？' }],
+    }),
+    signal: AbortSignal.timeout(LIVE_TIMEOUT_MS),
+  })
+  const text = await res.text()
+  t.diagnostic(`[L9] 数组形态 ⇒ status=${res.status} body=${text.slice(0, 160)}`)
+  assert.equal(res.status, 400, `数组形态必须被 400 拒绝（实测 ${res.status}）—— 若这里变绿，说明协议变了，` +
+    'BatchJudgeOptions.questions 的类型与注释都要跟着改')
+  // ⚠ 断言的是**参数名**而不是那段英文散文：服务端文案会改（"Questions must be a non-empty
+  //   object." → 别的说法），但 `param:"questions"`/`code:"invalid_questions"` 是**协议面**的锚点。
+  //   实测正文：{"error":{"message":"Questions must be a non-empty object.","type":
+  //   "invalid_request_error","code":"invalid_questions","param":"questions"}}
+  assert.match(
+    text,
+    /"param"\s*:\s*"questions"|invalid_questions/i,
+    `400 正文必须把 questions 参数点出来（协议面锚点，不是散文）：${text.slice(0, 160)}`,
+  )
+})
+

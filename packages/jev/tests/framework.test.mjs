@@ -542,6 +542,12 @@ test('F14/F15 装配面：apply(config) 六项配置真被消费（guardState �
     maxConcurrency: 2,
     sessionBudget: 5,
     concurrencyWaitTimeoutMs: 0,
+    // ⚠ W1-2：**显式**声明替身通道。本节判的是**护栏**（与通道无关），而夹具是 Ollama
+    //   单 token 形状（okResponse 带 logprobs）。W1-2 起插件缺省通道已是 systemone（真 JEV）
+    //   ⇒ 不写这一行时，驱动与桩形状不匹配、且无 key ⇒ 每次判定都在**进护栏之前**降级，
+    //   观测到的峰值恒 0（实测：期望 2 / 实际 0）。那会让"护栏失效"与"通道没配"互相遮蔽。
+    //   ⚠ 这里**只声明通道**：护栏语义与全部断言一字未改。
+    channel: 'ollama',
   }
   ctx.plugin(jevMod, CFG)
   await sleep(300)
@@ -604,7 +610,9 @@ async function mountJev(cfg) {
   const ctx = new Context()
   ctx.plugin(coreMod, { storePath: join(dir, 'mana.db') })
   await sleep(150)
-  ctx.plugin(jevMod, cfg)
+  // ⚠ W1-2：缺省通道已是 systemone（真 JEV）⇒ 本节的替身形状桩必须**显式**声明 ollama 腿。
+  //   理由同 F14/F15 的长注：不然 8 条护栏判据会被"通道没配"遮蔽（看起来像护栏失效）。
+  ctx.plugin(jevMod, { channel: 'ollama', ...cfg })
   await sleep(300)
   const svc = ctx.get('mana-jev')
   assert.ok(svc, 'mana-jev 服务必须可读')
@@ -755,7 +763,7 @@ test('F21 键 circuitBreakerCooldownSeconds 真被消费：设 1 ⇒ 冷却按�
   }
 })
 
-test('F22 键 maxConcurrency 真被消费：设为 2 ⇒ 服务面桩观测峰值**恰为 2**（缺省 4 会是 4）', async () => {
+test('F22 键 maxConcurrency 真被消费：设为 2 ⇒ 服务面桩观测峰值**恰为 2**（缺省 32 时会是全部 6 个在飞）', async () => {
   const { svc, stop } = await mountJev({ maxConcurrency: 2, sessionBudget: 50, concurrencyWaitTimeoutMs: 0 })
   try {
     const stub = countingFetch(0.75, 20)

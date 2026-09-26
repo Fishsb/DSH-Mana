@@ -423,11 +423,11 @@ test('S1-15 落痕守恒：6 条路径各落一行、降级行 degraded=1、cost
 
 // ── ⑦ 通道选择器（M3：双通道都得在，且各自端点/模型正确）─────────────────────
 
-test('S1-16 缺省值钉死：Config 缺省 = **ollama 通道 + 本地端点 + 本地模型**；systemone 常量独立且正确', async () => {
+test('S1-16 缺省值钉死：Config 缺省 = **真 JEV 通道**（W1-2 翻转）+ 两端点/两模型常量各自独立且正确', async () => {
   // ⚠ 这里**用 URL 解析**而不是写字面量端点：本文件是零网络文件，端点字面量会被闸的
   //   静态腿判红。用解析后的 host/port 断言，同样"钉住缺省 = 本地"，且不靠注释承诺。
   const local = new URL(OLLAMA_DEFAULT_ENDPOINT)
-  assert.equal(local.hostname, '127.0.0.1', '**缺省通道必须仍是本机**（静默变成云端是本轮要防的形态之一）')
+  assert.equal(local.hostname, '127.0.0.1', '替身腿的端点常量必须仍是本机（那条路没被删，也没被改指向）')
   assert.equal(local.port, '11434')
   assert.equal(local.protocol, 'http:')
   assert.equal(JEV_DEFAULT_MODEL, 'qwen3.5:0.8b', '本地缺省模型不得因本轮改动而变（旧判据的口径）')
@@ -445,7 +445,14 @@ test('S1-16 缺省值钉死：Config 缺省 = **ollama 通道 + 本地端点 + �
   // Config schema 的缺省（真源是 src/index.ts 的 Config，不是这份测试的复述）
   const { Config } = await import(IDX)
   const d = Config(undefined)
-  assert.equal(d.channel, 'ollama', '`channel` 缺省必须是 ollama（**不许**静默只剩云端）')
+  // ⚠⚠ W1-2 **翻转了口径**（旧断言写的是 'ollama'）：缺省必须是**能力最强的通道**。
+  //   旧缺省 'ollama' 不是 JEV 模型，而是本机单 token logprob 原语 ⇒「配好了真 JEV 却在
+  //   跑替身」是一种**静默**的配置与能力不匹配（进程照起、判定照出、只有 model 列看得出来）。
+  //   翻转的代价也钉在这里：真通道**需要 key**，无 key 时显式降级（不静默、不回落）。
+  assert.equal(d.channel, 'systemone', '`channel` 缺省必须是真的 JEV 本体（替身是**显式**选择）')
+  assert.equal(d.systemoneApiKeyEnv, SYSTEMONE_API_KEY_ENV, '缺省腿的 key 来源必须与真通道常量同源')
+  // 两面都必须在：**缺省不是唯一的路** —— 替身腿仍可显式选中（等价性断言在 S1-17 端到端）
+  assert.equal(Config({ channel: 'ollama' }).channel, 'ollama', '替身通道必须仍可选（缺省翻转不得删路）')
   assert.equal(d.endpoint, OLLAMA_DEFAULT_ENDPOINT)
   assert.equal(d.model, JEV_DEFAULT_MODEL)
   assert.equal(d.systemoneEndpoint, SYSTEMONE_DEFAULT_ENDPOINT)
