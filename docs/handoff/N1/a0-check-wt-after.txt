@@ -1,0 +1,65 @@
+(node:19) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:38) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:45) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+(node:1836) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:3336) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:3522) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+══════ Mana 阶段验收判据机检（A0-1 … A0-14 + R0 + A1 入口）══════
+共 16 项：PASS 10 · FAIL 5 · 挂账 1
+（挂账 ≠ 通过：挂账项须在原定阶段验收）
+
+✗ FAIL  [A0-10] 不碰既有件
+        **提交里夹带了写面外文件**（2 件，本仓只有本席一个 git 写席 ⇒ 只能是本席所为）：[".gitignore","package.json"]｜声明写面 = ["docs/","packages/","tools/",".roundtable/","package-lock.json","LICENSE","README.md","RELEASE-CONSTRAINTS.md"]｜越界腿=2 件提交越界 + 0 件无主脏｜写面来源=声明并集（基线 --expect）（8 项）｜锚点 8a2bfae→现 906eefd（本席收工提交，锚点语义允许）｜本仓 HEAD=906eefd、已跟踪脏 0、未跟踪 2；样板 读取失败（spawnSync git ENOENT）｜本仓腿=已判；样板腿=已判｜本轮未跟踪新增 2 件（**不判红**，见本块头注：｜取数坐标 commit=906eefd checker-md5=6baaf3c8e797 node=v22.22.1 NODE_USE_ENV_PROXY=(未设) at=2026-09-26T12:17:36.958Z
+        依据: 先按**路径**判归属：属本批预期写面 = 记入收工复核；属别席在途 = 不改状态、写入报告；属写面外 = 真越界
+✗ FAIL  [A0-12] 契约快照三件套已存且已核
+        清单腿+锚点腿+时序腿+跃迁腿漂移；哈希腿=逐字相等（53c92707954562b1…）；清单腿=漂移：多 0/少 2 件 ⇒ 多=[] 少=["packages/consolidation/src/generation.ts","packages/prompts/src/__verify_mask_probe.ts"]；HEAD 腿=快照锚点仍是祖先（存 8a2bfae ⊑ 现 906eefd）；流水腿=末条 seq=20（record/2026-09-26T09:37:29.342Z）与磁盘三件套逐字相等（另有 6 条人工 incident 注解，不参与指纹比对）；锚点腿=锚点**回退**（第 12→13 条：1963e88 ⊄ a17daf4）⇒ 有人记录过更早的 HEAD；时序腿=**记录之后仍被写过**：sha256(+4639s)、files.txt(+4639s)、head(+4639s) ⇒ 内容虽与记录相符，但「写了又回滚（逐字节还原）」正落在这一形态 ⇒ 必须报红；跃迁腿=6 段越界：cbd80f7→16b6662 越界 ["docs/handoff/S10.md","docs/handoff/S12.md","docs/handoff/S13.md","docs/handoff/S14.md"]（声明写面 ["docs/contract/","tools/a0-check.mjs","docs/handoff/S6.md"]，来源 expect）；16b6662→1b281ff 越界 ["docs/handoff/S22.md","docs/handoff/S25.md","docs/handoff/S26.md","docs/handoff/S27.md"]（声明写面 ["docs/contract/","tools/r0-assembly-check.mjs","packages/core/src/index.ts","packages/core/tests/","docs/handoff/S24.md"]，来源 expect）；1b281ff→66ef2bb 越界 ["docs/handoff/S30.md","docs/mana-project-status-plan.md","docs/mana-v10-landing-plan.md","docs/w4-decisions.md"]（声明写面 ["docs/contract/","tools/r0-assembly-check.mjs","docs/handoff/S29.md"]，来源 expect）；66ef2bb→1963e88 越界 [".roundtable/_plan-cards/session-08f30fd5-a2a1-4952-9073-37c101cce587.jsonl",".roundtable/_plan-cards/session-3fb24594-5ffd-4f0e-a998-cd0deb6c8ca4.jsonl",".roundtable/_plan-cards/session-6375a247-736d-4e39-bef3-25aff63f6027.jsonl",".roundtable/_plan-cards/session-a082ed37-b9b3-4efb-b7d4-391b0835796f.jsonl"]（声明写面 ["docs/contract/"]，来源 expect）；1963e88→a17daf4 区间不可枚举（锚点已被抛弃）；a17daf4→1963e88 区间不可枚举（锚点已被抛弃）；三件套 mtime 跨 0s（同批）｜取数坐标 commit=906eefd checker-md5=6baaf3c8e797 node=v22.22.1 NODE_USE_ENV_PROXY=(未设) at=2026-09-26T12:17:36.958Z
+        依据: 比对上一版并记录差异（旧值存档不覆盖）；若属记录后又被改写 ⇒ 查并发写者，勿只重取基线覆盖证据
+✗ FAIL  [A0-6] CI 绿（新仓自测）
+        typecheck ok=false；test ok=false；tests 670 / pass 625 / fail 45｜取数坐标 commit=906eefd checker-md5=6baaf3c8e797 node=v22.22.1 NODE_USE_ENV_PROXY=(未设) at=2026-09-26T12:17:36.958Z
+        依据: 先修宿主 API 类错误再进阶段 1
+✗ FAIL  [A0-7] 测试命令写法正确（负向）
+        good.ok=false; bad 形似失败=true｜取数坐标 commit=906eefd checker-md5=6baaf3c8e797 node=v22.22.1 NODE_USE_ENV_PROXY=(未设) at=2026-09-26T12:17:36.958Z
+        依据: 改 CI 脚本写法
+✗ FAIL  [A1] A1 判据入口（a1-check 已进自动门链）
+        ok=false 门判定两腿=false 报告项数=17 / 声明=17 / 实测=17｜共 17 项：PASS 13 · FAIL 2 · 挂账 2 · 无实现者 0 / ✗ FAIL  [A1-9] A1-9 审计不泄内容：inject_log 全文做 ≤32 字节 n-gram 匹配命中 0（单元腿 + **生产链路腿**） / ✗ FAIL  [W2-5] P1 三骨架按包名可解析（long-term / consolidation / forgetting） /         不符：dsh-mana-long-term: 产物过期（**内容腿**：与当前 src 重编译产物不一致）—— lib 缺产物：activation.js, decay.js, index.js,｜取数坐标 commit=906eefd checker-md5=6baaf3c8e797 node=v22.22.1 NODE_USE_ENV_PROXY=(未设) at=2026-09-26T12:17:36.958Z
+        依据: 回 tools/a1-check.mjs；若项集腿红 ⇒ 判据块被删或期望集未同步
+  HANG  [A0-13] G1–G15 全数归属
+        15/15 有归宿（产物 14 / 挂账 1）；⚠ 挂账项不计入"已解决"｜取数坐标 commit=906eefd checker-md5=6baaf3c8e797 node=v22.22.1 NODE_USE_ENV_PROXY=(未设) at=2026-09-26T12:17:36.958Z
+        依据: 不得以「已在正文提过」代替归属
+  PASS  [A0-1] 环境钉点一致
+        node v22.22.1（期望 v22.22.1）· node:sqlite 导出「DatabaseSync,StatementSync,constants,backup」· DSH 0.1.7-rc.2 / cordis 4.0.4｜取数坐标 commit=906eefd checker-md5=6baaf3c8e797 node=v22.22.1 NODE_USE_ENV_PROXY=(未设) at=2026-09-26T12:17:36.958Z
+        依据: $ node -v; node -e "…Object.keys(require('node:sqlite'))"; 版本已记入 §2.1
+  PASS  [A0-11] 独立心跳存在且新鲜
+        新鲜度 1.5 分钟（≤10）；内容 {"at":"2026-09-26T12:18:07.900Z","coreAlive":null,"pid":719526,"node":"v22.22.1","writer":"tools/mana-heartbeat.mjs（Mana｜取数坐标 commit=906eefd checker-md5=6baaf3c8e797 node=v22.22.1 NODE_USE_ENV_PROXY=(未设) at=2026-09-26T12:17:36.958Z
+        依据: 独立性判据须在「卸载全部 Mana 插件」后重跑：仍更新才算外部写
+  PASS  [A0-14] 源文件可解析（块注释早终止元门禁）
+        扫描 205 个源文件，无语法类错误｜取数坐标 commit=906eefd checker-md5=6baaf3c8e797 node=v22.22.1 NODE_USE_ENV_PROXY=(未设) at=2026-09-26T12:17:36.958Z
+        依据: 该陷阱本仓踩过两次：注释里写 glob 路径 ⇒ 注释提前终止 ⇒ 报「X is not defined」指不到真因
+  PASS  [A0-2] 扩展加载窗口未走错（负向）
+        默认 ctor 抛「Cannot enable extension loading because it was disabled at…」；{allowExtension:true} 成功｜取数坐标 commit=906eefd checker-md5=6baaf3c8e797 node=v22.22.1 NODE_USE_ENV_PROXY=(未设) at=2026-09-26T12:17:36.958Z
+        依据: 两者都要真（G4，不可后补）
+  PASS  [A0-3] 中文分词口径（负向）
+        trigram 4字命中=1；默认分词器中文=0；英文证明非库空=1；trigram 2字静默空=0｜取数坐标 commit=906eefd checker-md5=6baaf3c8e797 node=v22.22.1 NODE_USE_ENV_PROXY=(未设) at=2026-09-26T12:17:36.958Z
+        依据: 契约锁定 tokenize=trigram + MIN_QUERY_CHARS=3（G5）
+  PASS  [A0-4] typecheck 真接了宿主类型（负向）
+        引用不存在的宿主事件名 ⇒ tsc 正确报 keyof Events 不匹配｜取数坐标 commit=906eefd checker-md5=6baaf3c8e797 node=v22.22.1 NODE_USE_ENV_PROXY=(未设) at=2026-09-26T12:17:36.958Z
+        依据: 反向：不报错即「类型检查未接上宿主类型」，后续 typecheck 判据全不可信
+  PASS  [A0-5] 插件形状静态可证
+        17/17 包 name/inject/apply 齐 + Config 形态合法 + patch id 与 name 一致 + naming.md 全覆盖｜取数坐标 commit=906eefd checker-md5=6baaf3c8e797 node=v22.22.1 NODE_USE_ENV_PROXY=(未设) at=2026-09-26T12:17:36.958Z
+  PASS  [A0-8] 补列 + inject_log 表已建 + 存量库迁移生效
+        inject_log 缺列=[]；mana_trace/jev_log/memory_items 含 session_id+turn_id=true/true/true；非法 gate 被拒=true；FTS5 虚表=true；journal_mode=wal；存量库补列=33 且与全新库差异=[]；索引重建=5；旧行保留=true；不可补列整体拒绝=true/留半迁移态=false｜取数坐标 commit=906eefd checker-md5=6baaf3c8e797 node=v22.22.1 NODE_USE_ENV_PROXY=(未设) at=2026-09-26T12:17:36.958Z
+  PASS  [A0-9] 方案 §14 落点齐备
+        10 条故障模式各有落点；其中标「不可观测」8 处｜取数坐标 commit=906eefd checker-md5=6baaf3c8e797 node=v22.22.1 NODE_USE_ENV_PROXY=(未设) at=2026-09-26T12:17:36.958Z
+        依据: 给不出落点者不得静默通过
+  PASS  [R0] 反证判据（卸载即净 · 真装配链）
+        注入 17 个 → 装配归零 → 卸载后同一触发无新增行｜取数坐标 commit=906eefd checker-md5=6baaf3c8e797 node=v22.22.1 NODE_USE_ENV_PROXY=(未设) at=2026-09-26T12:17:36.958Z
+        依据: 走真 cordis Loader 按包名解析；装配计数以「服务可读」为判据，不以调用成功为判据
+
+❌ 有 5 项 FAIL（另有 1 项挂账）

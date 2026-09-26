@@ -1,0 +1,9 @@
+══════ Mana 阶段验收判据机检（A0-1 … A0-14 + R0 + A1 入口）══════
+共 1 项：PASS 0 · FAIL 1 · 挂账 0
+（挂账 ≠ 通过：挂账项须在原定阶段验收）
+
+✗ FAIL  [A0-12] 契约快照三件套已存且已核
+        清单腿+锚点腿+时序腿+跃迁腿漂移；哈希腿=逐字相等（53c92707954562b1…）；清单腿=漂移：多 0/少 2 件 ⇒ 多=[] 少=["packages/consolidation/src/generation.ts","packages/prompts/src/__verify_mask_probe.ts"]；HEAD 腿=快照锚点仍是祖先（存 8a2bfae ⊑ 现 3c6eb64）；流水腿=末条 seq=20（record/2026-09-26T09:37:29.342Z）与磁盘三件套逐字相等（另有 5 条人工 incident 注解，不参与指纹比对）；锚点腿=锚点**回退**（第 12→13 条：1963e88 ⊄ a17daf4）⇒ 有人记录过更早的 HEAD；时序腿=**记录之后仍被写过**：sha256(+4639s)、files.txt(+4639s)、head(+4639s) ⇒ 内容虽与记录相符，但「写了又回滚（逐字节还原）」正落在这一形态 ⇒ 必须报红；跃迁腿=6 段越界：cbd80f7→16b6662 越界 ["docs/handoff/S10.md","docs/handoff/S12.md","docs/handoff/S13.md","docs/handoff/S14.md"]（声明写面 ["docs/contract/","tools/a0-check.mjs","docs/handoff/S6.md"]，来源 expect）；16b6662→1b281ff 越界 ["docs/handoff/S22.md","docs/handoff/S25.md","docs/handoff/S26.md","docs/handoff/S27.md"]（声明写面 ["docs/contract/","tools/r0-assembly-check.mjs","packages/core/src/index.ts","packages/core/tests/","docs/handoff/S24.md"]，来源 expect）；1b281ff→66ef2bb 越界 ["docs/handoff/S30.md","docs/mana-project-status-plan.md","docs/mana-v10-landing-plan.md","docs/w4-decisions.md"]（声明写面 ["docs/contract/","tools/r0-assembly-check.mjs","docs/handoff/S29.md"]，来源 expect）；66ef2bb→1963e88 越界 [".roundtable/_plan-cards/session-08f30fd5-a2a1-4952-9073-37c101cce587.jsonl",".roundtable/_plan-cards/session-3fb24594-5ffd-4f0e-a998-cd0deb6c8ca4.jsonl",".roundtable/_plan-cards/session-6375a247-736d-4e39-bef3-25aff63f6027.jsonl",".roundtable/_plan-cards/session-a082ed37-b9b3-4efb-b7d4-391b0835796f.jsonl"]（声明写面 ["docs/contract/"]，来源 expect）；1963e88→a17daf4 区间不可枚举（锚点已被抛弃）；a17daf4→1963e88 区间不可枚举（锚点已被抛弃）；三件套 mtime 跨 0s（同批）｜取数坐标 commit=3c6eb64 checker-md5=6baaf3c8e797 node=v22.22.1 NODE_USE_ENV_PROXY=(未设) at=2026-09-26T11:01:04.313Z
+        依据: 比对上一版并记录差异（旧值存档不覆盖）；若属记录后又被改写 ⇒ 查并发写者，勿只重取基线覆盖证据
+
+❌ 有 1 项 FAIL
