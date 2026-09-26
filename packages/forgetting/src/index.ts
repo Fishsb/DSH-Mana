@@ -15,6 +15,7 @@
  *  · `params.ts`    —— 本包参数的**唯一出处**（Pavlik 三参数 / 四区间边界 / 留存上限缺省）
  *  · `strength.ts`  —— `ΔS = a·(S_max − S)^b`（**A3-4 ①的实现者**）
  *  · `retention.ts` —— `retention(t,S) = exp(-t/S)`（**A3-4 的实现者**）+
+ *                       `decayAnchorReadings(kernel, eps)`（**A1-5 的读数面**：把判据表三锚点交给注入的真核求值）+
  *                       `equivalentHalfLifeDays(S) = S·ln2`（与 long-term 的 decay 同一核的证据）
  *  · `archive.ts`   —— 四区间归档 `A>τ+1.0 / τ<A≤τ+1.0 / τ-0.5<A≤τ / A≤τ-0.5`（**B4.2 ②**）
  *  · `prune.ts`     —— 修剪**只读候选视图**（**B4.2 ④**；不写库、不触发归档）
@@ -103,7 +104,18 @@ import {
   type Classification,
   type RetirementPlan,
 } from './archive.ts'
-import { equivalentHalfLifeDays, retention, retentionWith, type DecayKernelLike } from './retention.ts'
+import {
+  A1_5_ANCHOR_POINTS,
+  decayAnchorReadings,
+  decayKernelTeeth,
+  equivalentHalfLifeDays,
+  retention,
+  retentionWith,
+  type DecayAnchorReading,
+  type DecayKernelLike,
+  type DecayKernelTeethOptions,
+  type DecayKernelTeethReading,
+} from './retention.ts'
 import { strengthAfterRepeat, strengthAfterRepeats, strengthDelta, strengthDeltaRaw, type PavlikParams } from './strength.ts'
 import { pruneCandidates, pruneViewSummary, type PruneView, type PruneViewOptions } from './prune.ts'
 import { CRITERIA_REGISTRY, calibrationConsistency, uncalibratedIds } from './criteria.ts'
@@ -196,6 +208,24 @@ export interface ManaForgetting {
   retention(t: number, s: number): number
   /** 强度 ⇒ 等价半衰期 `h = S·ln2`（与 long-term 的 decay 同核的可复算证据）。 */
   equivalentHalfLifeDays(s: number): number
+  /**
+   * **A1-5 三锚点的真核读数**（核 = 装配期 `ctx.get('mana-long-term')` 的那一份）。
+   *
+   * ⚠ **未装配长时记忆时抛错，不回退本包闭式** —— 这是本方法的要点：
+   *   回退会造出「判据绿」的第二种来源（本包自己的闭式），而 A1-5 要判的恰恰是
+   *   `long-term` 那条核算得对不对。回退等于把「真核没接上」读成「锚点全过」。
+   *   ⇒ 判据侧只读本方法的读数，就不再依赖「判据器内联闭式」那条自证路径。
+   */
+  decayAnchors(eps?: number): readonly DecayAnchorReading[]
+
+  /**
+   * **带牙腿**：核必须满足两条契约 —— ① `halfLifeDays` 参数真被消费（不是死旋钮）；
+   * ② `t<0` 必抛（fail-closed）。核取自装配期，未装则抛（同 `decayAnchors`）。
+   *
+   * ⚠ 为什么要在这里暴露：三锚点全取在 `t ≥ 0` 且同一个 `h` ⇒ **两种坏核能把三锚点全过**
+   *   （c3 accept 席实测）。判据腿若只吃锚点，就比实现面**更弱**。
+   */
+  decayKernelTeeth(options: DecayKernelTeethOptions): DecayKernelTeethReading
   /** 修剪**只读候选视图**（不写库、不触发归档）。 */
   pruneCandidates(items: readonly ActivationSnapshot[], tau?: number, options?: PruneViewOptions): PruneView
   /** 修剪视图的一行摘要（面板用）。 */
@@ -281,6 +311,26 @@ function makeForgetting(ctx: Context): ManaForgetting {
     strengthAfterRepeats,
     retention: retentionFn,
     equivalentHalfLifeDays,
+    // A1-5：核**必须**是装配期取到的那一份；取不到就抛（fail-closed，见接口注释）。
+    // 带牙腿：同一个 kernel，同一套 fail-closed 口径（未装核 ⇒ 抛，不回退闭式）。
+    decayKernelTeeth: (options: DecayKernelTeethOptions): DecayKernelTeethReading => {
+      if (!kernel) {
+        throw new Error(
+          'forgetting.decayKernelTeeth: 未装配 mana-long-term ⇒ **无真核可判**（不得回退本包闭式自证）。' +
+            '带牙腿判的是 long-term 那条核；回退会让「真核没接上」与「两条牙全过」同形。',
+        )
+      }
+      return decayKernelTeeth(kernel, options)
+    },
+    decayAnchors: (eps: number = 1e-6): readonly DecayAnchorReading[] => {
+      if (!kernel) {
+        throw new Error(
+          'forgetting.decayAnchors: 未装配 mana-long-term ⇒ **无真核可判**（不得回退本包闭式自证）。' +
+            'A1-5 判的是 long-term 那条核；回退会让「真核没接上」与「锚点全过」同形。',
+        )
+      }
+      return decayAnchorReadings(kernel, eps)
+    },
     pruneCandidates: (items: readonly ActivationSnapshot[], t: number = tauEff, options?: PruneViewOptions) =>
       pruneCandidates(items, t, options),
     pruneViewSummary,
@@ -335,7 +385,29 @@ export {
 } from './archive.ts'
 export type { ActivationSnapshot, ArchiveLedger, CapReading, CapStatus, Classification, RetirementPlan } from './archive.ts'
 export { retention, retentionWith, equivalentHalfLifeDays } from './retention.ts'
-export type { DecayKernelLike } from './retention.ts'
+// ⚠ A1-5 的判据面导出**单列清单**（与 long-term 的 IMPLEMENTED_RETIREMENT_EXPORTS 同一处置）：
+//   `IMPLEMENTED_EXPORTS` 被 skeleton.test.mjs 的**独立清单逐名集合相等**钉死，
+//   往它里面加名字会让**既有判据红**，而「改判据让它变绿」正是本仓禁止的动作。
+export const IMPLEMENTED_A15_EXPORTS = ['A1_5_ANCHOR_POINTS', 'decayAnchorReadings', 'decayKernelTeeth'] as const
+
+/**
+ * ⚠ **第二份真源（互覆盖腿的对照物）**：上面那张清单是**待检对象**，本表是**独立写一遍的对照表**。
+ *   只有一张清单 + `length === N` 是**自指**的：删一项、把 N 改小，断言照样全绿
+ *   （c3 accept 席 D-C 实测：原 `length===2` 就是写死常数，删 `decayAnchorReadings` 并改 1 即全绿）。
+ *   ⇒ 本表由 `forgetting/tests/a15-anchor.test.mjs` 与 `IMPLEMENTED_A15_EXPORTS` 做**逐名集合相等**（与 long-term 的
+ *     `skeleton.test.mjs` 对 `IMPLEMENTED_EXPORTS` 的口径一致）；两处各写一份 ⇒ 改一处即红。
+ *   ⚠ 本表**必须显式冻结**：它是判据面，不是可被运行期改写的配置。
+ *   ⚠ 本表**不把自身**算作 A1-5 判据面的一员（否则三处对照物各自含自身，集合等式无法闭合）：
+ *     `A15_EXPORT_FACE` 只是这张表的**名字**，不是被它描述的一条判据面导出。
+ */
+export const A15_EXPORT_FACE: readonly string[] = Object.freeze([
+  'A1_5_ANCHOR_POINTS',
+  'decayAnchorReadings',
+  'decayKernelTeeth',
+] as const)
+
+export { A1_5_ANCHOR_POINTS, decayAnchorReadings, decayKernelTeeth } from './retention.ts'
+export type { DecayAnchorPoint, DecayAnchorReading, DecayKernelLike, DecayKernelTeethOptions, DecayKernelToothReading, DecayKernelTeethReading } from './retention.ts'
 export { strengthDelta, strengthDeltaRaw, strengthAfterRepeat, strengthAfterRepeats, pavlikParams } from './strength.ts'
 export type { PavlikParams } from './strength.ts'
 export { pruneCandidates, pruneViewSummary } from './prune.ts'

@@ -35,6 +35,11 @@ import { fileURLToPath } from 'node:url'
 const TEST_FILES = [
   ['tests/skeleton.test.mjs', 8],
   ['tests/forgetting.test.mjs', 11],
+  // ⚠ **A1-5 席新增，必须在此登记**：不登记 ⇒ 本文件被清空成 0 字节时，外部防线
+  //   压根不看它 ⇒ 假绿复发（见本档开头那条教训）。口径与前面几条逐条一致。
+  // ⚠ **c3 席（N5 带牙腿 + N7 互覆盖腿）6 → 9**：新增 ⑥ 死旋钮核必红 / ⑦ 无 t<0 guard 必红 /
+  //  ⑧ 带牙腿自身的负向对拍。登记数**必须同步**，否则本文件少三条腿时外部防线不报。
+  ['tests/a15-anchor.test.mjs', 9],
 ]
 const HERE = fileURLToPath(new URL('.', import.meta.url))
 
