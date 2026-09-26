@@ -1,13 +1,13 @@
 #!/usr/bin/env node
 /**
- * A6-1 消融跑分器 —— 把 docs/mana-rollout-plan.md:670 的 A6-1（消融可自动跑）从
+ * A6-1 消融跑分器 —— 把 docs/mana-rollout-plan.md:671 的 A6-1（消融可自动跑）从
  * **NONE（无实现者）** 变成 **可判**。
  *
  * ⚠ 本文件的定位（先读这段再看代码）：
  *   · A6-1 判据原文要求「方案 §13.3 **六组**各产出 1 个指标差：同一固定输入集 → 逐组开关
  *     → 输出 JSON」，阈值 **6/6**。**本文件不承诺 6/6**：它把「哪几组真能跑」变成事实，
  *     再由 summary 段如实报 N/6 与逐组的不可做原因
- *     （口径见 docs/mana-rollout-plan.md:717：**不可做 = 无开关可关**）。
+ *     （口径见 docs/mana-rollout-plan.md:719：**不可做 = 无开关可关**）。
  *   · ⚠ 本席**不得**为凑 6/6 而给任何 packages/** 加开关 —— 那是本仓点名的「假旋钮」形态。
  *     故本文件对 packages/** **只读**：不改一个字节、不建任何产物。
  *
@@ -37,6 +37,11 @@
  *      **必须**报红（「六组都跑了」与「每组两态都在」是两件事，这条查后者）。
  *   ⑥ 两态同源**另有专腿**：sc/two-state-distinct —— 除 declaration-knob 组外，
  *      两态 metrics 的 JSON 不得逐字相同（相同 ⇒ 差不是机制差，是没关成）。
+ *   ⑦ **「关到底」另有专腿**（K2，2026-09-25）：sc/wm-both-gates-off —— 声明为 config-knob 的组，
+ *      其关态必须把**它声明关掉的每一枚开关**都落到「不设闸」档（working-memory 的两条闸 = 
+ *      capacityChunks 与 budgetChars **同时** 0），且包仍在场（关 ≠ 卸载）。
+ *      ⚠ ⑥ 查的是「两态**不同**」，本腿查的是「关态**关到底**」—— 两件事：只关一条闸时 ⑥ 照样绿
+ *      （容量轴确实动了），缺口只在**配置读回**上可见 ⇒ 没这条腿就没人发现另一条闸还在。
  *
  * ── 负向对拍（判据要求 >= 3 条；命令与期望读数见 docs/handoff/F3.md）────────────
  *   · --mutate same-source=wm   两分支取同一状态 ⇒ 该组两态 metrics 逐字相同 ⇒
@@ -44,6 +49,12 @@
  *   · --mutate strip-n          删 n 字段 ⇒ sc/a6-2-n-field-present 报红（A6-2 腿）
  *   · --mutate random-input     输入集当次随机化 ⇒ sc/input-reproducible 报红（可复现腿）
  *   · --mutate drop-on          丢开态记录 ⇒ sc/a6-1-both-states 报红
+ *   · --mutate wm-partial       把 wm 组的「关」错接成**只关容量闸**（budgetChars 退回开态/缺省档）⇒
+ *     **sc/wm-both-gates-off 报红**（实测违反项落成 "wm.budgetChars=4000"）。⚠ 打的是**这一条腿**，
+ *     不是 sc/eval-discrepancies —— 后者查「关掉后机制足迹不得上升」，而预算闸在本输入集下两态
+ *     都**不咬**（budgetEvicted / truncated 恒 0）⇒ 它的缺位在**足迹层看不出来**，只在
+ *     「配置读回」这一层看得出来。口径与实测一致：见 docs/handoff/w1-execution/K2-readings.txt。
+ *     ⚠ 这正是本组 2026-09-25 订正**前**的形态：负控打的就是「只关一条会把另一条读成没有闸」那个真缺陷
  *   · --decl-switch=unload      把 declaration-knob 组的「关」错接成卸载 ⇒ 该组 deltaKind 退化为 none，
  *     且**带声明成因**（exit 仍是 2 不是 4）—— 它演示「已声明的 0 差」与「静默 0 差」的区别
  *   ⚠ 变异只作用于**本进程的输出**（不改仓、不改输入集）：故拍完**无需**恢复任何文件，
@@ -54,6 +65,7 @@
  *   node tools/a6-ablation.mjs --self-check    # 只跑 harness 自检 + 输入集快照（约 2s，仓只读）
  *   node tools/a6-ablation.mjs --only jev      # 只跑某组（退出码语义不变但只覆盖该组）
  *   node tools/a6-ablation.mjs --mutate same-source=wm   # 负向对拍
+ *   node tools/a6-ablation.mjs --mutate wm-partial --only wm   # 负向对拍：只关一条闸（必红）
  *   node tools/a6-ablation.mjs --no-human      # 只出 JSON
  */
 
@@ -81,10 +93,10 @@ const EXIT = Object.freeze({
 })
 
 /**
- * 六组（判据原文 docs/mana-rollout-plan.md:670 的 B7.1 清单，**不改名不删项**）。
+ * 六组（判据原文 docs/mana-rollout-plan.md:671 的 B7.1 清单，**不改名不删项**）。
  *
  * ablation 逐字记「**关**是怎么关的」——这是本批的实质产出：
- *   · unload           = 该包**不装配**（本仓没有包内 enable/disable；册:721 记 JEV 的先例即此法）
+ *   · unload           = 该包**不装配**（本仓没有包内 enable/disable；册:723 记 JEV 的先例即此法）
  *   · config-knob      = 包内配置开关**真被消费**（关掉即行为变化）
  *   · declaration-knob = 包内开关只改 status() 的自报字段，**零行为消费**（= 假旋钮形态）
  *
@@ -110,7 +122,7 @@ const GROUPS = Object.freeze([
     //   那两条在两态都不动（本组发现），把它们当足迹会把「下游不变」错读成「关掉了没差」。
     footprint: ['actrSurfaceMembers', 'longTermServiceUp'],
     pkgDir: 'long-term',
-    // 本仓**没有** enable/disable 面（册:722 已记 long-term 不导出 Config）⇒ 只能卸载；
+    // 本仓**没有** enable/disable 面（册:724 已记 long-term 不导出 Config）⇒ 只能卸载；
     // 而卸载使 forgetting 走闭式核 —— 闭式核与 long-term 的 decay 是**同一条曲线**
     // （packages/forgetting/src/retention.ts:16 的恒等式），故 retention 读数**不差**。
     structuralReason: '本仓无包内开关（long-term 刻意不导出 Config）；卸载的差只落在归属读数上，对衰减曲线无差',
@@ -118,9 +130,15 @@ const GROUPS = Object.freeze([
   {
     id: 'wm',
     name: '去工作记忆限制',
-    question: '把容量限制关掉（capacityChunks=0）后，淘汰还发生吗？',
+    // ⚠ 问法必须与「关」的口径**同宽**（K2 订正，2026-09-25）：本包的限制**有两条串联的闸**
+    //   （顺序：先容量（条数）后预算（字符，按码点计）—— packages/working-memory/src/index.ts:20-21），
+    //   故「去工作记忆限制」= **两条都关**，而不是「把容量限制关掉」。
+    question: '把工作记忆的两条限制都关掉（capacityChunks=0 且 budgetChars=0）后，淘汰还发生吗？',
     ablation: 'config-knob',
-    footprint: ['evictedOnCapacity'],
+    // ⚠ 足迹**必须含预算轴**（K2）：只挂 evictedOnCapacity 时，关态里预算闸若仍在逐出，
+    //   本组的 deltaKind 仍是 behavioral（容量轴动了），而「另一条闸没关掉」**无人发现**
+    //   —— 「只关一条会把另一条读成没有闸」在读数层的入口正是这里。
+    footprint: ['evictedOnCapacity', 'budgetEvicted'],
     pkgDir: 'working-memory',
     structuralReason: null,
   },
@@ -165,7 +183,8 @@ const GROUPS = Object.freeze([
 const MONOTONE = Object.freeze({
   jev: { down: ['judgeListens', 'probObserved'], up: ['gatesDegraded'] },
   actr: { down: ['kernelSourceIsLongTerm'], up: [] },
-  wm: { down: ['evictedOnCapacity'], up: [] },
+  // wm：**两条闸的足迹都查**（K2）—— 只挂容量闸那条时，预算闸在关态若仍在动就无人发现。
+  wm: { down: ['evictedOnCapacity', 'budgetEvicted', 'truncated'], up: [] },
   consolidation: { down: ['productionRuleRows'], up: [] }, // ⚠ ruleWriteFailures 不设单调：关态无写面，恒 0
   metacognition: { down: [], up: [] },
   userModel: { down: ['driftTraceRows'], up: [] },
@@ -190,7 +209,20 @@ const PRESENCE_KEYS = Object.freeze([
 const METRIC_KEYS = Object.freeze({
   jev: ['judgeListens', 'probObserved', 'gatesInjected', 'gatesDegraded', 'gatesSkip', 'jevLogRows', 'injectLogRows'],
   actr: ['longTermServiceUp', 'actrSurfaceMembers', 'kernelSourceIsLongTerm', 'retentionMaxAbsDiff', 'retentionKernelDelta'],
-  wm: ['workingMemoryServiceUp', 'evictedOnCapacity', 'wmSizeAtEnd', 'capacityChunks', 'wmTraceRows'],
+  // ⚠ wm 组的指标面必须**与两条闸一一对应**（K2 订正，2026-09-25）：capacityChunks / budgetCharsAtEnd
+  //   是两闸的**读回值**（关 = 0），evictedOnCapacity / budgetEvicted 是两闸各自的**足迹**（关掉归零），
+  //   truncated 是预算闸的**第二条动作路径**（单条自身超预算时截断；本输入集下不触发 ⇒ 如实记 0
+  //   而非省略 —— 省略会让「未触发」与「未观测」不可分辨，正是 A6-2 禁的那件事）。
+  wm: [
+    'workingMemoryServiceUp',
+    'evictedOnCapacity',
+    'wmSizeAtEnd',
+    'capacityChunks',
+    'budgetCharsAtEnd',
+    'budgetEvicted',
+    'truncated',
+    'wmTraceRows',
+  ],
   consolidation: ['consolidationServiceUp', 'consolidationSelected', 'consolidationChunkRules', 'ruleWriteFailures', 'productionRuleRows'],
   metacognition: ['metacognitionServiceUp', 'criteriaFlag', 'splitLawResolved', 'profileIndexHandles'],
   userModel: ['userModelServiceUp', 'driftTraceRows', 'driftTriggerAttempts', 'umSurfaceReadable'],
@@ -362,7 +394,32 @@ function groupPlugin(group, enabled, input) {
     case 'actr':
       return enabled ? [{ pkg: 'long-term' }] : []
     case 'wm':
-      return [{ pkg: 'working-memory', config: { capacityChunks: enabled ? input.wmCapacityOn : input.wmCapacityOff } }]
+      // ⚠ 两条闸**必须同关**（K2 订正，2026-09-25）。为什么两条都要关：
+      //   `capacityChunks`（条数上界）与 `budgetChars`（字符上界，按码点计）是**串联的两条闸**
+      //   （packages/working-memory/src/index.ts:20-21 明写顺序：先容量后预算），任一 > 0 就**还在限**。
+      //   只关一条 ⇒ 另一条仍在本组自己声明的「关」态里生效，于是「关掉了工作记忆限制」这句话
+      //   **与实测不符**（它会继续逐出），而读数差异又**只由容量轴贡献** —— 结论因此失真。
+      //   这就是本组 2026-09-25 订正**前**的形态，现由 `--mutate wm-partial` 作为见证保留。
+      //   仍保持 **config-knob**（两态都装配该包），**不改成卸载**：本组问的是「那两枚开关是否真被
+      //   行为消费」，卸载看到的只是「包在不在」（见 :118 组定义与 :473 的既有口径）。
+      return [
+        {
+          pkg: 'working-memory',
+          config: {
+            capacityChunks: enabled ? input.wmCapacityOn : input.wmCapacityOff,
+            // ⚠ 关态 budgetChars=0 是**语义常量**（该轴不设闸），**不是**固定输入集里的数据：
+            //   · 依据 = packages/working-memory/src/index.ts:192 的 `config.budgetChars <= 0` 分支，
+            //     与 capacityChunks=0 同族（G2 明订；判据 W12 钉住）；
+            //   · 故**不写进** tools/ablation/input-set.json —— 该文件自述是「固定输入**数据**」且写明
+            //     「改一个字即改输入集 ⇒ 两次运行的指标不可比」；加键会让已入库的基线
+            //     （sha256 cb8b9dff7284dae8…）与既往读数失联。这是「K2 不新开写面」的直接落点。
+            //   · 开态**不传** budgetChars ⇒ 走 Schema 缺省 4000（= 生产缺省路径，不是本跑分器杜撰的档位），
+            //     其落地由读回指标 budgetCharsAtEnd 证明（不靠「声明了缺省」自证）。
+            // --mutate wm-partial：预算轴退回开态（即缺省 4000 仍生效）⇒ 正是订正**前**的「只关容量闸」形态。
+            ...(enabled || group.wmPartial ? {} : { budgetChars: 0 }),
+          },
+        },
+      ]
     case 'consolidation':
       return enabled ? [{ pkg: 'consolidation' }] : []
     case 'metacognition':
@@ -410,8 +467,9 @@ async function runState(group, enabled, input) {
   } else if (group.ablation === 'config-knob') {
     notes.push(
       enabled
-        ? '开：capacityChunks=' + input.wmCapacityOn
-        : '关：capacityChunks=' + input.wmCapacityOff + '（capacityChunks>0 才淘汰）',
+        ? '开：capacityChunks=' + input.wmCapacityOn + '、budgetChars 不显式传（走 Schema 缺省 4000 的生产缺省路径）'
+        : '关：capacityChunks=' + input.wmCapacityOff + '、budgetChars=0' +
+            '（**两条闸同关**：各轴 <=0 即该轴不设闸；只关一条会把另一条读成「没有闸」）',
     )
   } else if (group.ablation === 'declaration-knob' && group.declKnob === false) {
     notes.push(
@@ -470,7 +528,7 @@ async function runState(group, enabled, input) {
     } else if (group.id === 'wm') {
       const wm = chain.ctx.get('mana-working-memory')
       if (!wm) {
-        throw new Error('mana-working-memory 不在场 —— 本组的「关」是 capacityChunks=0，不是卸载')
+        throw new Error('mana-working-memory 不在场 —— 本组的「关」是两条闸同关（capacityChunks=0 且 budgetChars=0），不是卸载')
       }
       const probeItems = input.items.slice(0, 6)
       for (const it of probeItems) await driveOnce(chain, it, input.sessionId, it.turnId)
@@ -478,14 +536,24 @@ async function runState(group, enabled, input) {
       await settle(120)
       const snap = wm.snapshot()
       metrics.workingMemoryServiceUp = 1
+      // 两条闸的足迹**分账读**（K2）：容量轴的 evicted 与预算轴的 budgetEvicted 在实现里就是分开记账的
+      // （packages/working-memory/src/index.ts:158-166 的 counts()），这里只是把两者都取成指标。
       metrics.evictedOnCapacity = snap.evicted
       metrics.wmSizeAtEnd = snap.chunks.length
       metrics.capacityChunks = snap.capacityChunks
+      metrics.budgetCharsAtEnd = snap.budgetChars
+      metrics.budgetEvicted = snap.budgetEvicted
+      metrics.truncated = snap.truncated
       metrics.wmTraceRows = count(
         db,
         "SELECT COUNT(*) c FROM mana_trace WHERE event_type = 'attention' AND payload LIKE '%capacityChunks%'",
       )
-      notes.push('容量=' + snap.capacityChunks + '、末态条数=' + snap.chunks.length + '、淘汰计数=' + snap.evicted)
+      notes.push(
+        '容量=' + snap.capacityChunks + '、预算=' + snap.budgetChars +
+          '、末态条数=' + snap.chunks.length + '、字符数=' + snap.chars +
+          '、淘汰计数=' + snap.evicted + '（容量轴）、' + snap.budgetEvicted + '（预算轴）' +
+          '、截断=' + snap.truncated,
+      )
     } else if (group.id === 'consolidation') {
       const cs = chain.ctx.get('mana-consolidation')
       n = input.consolidation.items.length + input.consolidation.runs.length
@@ -597,7 +665,7 @@ function emptyProbe(store, emptySessionId) {
  * 逐条要求「请求的变异必须在读数上留下见证」（见下）。
  */
 function parseArgv(argv) {
-  const out = { mutate: [], only: null, human: true, selfCheckOnly: false, help: false, declSwitch: null, unknown: [] }
+  const out = { mutate: [], only: null, human: true, selfCheckOnly: false, help: false, declSwitch: null, wmPartial: false, unknown: [] }
   /** 取下一个值：支持 `--k=v` 与 `--k v`。 */
   const valueOf = (tok, key) => {
     const eq = tok.indexOf('=')
@@ -608,7 +676,15 @@ function parseArgv(argv) {
   for (let i = 0; i < argv.length; i += 1) {
     iSeen = i
     const a = argv[i]
-    if (a === '--mutate' || a.startsWith('--mutate=')) out.mutate.push(valueOf(a, '--mutate'))
+    if (a === '--mutate' || a.startsWith('--mutate=')) {
+      const v = valueOf(a, '--mutate')
+      out.mutate.push(v)
+      // wm-partial 走**独立开关**（见下）：它的见证是 wm 关态的 budgetCharsAtEnd，与 --mutate 表里
+      // 其它每条「见证」的口径不同。
+      // ⚠ 必须写在这个**已有分支内**：第一版把它写成并列的 else-if ⇒ 被本分支先吃掉，
+      //   开关恒 false、变异从未生效 —— 而 mutationWitness 当场报「变异未生效」（负控自证其牙）。
+      if (v === 'wm-partial') out.wmPartial = true
+    }
     else if (a === '--only' || a.startsWith('--only=')) out.only = valueOf(a, '--only')
     else if (a === '--decl-switch' || a.startsWith('--decl-switch=')) out.declSwitch = valueOf(a, '--decl-switch')
     else if (a === '--no-human') out.human = false
@@ -627,6 +703,7 @@ function parseMutation(spec) {
   if (spec === 'strip-n') return { kind: 'strip-n' }
   if (spec === 'random-input') return { kind: 'random-input' }
   if (spec === 'drop-on') return { kind: 'drop-on' }
+  if (spec === 'wm-partial') return { kind: 'wm-partial' }
   if (spec.indexOf('same-source=') === 0) return { kind: 'same-source', group: spec.slice('same-source='.length), value: true }
   console.error('[warn] 未知变异（忽略）：' + spec)
   return null
@@ -762,6 +839,27 @@ function selfChecks(payload, requestedGroups) {
       }
     }
     add('sc/declaration-knob-stays-loaded', bad.length === 0, 'declaration-knob 组两态都须载入该包（关的只能是包内开关）；违反=' + JSON.stringify(bad))
+  }
+
+  // ①f config-knob 组必须**关到底**：它声明关掉的每一枚开关，在关态都要落到「不设闸」档（K2）。
+  //    ⚠ 只查一条就把另一条读成「没有闸」—— 这正是本腿存在的理由（负控 --mutate wm-partial 打它）。
+  {
+    const bad = []
+    for (const g of payload.groups) {
+      if (g.declaredAblation !== 'config-knob') continue
+      // same-source 等变异下关态的 effectiveEnabled 已非 false ⇒ 缺记录归 sc/a6-1-both-states，这里不重复报。
+      if (g.off.effectiveEnabled !== false) continue
+      const off = g.off.metrics
+      if (off.workingMemoryServiceUp !== 1) bad.push(g.group + ' 关态服务不在场（本组的关**不是卸载**）')
+      if (off.capacityChunks !== 0) bad.push(g.group + '.capacityChunks=' + String(off.capacityChunks))
+      if (off.budgetCharsAtEnd !== 0) bad.push(g.group + '.budgetChars=' + String(off.budgetCharsAtEnd))
+    }
+    add(
+      'sc/wm-both-gates-off',
+      bad.length === 0,
+      '声明为 config-knob 的组，其关态必须**把两条闸都关到底**（capacityChunks 与 budgetChars 同时 = 0，各轴 <=0 即不设闸）且包仍在场；违反=' +
+        JSON.stringify(bad),
+    )
   }
 
   // ①d 零差必须**带声明成因**：deltaKind=none 而 zeroDeltaReason 为空的组即静默失败（exit 4）。
@@ -914,9 +1012,15 @@ async function main() {
 
   // --decl-switch=unload：把 declaration-knob 组的「关」错接成卸载（负向对拍用；
   //   正确形态是**两态都载入该包**，只关包内开关 —— 见 groupPlugin 的 metacognition 分支）。
-  const effectiveGroups = selected.map((g) =>
-    g.ablation === 'declaration-knob' ? { ...g, declKnob: args.declSwitch !== 'unload' } : g,
-  )
+  // --mutate wm-partial：把 wm 组的「关」错接成只关容量闸（预算闸仍取开态档）。
+  if (args.wmPartial && !requested.includes('wm')) {
+    console.error('[warn] --mutate=wm-partial 指定了 wm 组，但 --only=' + args.only + ' 未覆盖它 ⇒ 该负控打不上靶（会被 mutationWitness 记为未生效）')
+  }
+  const effectiveGroups = selected.map((g) => {
+    if (g.ablation === 'declaration-knob') return { ...g, declKnob: args.declSwitch !== 'unload' }
+    if (g.id === 'wm' && args.wmPartial) return { ...g, wmPartial: true }
+    return g
+  })
 
   const groups = []
   for (const g of effectiveGroups) {
@@ -1034,7 +1138,7 @@ async function main() {
 
   const payload = {
     tool: 'tools/a6-ablation.mjs',
-    criterion: 'A6-1（docs/mana-rollout-plan.md:670）+ A6-2（:671）',
+    criterion: 'A6-1（docs/mana-rollout-plan.md:671）+ A6-2（:672）',
     ts: nowIso(),
     elapsedMs: Date.now() - t0,
     input: { id: input.id, path: INPUT_PATH, sha256: sha1, sha256SecondRead: sha2, reproducible: sha1 === sha2 },
@@ -1078,6 +1182,11 @@ async function main() {
     } else if (m.kind === 'drop-on') {
       if (groups.some((x) => x.on.metrics && Object.keys(x.on.metrics).length > 0))
         mutationWitness.push('drop-on：仍有组的开态带 metrics ⇒ 变异未生效')
+    } else if (m.kind === 'wm-partial') {
+      const g = groups.find((x) => x.group === 'wm')
+      if (!g) mutationWitness.push('wm-partial：本次未评估 wm 组 ⇒ 变异无处生效')
+      else if (g.off.metrics.budgetCharsAtEnd === 0)
+        mutationWitness.push('wm-partial：关态 budgetChars 仍为 0（=仍不设闸）⇒ 变异未生效')
     }
   }
   if (args.declSwitch === 'unload') {

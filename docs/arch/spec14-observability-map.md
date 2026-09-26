@@ -14,7 +14,7 @@
 | 3 | 向量库不可用 | 健康检查 | `mana/recall` 事件的 `channel='degraded'` + `degraded` 字段；判据 **A1-11**（排序依据须为 `local_score` 而非 `jev_prob`） | ✅ 真信号 | 阶段 1 |
 | 4 | SQLite 锁竞争 | 重试计数 | **无可数之处**（`node:sqlite` 无重试计数 API）⇒ 记 **`mana_trace` 的 `mana/plugin/inactive` 行 + 开库器 `busy_timeout` 读回值**为**替代观测**，并在阶段 1 补一次「并发写失败」负例 | ⛔ 不可观测（部分替代） | 阶段 1 |
 | 5 | 插件加载失败 | Cordis 加载日志 | `mana_trace` 的 `mana/plugin/inactive` 行（`payload.id` / `payload.missing`）；验收口径改为「**最近 N 分钟内无 inactive 记录**」 | ✅ 真信号 | 阶段 0（事件已冻）/ 阶段 2（生产） |
-| 6 | 工作记忆溢出 | token 计数 | `mana/working-memory` 的 `capacityChunks` 配置 + `mana_trace` 的注入行数；**注入块字符数**落 `inject_log.block_id` 关联的块长度 | 🟡 半真 | 阶段 1 |
+| 6 | 工作记忆溢出 | token 计数（方案原文）· 实现为**码点**计数 | `mana/working-memory` 的 `capacityChunks` 配置 + `mana_trace` 的注入行数；**注入块字符数**落 `inject_log.block_id` 关联的块长度 | 🟡 半真 | 阶段 1 |
 | 7 | 记忆爆炸 | 存储监控 | `store/snapshot` 探针（**判增速不判绝对值**，§18 映射）；阶段 3 `long-term` 落库行数随时间序列 | 🟡 半真 | 阶段 3 |
 | 8 | 前缀缓存失效 | 缓存命中率 | ⚠ 方案 §13.2 的「缓存命中率 >40%」**未指明是哪个缓存**。本册限定口径为 **`jev_log.cached`**（TTL 300s 的判定缓存）；**LLM 前缀缓存全文无落点** ⇒ 若 `ctx.llm` 取不到命中信息，**如实标不可观测** | ⛔ 不可观测（前缀缓存面）/ ✅ 真信号（JEV 缓存面） | 阶段 1 |
 | 9 | 输入截断 | 输入长度检查 | `jev_log` 增列 **`input_chars` + `trimmed`**；**红灯样本 = `trimmed=1 且 verdict=DROP`**（§18 映射原话） | 🟡 半真 | 阶段 1 |

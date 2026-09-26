@@ -7,7 +7,10 @@
  * 「散在测试里」与「可重复机检」是两件事：后者才能被**别的席**在**自己那轮**跑出红。
  *
  * 真源（本脚本逐条对齐，不采信任何转述）：
- *  · 判据表：`docs/mana-rollout-plan.md:454-462`（A1-4 / A1-5 / A1-11 / A1-12 四行）
+ *  · 判据表：`docs/mana-rollout-plan.md` §1.2 自动判据表（A1-1 … A1-14 各行）
+ *    ⚠ **行号不再写死**（K1 件 2）：册是活文档，写死的 `:454` 会在册一动之后指向**别的判据行**
+ *      （实测：工作树与 HEAD 已差 1 行 ⇒ 12 处引用全部指偏）。行号每次**现读**，
+ *      各项「依据」里的 `判据表 L<n>（<commit> 现读）` 就是当次量出来的坐标。
  *  · 可执行断言：`packages/vector/tests/b11-vector.test.mjs`（① ② ⑦ ⑧ ⑩ 等用例）
  *  · 阈值分档：`docs/contract/threshold-discipline.md`（A 档可进阈值列，B 档只进测量条件说明）
  *  · 降级约定：`docs/contract/degradation.md`
@@ -18,6 +21,7 @@
  *   node tools/a1-check.mjs --json               # 机读输出（含 itemSet / mutationSelfCheck）
  *   node tools/a1-check.mjs --mutate a1-4        # 变异自证：注入缺陷后**该项必须报红**
  *   node tools/a1-check.mjs --require-fresh-artifacts   # 把「产物过期」挂账升级为 FAIL
+ *   node tools/a1-check.mjs --print-failure-dump [<路径>]   # 回读**上一次失败**的 not ok 明细（缺省取最近一份）
  *
  * ── 纪律（与 a0-check 同口径）─────────────────────────────────────────────
  *     2 = 用法错（未知变异器 / 同一判据被注入多个变异器）；3 = 变异自证腿不过。
@@ -45,10 +49,11 @@
  *   理由：`packages/vector/**` 是他席写面（且在途改动未提交）⇒ 判据不得为了自证去改它。
  *   取证：变异跑前/跑后 `git status --porcelain packages/vector packages/jev` 逐字相同。
  */
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { homedir, tmpdir } from 'node:os'
 import { dirname, join, relative } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
+import { createRequire } from 'node:module'
 import { execFileSync, spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 
@@ -472,6 +477,98 @@ if (argv.includes('--embed-reach-probe')) {
   )
   process.exit(0)
 }
+
+/**
+ * `--print-failure-dump [<路径>]`：把留档**读回来**（缺省取最近一份）。
+ *
+ * ⚠ 这条通道是「明细可被重新读到」这句话的**机器落点** —— 没有它，留档就只是「文件在长」，
+ *   与「代理指标非判据」是同一条纪律（文件在长 ≠ 有人能读回失败原因）。
+ * ⚠ 本模式**在锁之前**分流（与 `--embed-reach-probe` 同族）：它只读文件、不跑判据腿、
+ *   不碰工作树 ⇒ 让判据器正忙时读回上一次的失败留档，是**该支持**的动作；
+ *   若放到锁之后，这条通道会在最需要它的时候（有实例在跑）报 exit 4。
+ * ⚠ 读不到 ≠ 没有失败：读不到时 exit 2 并**明说**这一条，不许让它看起来像「判据全绿」。
+ */
+if (argv.includes('--print-failure-dump')) {
+  const i = argv.indexOf('--print-failure-dump')
+  const dir = process.env.MANA_A1_FAILURE_DIR || join(homedir(), '.cache', 'mana', 'a1-check')
+  const explicit = argv[i + 1] && !argv[i + 1].startsWith('--') ? argv[i + 1] : null
+  let target = explicit
+  if (!target) {
+    try {
+      const files = readdirSync(dir).filter((f) => f.endsWith('.json')).sort()
+      target = files.length ? join(dir, files[files.length - 1]) : null
+    } catch { target = null }
+  }
+  if (!target || !existsSync(target)) {
+    console.error(`✗ 读不到失败留档：${target ?? `（目录为空或不存在：${dir}）`}`)
+    console.error('  ⚠ 这不是「没有失败」—— 本模式只读**已经落盘的**留档；未落盘时它就是读不到（不得读成判据全绿）')
+    process.exit(2)
+  }
+  const raw = JSON.parse(readFileSync(target, 'utf8'))
+  console.log(`══════ 失败留档回读：${target}（${statSync(target).size} B）══════`)
+  console.log(`坐标：${JSON.stringify(raw.coord ?? {})}`)
+  console.log(`留档退出码=${raw.exitCode} 变异自证腿不通过=${raw.harnessFail} 判据项 FAIL ${raw.items?.length ?? 0} 项 [${(raw.items ?? []).map((x) => x.id).join(', ')}]`)
+  console.log(`原始 TAP 里 not ok 共 ${(raw.raw ?? []).reduce((a, r) => a + r.notOk.length, 0)} 条，分布在：${(raw.raw ?? []).map((r) => `${r.file}×${r.notOk.length}`).join(' / ') || '（无）'}`)
+  for (const r of raw.raw ?? []) {
+    for (const n2 of r.notOk) {
+      console.log(`\n── ✗ ${n2.name}（${r.file}:${n2.at}）──`)
+      console.log(n2.block)
+    }
+  }
+  for (const it of raw.items ?? []) {
+    console.log(`\n── ✗ 判据项 ${it.id}：${it.detail}`)
+    if (it.evidence) console.log(`   依据: ${it.evidence}`)
+  }
+  process.exit(0)
+}
+// ══ K1 件 3：判据器失败时留存 `not ok` 明细（失败可事后归因）════════════════════
+/**
+ * ⚠ **为什么必须落盘、且必须可重读**（本仓纪律「代理指标非判据」的同一形态）：
+ *   此前只有一处正则从 TAP 里抠 `not ok` 行，抠完就只用于拼一句 detail —— **明细不留存**。
+ *   判据器一红，能带走的只有「哪几个用例名挂了」，而挂的**原因**（断言消息 / 期望值 / 实际栈）
+ *   随子进程一起消失 ⇒ 事后归因只能复跑，而复跑时工作树可能已经变了（本仓并发纪律下这是常态）。
+ *
+ * ⚠ **不得只写 stderr**（K1 卡面明确要求）：stderr 在管道/CI 里会被截断或根本没人接，
+ *   更关键的是**重开一次进程读不回来**。故这里落**文件** + 在报告里印出**绝对路径**，
+ *   并在摘录里同时给出读回方式（`--print-failure-dump [<路径>]`）。
+ *
+ * ⚠ 落点**不在仓内**（本脚本的写面只有它自己这一个文件；写仓内其它路径是越界）：
+ *   `\$MANA_A1_FAILURE_DIR` → 否则 `~/.cache/mana/a1-check/`。
+ *   （同族先例：`checker-lock.mjs:1-30` 把锁放 `tmpdir()` 而不放仓内 —— 都是「运行态不污染工作树」）
+ *
+ * ⚠ **落盘本身不得改变判据结论**：写失败只降级为 `writeError` 字段 + stdout 一行警告，
+ *   绝不让「归档失败」伪装成「判据失败」，也绝不让它把判据的绿变红。
+ */
+function failureDumpPath() {
+  const dir = process.env.MANA_A1_FAILURE_DIR || join(homedir(), '.cache', 'mana', 'a1-check')
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-')
+  return join(dir, `failures-${stamp}.json`)
+}
+/** 从一段 TAP 里逐条抠 `not ok` 明细（**全文**，不截断 —— 截断本身就是「让失败不可观测」）。 */
+function extractNotOk(text) {
+  const ls = String(text ?? '').split(/\r?\n/)
+  const out = []
+  for (let i = 0; i < ls.length; i += 1) {
+    const m = /^not ok \d+ - (.*)$/.exec(ls[i])
+    if (!m) continue
+    const after = ls.slice(i + 1, i + 16)
+    const stop = after.findIndex((x) => /^(ok|not ok) \d+ - /.test(x))
+    const block = (stop >= 0 ? after.slice(0, stop) : after).join('\n').replace(/\s+$/, '')
+    out.push({ name: m[1], at: i + 1, block })
+  }
+  return out
+}
+function writeFailureDump(payload) {
+  const path = failureDumpPath()
+  try {
+    mkdirSync(dirname(path), { recursive: true })
+    writeFileSync(path, JSON.stringify(payload, null, 2) + '\n')
+    return { path, writeError: null }
+  } catch (error) {
+    return { path: null, writeError: `${error.code ?? error.name}: ${error.message}` }
+  }
+}
+
 // ══ 单实例锁（并发纪律 §1 的机器落点；F-05b，主持人拍板口径 A）════════════════
 //
 // ⚠ 为什么必须「非零退出 + 打印持有者」而不是「静默排队」：并发实例会互相把对方的在途码
@@ -778,6 +875,50 @@ const withCoord = (detail) =>
   `node=${COORD.node} NODE_USE_ENV_PROXY=${COORD.env.NODE_USE_ENV_PROXY ?? '(未设)'} at=${COORD.at}`
 
 /**
+ * ── 册行号**现读锚**（K1 件 2）────────────────────────────────────────────────
+ * ⚠ 为什么行号不能再写死（本席 2026-09-26 实测）：`docs/mana-rollout-plan.md` 是**活文档**
+ *   （本批就有他席在途改动：工作树 vs HEAD 已差 1 行）⇒ 写死的 `:454` 一旦册动一行，
+ *   12 处引用**全部指偏**，而且指偏之后**没有任何机检会报**（引用是注释/依据字段，不参与判定）。
+ *   行号是**代理**，不是判据本体 —— 与 ARTIFACTS 的 mtime 腿同型：可读、但无牙。
+ * ⇒ 每次运行从册上**现读**该 id 所在行，读数带坐标（`L<n>（<commit> 现读）`）；
+ *   读不到即如实写「**未判定**」，并由 `册行号腿` 抬成 FAIL（引用锚点不成立 ⇒ 报告不可复核）。
+ * ⚠ 本腿**不是新判据项**（不进 `results`）：它判的是「引用锚点是否成立」，与 C16-GUARD /
+ *   项集等式同族的**元检查**，因此只进 `gateOk`、不进 EXPECTED_IDS。
+ */
+const PLAN_COORD = { commit: COORD.commit }
+/** 12 处引用对应的册行（判据 id）；批次行只用批次号。 */
+const PLAN_REF_IDS = ['A1-1', 'A1-2', 'A1-3', 'A1-4', 'A1-5', 'A1-6', 'A1-7', 'A1-8', 'A1-9', 'A1-10', 'A1-11', 'A1-12', 'A1-13', 'A1-14']
+const PLAN_REF_PROBLEMS = new Set()
+function planLineNote(...ids) {
+  const got = ids.map((id) => {
+    const a = critAnchor(id)
+    if (!a) {
+      PLAN_REF_PROBLEMS.add(`${id}：本册**现读不到**该判据行（表被改名/移动 ⇒ 该处引用不可复核）`)
+      return null
+    }
+    return a.line
+  })
+  const coord = `（${PLAN_COORD.commit} 现读）`
+  if (got.every((x) => x !== null)) {
+    if (got.length === 2 && got[1] === got[0] + 1) return `判据表 L${got[0]}–${got[1]}${coord}`
+    return `判据表 ${ids.map((x, i) => `${x}@L${got[i]}`).join(' + ')}${coord}`
+  }
+  return `判据表 ${ids.map((x, i) => `${x}@${got[i] === null ? '**未判定**' : 'L' + got[i]}`).join(' + ')}${coord}`
+}
+/**
+ * 全部引用锚点**预检**（与各 pass 分支的展示调用同源 —— 只此一处实现）。
+ * ⚠ 必须**独立于 pass/fail 分支**：若只在 pass 时调用，判据一红就没人读锚点 ⇒
+ *   锚点漂移会在最需要它的那次运行里**不可见**（本仓「让失败不可观测」的同型）。
+ */
+for (const _id of PLAN_REF_IDS) critAnchor(_id) || PLAN_REF_PROBLEMS.add(`${_id}：本册**现读不到**该判据行（表被改名/移动 ⇒ 该处引用不可复核）`)
+const planRefsOk = PLAN_REF_PROBLEMS.size === 0
+const planRefsDetail =
+  // ⚠ 计数必须与判定**同源**：本席反证对拍实测踩到 —— 旧文案恒说「N 处全部命中」，
+  //   而 1 处未判定时它照样印「全部命中」⇒ 报告自相矛盾（读者只读前半句就会以为锚点没问题）。
+  `册行号腿：引用锚点现读命中 ${PLAN_REF_IDS.length - PLAN_REF_PROBLEMS.size}/${PLAN_REF_IDS.length} 处（${PLAN_COORD.commit}）` +
+  (planRefsOk ? ' ⇒ 全部命中' : `｜**${PLAN_REF_PROBLEMS.size} 处未判定**：${[...PLAN_REF_PROBLEMS].join('；')}`)
+
+/**
  * ⚠ **stdout 必须只承载结论**（F-06 的硬要求，实测踩到）：
  *   Node 22 的 undici 会在进程启动/退出时往 **stderr** 打 `[UNDICI-EHPA] Warning: ...`；
  *   本脚本会 spawn 子进程 ⇒ 那些告警会出现在子进程 stderr 里。处置：
@@ -820,7 +961,7 @@ const fixed = (x, n = 6) => Number(x).toFixed(n)
       cases.map(([n, g, w]) => `${n}=${fixed(g)}（差 ${Math.abs(g - w).toExponential(2)}）`).join(' · ') +
       ` · 默认 k=${RRF_DEFAULT_K} · 融合路径同 k=${fused.length}/2 项命中`
     if (bad.length) fail(id, title, `不符：${bad.join('；')}`, '回向量融合步骤（packages/vector/src/rrf.ts）')
-    else pass(id, title, detail, '判据表 docs/mana-rollout-plan.md:454；与 packages/vector/tests/b11-vector.test.mjs ① ② 同口径')
+    else pass(id, title, detail, `${planLineNote('A1-4')}；与 packages/vector/tests/b11-vector.test.mjs ① ② 同口径`)
   } catch (error) {
     fail(id, title, `加载/执行失败：${error.message}`, '先修源文件可解析性')
   }
@@ -989,7 +1130,7 @@ const fixed = (x, n = 6) => Number(x).toFixed(n)
     const gateNote = '载体=RecallOutcome（b11-vector.test.mjs 同口径；domain.ManaRecall 无 gate 字段 ⇒ 该面属 A1-13/A1-14 的 inject_log）'
     const detail = `degraded=${out.degraded} · channel=${out.channel} · rankBy=${out.rankBy} · items=${out.items.length} 条有序 · 反向对照 degraded=${ok.degraded} · ${gateNote}`
     if (bad.length) fail(id, title, `不符：${bad.join('；')}`, '回向量适配层（packages/vector/src/recall.ts 的降级信封）')
-    else pass(id, title, detail, '判据表 docs/mana-rollout-plan.md:461；负向判据须造**真**故障路径（不可达端点）')
+    else pass(id, title, detail, `${planLineNote('A1-11')}；负向判据须造**真**故障路径（不可达端点）`)
   } catch (error) {
     fail(id, title, `加载/执行失败：${error.message}`, '先修源文件可解析性')
   }
@@ -1068,7 +1209,7 @@ const fixed = (x, n = 6) => Number(x).toFixed(n)
         `耗时 ${probe.ms}/${again.ms}/${other.ms}/${unrelated.ms}ms`
       const detail = `纯函数面 4/4 · 真机 dim=${probe.vectors[0].length} · ${bothStates} · ${bNote}`
       if (bad.length) fail(id, title, `不符：${bad.join('；')}`, '回嵌入适配步骤（packages/vector/src/embed.ts / adapt.ts）')
-      else pass(id, title, detail, '判据表 docs/mana-rollout-plan.md:462；阈值分档见 docs/contract/threshold-discipline.md')
+      else pass(id, title, detail, `${planLineNote('A1-12')}；阈值分档见 docs/contract/threshold-discipline.md`)
     }
     if (bad.length && probe.degraded) fail(id, title, `不符：${bad.join('；')}`, '测得条件不具备时须红，不得静默跳过')
   } catch (error) {
@@ -1176,9 +1317,12 @@ const W3_TESTS = {
  *   被判 FAIL）—— 那是**假红**，会把排查者引向错误的位置。
  *   ⇒ 本项成功的定义是：**我关心的那几条用例全绿**（且数量对得上，防"用例被删光")。
  */
+/** 本次运行里跑过的子进程原始输出（供失败留档逐条抠 `not ok` 明细；见文末 K1 件 3）。 */
+const RAW_RUNS = []
 function runCases(file, cases) {
   const r = node(['--test', file])
   const out = `${r.out ?? ''}${r.err ?? ''}`
+  RAW_RUNS.push({ file, out, fileOk: r.ok, code: r.code })
   const failed = cases.filter((name) => new RegExp(`not ok \\d+ - ${name}`).test(out))
   const passed = cases.filter((name) => new RegExp(`ok \\d+ - ${name}`).test(out))
   const tests = Number((/# tests (\d+)/.exec(out) ?? [])[1] ?? -1)
@@ -1191,7 +1335,7 @@ function runCases(file, cases) {
   const title = 'A1-1 端到端事件链：perception→attention→WM→scheduler 且 seq 连续无洞'
   const r = runCases(W3_TESTS.chain, ['C1 A1-1'])
   if (r.failed.length === 0 && r.passed.length === 1) {
-    pass(id, title, '从 perception 真触发走通全链（三段各写库）；seq 连续无洞', '判据表 docs/mana-rollout-plan.md:451；走真 cordis Loader 装配链，装配判据=服务可读')
+    pass(id, title, `从 perception 真触发走通全链（三段各写库）；seq 连续无洞`, `${planLineNote('A1-1')}；走真 cordis Loader 装配链，装配判据=服务可读`)
   } else {
     fail(id, title, r.failed.length ? `挂的用例：${r.failed.join(' / ')}` : `用例未命中（tests=${r.tests}）`, '回 B2.1 接线步骤')
   }
@@ -1207,7 +1351,7 @@ function runCases(file, cases) {
   const cases = ['P1 A1-13①', 'P2 A1-13②', 'P7 门控关闭', 'P11 reset', 'P12 判定链未过阈', 'P13 判定链降级']
   const r = runCases(W3_TESTS.gate, cases)
   if (r.failed.length === 0 && r.passed.length === cases.length) {
-    pass(id, title, `6 条用例全绿：每次 pre-step 均留痕；injected / skip_no_candidate / skip_below_threshold / degraded_unavailable / reset 五类各有写入点与判据`, '判据表 docs/mana-rollout-plan.md:473；跑真 agent/pre-step 分发 + 判定链桩，非直接调 service')
+    pass(id, title, `6 条用例全绿：每次 pre-step 均留痕；injected / skip_no_candidate / skip_below_threshold / degraded_unavailable / reset 五类各有写入点与判据`, `${planLineNote('A1-13')}；跑真 agent/pre-step 分发 + 判定链桩，非直接调 service`)
   } else {
     fail(id, title, r.failed.length ? `挂的用例：${r.failed.join(' / ')}` : `本项用例未全绿（passed=${r.passed.length}/${cases.length}）`, '回 Injection Gate（packages/attention）')
   }
@@ -1222,21 +1366,167 @@ function runCases(file, cases) {
   const cases = ['G1 A1-8', 'G2 A1-8', 'G3 A1-8']
   const r = runCases(P('packages/core/tests/jev-gate.test.mjs'), cases)
   if (r.failed.length === 0 && r.passed.length === cases.length) {
-    pass(id, title, 'jev_log.gate 列存在且 CHECK 限定 unavailable/budget；失败行仍写入；degraded 与 gate 至少一非空', '判据表 docs/mana-rollout-plan.md:458；补列经 ADR-6 迁移机制对存量库同样生效')
+    pass(id, title, 'jev_log.gate 列存在且 CHECK 限定 unavailable/budget；失败行仍写入；degraded 与 gate 至少一非空', `${planLineNote('A1-8')}；补列经 ADR-6 迁移机制对存量库同样生效`)
   } else {
     fail(id, title, r.failed.length ? `挂的用例：${r.failed.join(' / ')}` : `本项用例未全绿（passed=${r.passed.length}/${cases.length}）`, '回 jev_log 表结构 / JEV 适配层降级链')
   }
 }
 
+/**
+ * ── A1-9 的**生产链路腿**（K1 件 1）────────────────────────────────────────
+ *
+ * ⚠ **为什么单元腿不够**（本席 2026-09-26 实测，两态读数见 handoff）：
+ *   判据表 A1-9 判的是「**审计表**里不出现记忆原文」。而审计表的生产者是 attention 的
+ *   注入链（`finish('injected', { blockId, memoryId })` → `core.writeInjectLog`）。
+ *   F4/F5 全是 `core.writeInjectLog({...})` 的**直写单元腿** ⇒ 它们判的是「契约怎么写」，
+ *   判不了「生产链路上写出去的是什么」。
+ *   ⇒ 实测形态：把块身份换成**内容水印**（`block_id` 里塞块正文）后，审计行经真链路泄漏
+ *     原文 3-gram，而 F4/F5 **仍然全绿** —— 那个绿**不是「事实被检查」，是「根本没打在那条腿上」**。
+ *
+ * ⚠ **本腿不是新判据项**：它不新增 id（项集等式不动），而是把 A1-9 从「单元腿绿」升级为
+ *   「单元腿 **且** 生产链路腿都真」。两腿缺一即 A1-9 判红（不是挂账 —— 能测而不测就是漏判）。
+ *
+ * ⚠ **不许用「跑别人的测试文件 + 数 TAP」当本腿**（那是弱链接，本仓已修过同类）：
+ *   本腿**自己起 Loader、自己分发 agent/pre-step、自己数 n-gram**，不依赖任何测试文件的 TAP。
+ *   与 `packages/attention/tests/defect-report.test.mjs` D1 ⑤ 的**独立复算**只作旁证（不影响档位）。
+ *
+ * ⚠ **自带扰动对拍**（本仓「判据变异验证」纪律）：本腿若只跑一遍正样本，「恒绿」与「有牙」外观相同。
+ *   故再起一个**真变异体**（改 attention lib 的块身份为内容水印，写临时目录、仓内零写入）：
+ *   变异体下本腿的 n-gram 扫描**必须命中**，否则本腿判红（无牙）。
+ */
+async function a1RuntimeAuditLeak() {
+  const out = { note: '', why: '' }
+  const gramsOf = (s) => { const g = []; for (let i = 0; i + 3 <= s.length; i += 1) g.push(s.slice(i, i + 3)); return g }
+  const SECRET = '这是一段绝不应出现在审计表里的记忆原文内容'
+  /** 相邻断言的独立复算（旁证）：defect-report D1 ⑤ 判的是同一件事。读**活代码**，不算注释里的声明。 */
+  const corroborate = () => {
+    try {
+      const live = readFileSync(P('packages/attention/tests/defect-report.test.mjs'), 'utf8')
+        .split(/\r?\n/).filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l)).join('\n')
+      const hit = live.includes('走**真注入链路**后 inject_log 泄漏了内容片段') &&
+        /assert\.equal\(\s*leaked\.length,\s*0\s*,/.test(live)
+      return hit ? '相邻断言（defect-report D1 ⑤）在真源里**仍在**、与本次读数同口径' :
+        '⚠ **相邻断言不在真源里**（该文件被清空/断言被删或被注掉）—— 本腿读数不受影响，但「该面另有覆盖」这句声明已不成立'
+    } catch (error) {
+      return '⚠ 相邻断言**读不到**（defect-report.test.mjs 缺失：' + String(error.message).slice(0, 80) + '）'
+    }
+  }
+  let h = null
+  try {
+    h = await import(url(P('packages/attention/tests/_harness.mjs')))
+  } catch (error) {
+    out.note = '**未判定**：夹具加载失败 ' + String(error.message).slice(0, 140)
+    out.why = `生产链路腿**未判定**：${String(error.message).slice(0, 120)} ⇒ 本项不得只凭单元腿判绿`
+    return out
+  }
+  /**
+   * ⚠ **正样本与扰动样本必须各自 try/catch**（本席 2026-09-26 对抗实测踩到）：
+   *   第一版把两段裹在同一个 try 里，于是在「真源**已经**是泄漏形态」的树上（正是最该报红的时候），
+   *   扰动体因锚点已被真源占用而**抛错**，异常把**已经量出来的泄漏读数一起吞掉** ——
+   *   报告只留下「未判定」，而事实是「真的在泄漏 6 个 3-gram」。
+   *   ⇒ 两条独立：谁失败都不许遮住另一条的结论；判红优先级 = 真泄漏 > 无到达证据 > 扰动无牙 > 未判定。
+   */
+  let leaked = null
+  let injected = null
+  let rows = null
+  try {
+    const b = await h.boot({ judge: 'ok' })
+    h.perceive(b.ctx, { content: SECRET, requestId: 'k1-runtime-secret' })
+    await h.firePreStep(b.ctx, { turn: 1, messages: [] })
+    rows = h.readInject(b.store)
+    leaked = gramsOf(SECRET).filter((g) => JSON.stringify(rows).includes(g))
+    injected = rows.filter((r) => r.gate === 'injected').length
+  } catch (error) {
+    out.note = '**未判定（正样本装载/分发失败）**：' + String(error.message).slice(0, 150)
+    out.why = `生产链路腿**未判定**：正样本夹具装载/分发失败（${String(error.message).slice(0, 120)}）⇒ 本项不得只凭单元腿判绿`
+    return out
+  }
+  let mLeaked = null
+  let mInjected = null
+  let mutErr = null
+  try {
+    const MUT = [['const blockId = `blk-${injections}`', 'const blockId = block.slice(0, 24)']]
+    const m = await h.boot({ judge: 'ok', mutant: { replace: MUT } })
+    h.perceive(m.ctx, { content: SECRET, requestId: 'k1-runtime-secret' })
+    await h.firePreStep(m.ctx, { turn: 1, messages: [] })
+    const mRows = h.readInject(m.store)
+    mLeaked = gramsOf(SECRET).filter((g) => JSON.stringify(mRows).includes(g))
+    mInjected = mRows.filter((r) => r.gate === 'injected').length
+  } catch (error) {
+    mutErr = String(error.message).slice(0, 150)
+  }
+  /**
+   * ⚠ `mLeaked` 是**数组**：第一版硬化时写成 `${mLeaked}` 与 `mLeaked === 0`，
+   *   后果两条都坏 —— 报告印出数组内容（读起来像乱码），而「无牙」判定 `数组 === 0` **恒为假**
+   *   ⇒ 牙齿检查变成死功能，判据在扰动体不泄漏时照样判绿（本仓「两个分支字面相同」的同型）。
+   *   本席 2026-09-26 复跑整份报告时从输出里读出来（`--self-test` 的 ⑧ 也同时变红）。
+   *   故此处一律用 `.length`，并由 ⑧ 用例把「命中数必须是数字」钉死。
+   */
+  const mutNote = mutErr
+    ? `扰动对拍**跑不起来**：${mutErr}` +
+      `（⚠ 常见成因：**真源里已经是**水印形态 ⇒ 锚点被占用。此时**不影响正样本读数**，但它意味着这次无法自证有牙）`
+    : `扰动对拍（块身份→内容水印，真变异）：命中 ${mLeaked.length} 个 3-gram ⇒ ${mLeaked.length > 0 ? '该腿有牙' : '**该腿无牙**'}`
+  out.note =
+    `真 Loader + 真 agent/pre-step：inject_log ${rows.length} 行（injected ${injected}）· 原文 3-gram 命中 ${leaked.length}` +
+    `｜${mutNote}｜${corroborate()}`
+  out.why = runtimeAuditVerdict({
+    leaked: leaked.length,
+    injected,
+    mLeaked: mutErr ? -1 : mLeaked.length,
+    mInjected: mutErr ? -1 : mInjected,
+    mutErr,
+  })
+  return out
+}
+
+/**
+ * 生产链路腿的**判定函数**（K1 件 1 的判定面）。
+ *
+ * ⚠ **为什么必须抽成具名函数、且判定输入必须是计数**（本席 2026-09-26 实测踩到的自身缺陷）：
+ *   第一版把判定写在腿里、且对**数组**判 `mLeaked === 0` —— 那**恒为假**（数组永不等于 0），
+ *   于是「扰动对拍无牙」这条分支**结构性不可达**：扰动体一个 3-gram 都没命中时判据照样绿。
+ *   这是本仓已修过两次的老形态（两个分支字面相同 ⇒ 死功能）。
+ *   ⚠ 更坏的是：`--self-test` 的 ⑧ 当时**读的是人读文本**而不是判定结果 ⇒ 它跟着一起绿，
+ *     把「腿无牙」读成了「两态可分辨」（本席对拍 6 实测复现）。故同时做两件事：
+ *       ① 判定收进本函数，输入**必须是计数（number）**：传数组即报内部错误 ⇒ 那种死法不可复现；
+ *       ② `--self-test` ⑧ **直接调本函数**做合成两态，不再解析人读文本。
+ *
+ * 判红优先级（最可信、最要紧的结论放最前）：
+ *   ① 类型错 → 内部错误（读数不可信时不许下任何结论）；
+ *   ② 真泄漏 —— 无论扰动跑没跑成，泄漏就是泄漏（实测：正因它排在扰动之后，差点把「真泄漏 6 个」读成「未判定」）；
+ *   ③ 无到达证据 —— 链路没跑到 ⇒ 读不出「没泄漏」，如实说没打到靶；
+ *   ④ 扰动未判定 / 无牙 —— 正样本干净但证明不了判据有牙 ⇒ 本项不得据此判绿。
+ */
+function runtimeAuditVerdict({ leaked, injected, mLeaked, mInjected, mutErr }) {
+  const bad = Object.entries({ leaked, injected, mLeaked, mInjected }).filter(([, v]) => typeof v !== 'number' || !Number.isFinite(v))
+  if (bad.length) {
+    return `生产链路腿**内部错误**：判定输入必须是**计数（number）**，实得 ${bad.map(([k2, v]) => `${k2}=${Array.isArray(v) ? `数组(${v.length})` : typeof v}`).join(' / ')}` +
+      ' ⇒ 输入形态不对时**不得**下「审计干净」的结论（历史缺陷：对数组判 `=== 0` 恒为假 ⇒ 无牙分支不可达）'
+  }
+  if (leaked > 0) return `生产链路腿判红：真注入链路下 inject_log 泄漏了 ${leaked} 个原文 3-gram`
+  if (injected === 0) return '生产链路腿**无到达证据**：真链路上一行 injected 都没有 ⇒ 本腿没打到靶上（不得读成"没泄漏"）'
+  if (mutErr) return `生产链路腿的**扰动对拍未判定**（${String(mutErr).slice(0, 90)}）⇒ 本次无法自证有牙，本项不得据此判绿`
+  if (mInjected === 0 || mLeaked === 0) return '生产链路腿的**扰动对拍无牙**：把块身份换成内容水印后仍一个 3-gram 都没命中 ⇒ 该腿恒绿（不得读成"审计干净"）'
+  return ''
+}
 {
   const id = 'A1-9'
-  const title = 'A1-9 审计不泄内容：inject_log 全文做 ≤32 字节 n-gram 匹配命中 0'
+  const title = 'A1-9 审计不泄内容：inject_log 全文做 ≤32 字节 n-gram 匹配命中 0（单元腿 + **生产链路腿**）'
   const cases = ['F4 A1-9', 'F5 A1-9']
   const r = runCases(P('packages/core/tests/lexical-audit.test.mjs'), cases)
-  if (r.failed.length === 0 && r.passed.length === 2) {
-    pass(id, title, '审计行序列化后对记忆原文做 3-gram 匹配命中 0；但 id 必须保留（防"什么都不记"冒充合规）', '判据表 docs/mana-rollout-plan.md:459；F5 是判据自身的**有牙自证**（内容一旦进审计必须命中）')
+  const unitOk = r.failed.length === 0 && r.passed.length === 2
+  /** ⚠ **生产链路腿**（K1 件 1）：判据表 A1-9 判的是**审计表**，而审计表的生产者是 attention 的写入链。
+   *  F4/F5 是 core 直写单元腿 ⇒ 只判「契约怎么写」，判不了「生产链路上写出去的是什么」。
+   *  本腿真起 Loader + 真 agent/pre-step 分发，再对审计行数 3-gram。两腿都真才 PASS。 */
+  const rt = await a1RuntimeAuditLeak()
+  const bad = []
+  if (!unitOk) bad.push(r.failed.length ? `单元腿挂：${r.failed.join(' / ')}` : `单元腿用例未命中（passed=${r.passed.length}/2）`)
+  if (rt.why) bad.push(rt.why)
+  const detail = `单元腿 F4/F5=${unitOk ? '2/2 全绿' : `passed=${r.passed.length}/2`}｜生产链路腿：${rt.note}`
+  if (bad.length) {
+    fail(id, title, `${detail}｜不符：${bad.join('；')}`, '回审计写入步骤（core.writeInjectLog 契约 / attention 的块身份口径）')
   } else {
-    fail(id, title, r.failed.length ? `挂的用例：${r.failed.join(' / ')}` : `本项用例未全绿（passed=${r.passed.length}/2）`, '回审计写入步骤')
+    pass(id, title, `${detail}｜审计行序列化后对记忆原文做 3-gram 匹配命中 0；但 id 必须保留（防"什么都不记"冒充合规）`, `${planLineNote('A1-9')}；F5=单元腿自身的**有牙自证**（内容一旦进审计必须命中）；生产链路腿走真 Loader + 真 agent/pre-step，且**自带扰动对拍**（块身份→内容水印必红）`)
   }
 }
 
@@ -1246,7 +1536,7 @@ function runCases(file, cases) {
   const cases = ['F1 A1-10', 'F2 A1-10', 'F3 A1-10']
   const r = runCases(P('packages/core/tests/lexical-audit.test.mjs'), cases)
   if (r.failed.length === 0 && r.passed.length === 3) {
-    pass(id, title, '中文串真召回 ≥1；0 命中的三种原因（库空/查询过短/真查不到）可分辨；FTS 同步触发器增删改均生效', '判据表 docs/mana-rollout-plan.md:460；机制根因=external content 虚表不自动跟随主表（实测静默 0 命中）')
+    pass(id, title, '中文串真召回 ≥1；0 命中的三种原因（库空/查询过短/真查不到）可分辨；FTS 同步触发器增删改均生效', `${planLineNote('A1-10')}；机制根因=external content 虚表不自动跟随主表（实测静默 0 命中）`)
   } else {
     fail(id, title, r.failed.length ? `挂的用例：${r.failed.join(' / ')}` : `本项用例未全绿（passed=${r.passed.length}/3）`, '回 FTS5 建表/触发器口径')
   }
@@ -1259,6 +1549,7 @@ function runCases(file, cases) {
   //   故"扩展未安装"是**合规现状**。但「未装」与「装了且语义对」绝不可同形
   //   ⇒ 探针在未装时报 HANG 并给出安装命令，而不是 PASS/skip。
   const r = node([P('tools/probes/vec0-semantics.mjs'), '--json'])
+  RAW_RUNS.push({ file: P('tools/probes/vec0-semantics.mjs'), out: `${r.out ?? ''}${r.err ?? ''}`, fileOk: r.ok, code: r.code })
   let parsed = null
   try {
     parsed = JSON.parse((r.out ?? '').trim())
@@ -1325,7 +1616,7 @@ function runCases(file, cases) {
   const cases = ['P5 A1-14', 'P6 A1-14', 'P13 判定链降级']
   const r = runCases(W3_TESTS.gate, cases)
   if (r.failed.length === 0 && r.passed.length === cases.length) {
-    pass(id, title, `${cases.length} 条用例全绿：无候选 / 服务面直写 / **真判定链降级**三条路径：注入块 == 0 **且** inject_log 均新增对应枚举行（只满足前者即静默）`, '判据表 docs/mana-rollout-plan.md:474；G8「降级必须落显式字段」；P13 经真 agent/pre-step 分发触发判定链降级（非测试直写）')
+    pass(id, title, `${cases.length} 条用例全绿：无候选 / 服务面直写 / **真判定链降级**三条路径：注入块 == 0 **且** inject_log 均新增对应枚举行（只满足前者即静默）`, `${planLineNote('A1-14')}；G8「降级必须落显式字段」；P13 经真 agent/pre-step 分发触发判定链降级（非测试直写）`)
   } else {
     fail(id, title, r.failed.length ? `挂的用例：${r.failed.join(' / ')}` : `本项用例未全绿（passed=${r.passed.length}/${cases.length}）`, '回 Injection Gate 的留痕路径')
   }
@@ -1336,7 +1627,7 @@ function runCases(file, cases) {
   const title = 'A1-2/A1-3 注入不变式 I1/I2：每 (session,turn) ≤1 注入块、每条记忆每 session ≤1 次'
   const r = runCases(W3_TESTS.gate, ['P9 A1-2', 'P10 A1-3'])
   if (r.failed.length === 0 && r.passed.length === 2) {
-    pass(id, title, '同一 turn 连打 3 次 pre-step：3 行留痕但 injected **仅 1 行**；跨 turn 不重复注入同一批候选', '判据表 docs/mana-rollout-plan.md:452-453；前置 A0-8（表 + 列）已具备')
+    pass(id, title, '同一 turn 连打 3 次 pre-step：3 行留痕但 injected **仅 1 行**；跨 turn 不重复注入同一批候选', `${planLineNote('A1-2', 'A1-3')}；前置 A0-8（表 + 列）已具备`)
   } else {
     fail(id, title, r.failed.length ? `挂的用例：${r.failed.join(' / ')}` : `本项用例未全绿（passed=${r.passed.length}/2）`, '回 Injection Gate 的去重/清空步骤')
   }
@@ -1347,7 +1638,7 @@ function runCases(file, cases) {
   const title = 'A1-6/A1-7 注入块转义（内层 < = 0）+ 尾部追加（前缀逐字节不变）'
   const r = runCases(W3_TESTS.gate, ['P3 A1-6', 'P4 A1-7'])
   if (r.failed.length === 0 && r.passed.length === 2) {
-    pass(id, title, '含尖括号内容被转义（内层 < = 0）；注入为尾部追加、既有消息逐字节不变', '判据表 docs/mana-rollout-plan.md:456-457；宿主契约「this waterfall cannot mutate messages」')
+    pass(id, title, '含尖括号内容被转义（内层 < = 0）；注入为尾部追加、既有消息逐字节不变', `${planLineNote('A1-6', 'A1-7')}；宿主契约「this waterfall cannot mutate messages」`)
   } else {
     fail(id, title, r.failed.length ? `挂的用例：${r.failed.join(' / ')}` : `本项用例未全绿（passed=${r.passed.length}/2）`, '回注入块组装/追加步骤')
   }
@@ -1695,6 +1986,55 @@ if (MUTATES.size) {
   if (selfCheck.length) harnessFail = true
 }
 
+/**
+ * ⚠ 留档点**必须在 `results` 与 `harnessFail` 都已定稿之后、`// ── 输出` 之前**：
+ *   早了 `results` 还是空的（留档里 items=[] ⇒ 看起来像「没有 FAIL」，比不落盘更坏）；
+ *   晚了则被 `--json` 分支的提前打印越过（JSON 里那个字段会是初始空对象）。
+ *   ——本席第一版正是放晚了，整份报告在第 1919 行被 `ReferenceError: Cannot access 'failureDump'` 截断，
+ *   而 exit code 只有 1、stdout 停在半句话上：那是**比不落盘更坏**的形态，故此处写明位置约束。
+ */
+/**
+ * 退出码**先算出来**（K1 件 3 的留档要记它，且不许记成 `null`）。
+ * ⚠ 单一真源：下面的赋值直接用它，不重写一遍表达式（两处各写一遍必然漂）。
+ */
+/**
+ * ⚠ 册行号腿（`planRefsOk`）**必须进退出码**：本席反证对拍实测踩到 ——
+ *   第一版只把它挂进 `gateOk`，于是「门不通过：册行号腿」时 `exit` 仍是 **0**：
+ *   自动化侧（CI / a0-check 的 A1 腿 / 任何读退出码的人）看到的全是成功。
+ *   那正是本仓最忌的「让失败不可观测」，故与 `itemSetOk` 同等对待（都是元检查腿）。
+ */
+const FINAL_EXIT = harnessFail ? 3 : !itemSetOk || !planRefsOk || results.some((r) => r.state === 'FAIL') ? 1 : 0
+const FAILING_ITEMS = results.filter((r) => r.state === 'FAIL')
+const RAW_FAILS = RAW_RUNS.map((r) => ({ ...r, notOk: extractNotOk(r.out) })).filter((r) => r.notOk.length > 0)
+/** 落盘判据：**有失败就落**。两类失败都算 —— 判据项 FAIL，或变异自证腿不过（后者更坏但有同样的归因需求）。 */
+const failureArchive = FAILING_ITEMS.length > 0 || harnessFail
+let failureDump = { archived: false, path: null, writeError: null, bytes: null, items: [], notOk: 0, files: [] }
+if (failureArchive) {
+  const payload = {
+    kind: 'mana-a1-check-failure-dump',
+    at: COORD.at,
+    coord: COORD,
+    argv: process.argv.slice(2),
+    exitCode: FINAL_EXIT,
+    mutates: [...MUTATES],
+    harnessFail,
+    selfCheck,
+    items: FAILING_ITEMS,
+    itemSet: { ok: itemSetOk, missing: missingIds, extra: extraIds, dupes: dupIds },
+    planRefs: { ok: planRefsOk, problems: [...PLAN_REF_PROBLEMS] },
+    raw: RAW_FAILS,
+  }
+  const w = writeFailureDump(payload)
+  failureDump = {
+    archived: w.path !== null,
+    path: w.path,
+    writeError: w.writeError,
+    bytes: w.path ? statSync(w.path).size : null,
+    items: FAILING_ITEMS.map((r) => r.id),
+    notOk: RAW_FAILS.reduce((a, r) => a + r.notOk.length, 0),
+    files: RAW_FAILS.map((r) => `${r.file}×${r.notOk.length}`),
+  }
+}
 // ── 输出（用法闸已在文件头部执行：走到这里说明参数合法）───────────────────────
 const order = { FAIL: 0, HANG: 1, NONE: 2, PASS: 3 }
 results.sort((a, b) => order[a.state] - order[b.state] || a.id.localeCompare(b.id))
@@ -1710,6 +2050,9 @@ if (JSON_OUT) {
         mutates: [...MUTATES],
         itemSet,
         itemSetDiff: itemSetDiffLine,
+        // K1：引用锚点腿与失败留档的位置——机读侧也要看得到（否则只有人读 stdout 才知道）。
+        planRefs: { ok: planRefsOk, detail: planRefsDetail, problems: [...PLAN_REF_PROBLEMS], lineMap: Object.fromEntries(PLAN_REF_IDS.map((x) => [x, critAnchor(x)?.line ?? null])) },
+        failureDump,
         mutationSelfCheck: { ok: !harnessFail, problems: selfCheck },
         results,
       },
@@ -1750,10 +2093,11 @@ if (JSON_OUT) {
       console.log('  ⇒ 变异自证腿**不通过**：本次运行的「无 FAIL」不构成通过依据（判据可能无牙）')
     }
   }
-  const gateOk = itemSetOk && n.FAIL === 0 && !harnessFail
+  const gateOk = itemSetOk && n.FAIL === 0 && !harnessFail && planRefsOk
   const gateWhy = [
     n.FAIL ? `${n.FAIL} 项 FAIL` : '',
     itemSetOk ? '' : '项集等式不等',
+    planRefsOk ? '' : '册行号腿：引用锚点未判定',
     harnessFail ? '变异自证腿不通过（判据无牙）' : '',
   ].filter(Boolean)
   console.log(`\n──── 门判定（判据腿 + 项集腿${MUTATES.size ? ' + 变异自证腿' : ''}，**都要过**）────`)
@@ -1763,14 +2107,33 @@ if (JSON_OUT) {
   else console.log(`  ✗ 项集腿：${itemSetProblems.join('；')}`)
   console.log(`  ${itemSetDetail}`)
   console.log(`  ${itemSetDiffLine}`)
+  // ⚠ 册行号腿（K1 件 2）**在门判定段里可读**：引用锚点不成立 ⇒ 那些「依据」不可复核 ⇒ 门不通过。
+  //   它不进 results（不是判据项），但**必须与项集腿并列可见**，否则锚点漂移只在报告角落一闪而过。
+  console.log(`  ${planRefsOk ? '✓' : '✗'} ${planRefsDetail}`)
   if (MUTATES.size) console.log(`  ${harnessFail ? '✗' : '✓'} 变异自证腿：${harnessFail ? '不通过（见上）' : '注入项皆红、其余项未误伤'}`)
+  /**
+   * K1 件 3 的**可发现性**：留档写在哪、怎么读回来，必须印在报告里。
+   * ⚠ 只在「有失败」时印（全绿时印一条空路径只会变成噪声，最后没人看）。
+   * ⚠ 失败留档**不等于**门不通过（它是归因通道，不是判据）；这里只做如实报告。
+   */
+  if (failureArchive) {
+    console.log(
+      failureDump.archived
+        ? `  ⤓ 失败留档：${failureDump.path}（${failureDump.bytes} B；判据项 FAIL ${failureDump.items.length} 个 [${failureDump.items.join(', ')}]` +
+          `${failureDump.notOk ? `；原始 TAP not ok ${failureDump.notOk} 条（${failureDump.files.join(' / ')}）` : '；**原始 TAP 里 0 条 not ok**（失败不在跑出来的 TAP 里 ⇒ 别去那找原因）'}` +
+          `）⇒ 回读：node tools/a1-check.mjs --print-failure-dump`
+        : `  ⚠ 失败留档**写失败**（${failureDump.writeError}）⇒ 本次运行的失败明细**没有留存**（这不是判据红，是归因通道坏了）`,
+    )
+  }
   console.log(`\n${gateOk ? '✅ 门通过' : `❌ 门不通过：${gateWhy.join(' + ')}`}`)
+  // ⚠ 门被拒时**把留档路径再点一次名**：走到这里的人多半已经只读最后一段了。
+  if (!gateOk && failureDump.archived) console.log(`  ⤓ 失败留档（含 not ok 全文与坐标）：${failureDump.path} ⇒ node tools/a1-check.mjs --print-failure-dump`)
 }
 
 // ── 退出码 ──────────────────────────────────────────────────────────────────
 // 用法错 ⇒ 2（在文件头 fail-fast，**不跑判据腿、不产生报告**）；
 // 变异自证腿不过 ⇒ 3（判据无牙 = 比判据红更坏的形态）；项集等式红 / 有 FAIL ⇒ 1；否则 0。
-process.exitCode = harnessFail ? 3 : !itemSetOk || results.some((r) => r.state === 'FAIL') ? 1 : 0
+process.exitCode = FINAL_EXIT // 值与上面留档记的那个是**同一个**（单一真源）
 
 // 收尾：删本次创建的临时克隆目录（逐个删；本脚本不写仓内任何文件）
 for (const d of createdDirs) {
@@ -1891,6 +2254,92 @@ if (argv.includes('--self-test')) {
       `HANG ${hangs.length} 项 / 缺溯源段 ${missing.length}（${missing.map((x) => x.id).join(',') || '无'}）/ 首现被清空或缺失 ${noWhen.length}（${noWhen.map((x) => x.id).join(',') || '无'}）/ 缺原定验收阶段 ${noTarget.length}（${noTarget.map((x) => x.id).join(',') || '无'}）` +
         `｜**两态（合成输入，不动真数据）**：正常 detail ⇒ 三项全真；首现清成「待补」⇒ hasFirst 转假（即判红）；整段溯源缺失 ⇒ hasProv 转假 ⇒ ${synTwoState ? '两态可分辨' : '**不能两态**（本条腿恒绿）'}` +
         `｜⚠ 「原定验收阶段 = 待补」对 hasTarget **不算通过**：待补只在『原定验收阶段』那一栏作如实口径，而 hasTarget 要求的是「已给出归属（判据表行/归属批次/跨阶段/归期）」`,
+    )
+  }
+
+  // ⑥ K1 件 2：册行号引用锚点的**两态**（现读命中 vs 现读不命中）
+  {
+    /**
+     * ⚠ 要证的不是「这次 N 处都命中」（那只是眼下的事实），而是**「读不到时会不会报」**：
+     *   若 `critAnchor()` 退化成「永远返回一个对象」，引用锚点腿就恒绿，
+     *   而它绿的时候正是「册被改名/移动、所有依据都不可复核」的时候 —— 那是最坏形态。
+     *   故用**确定不存在的判据 id** 合成扰动：它必须返回 null。
+     */
+    const goodHit = critAnchor('A1-9')
+    const badHit = critAnchor('A1-99（合成扰动，本册不存在）')
+    const twoState = badHit === null && goodHit !== null && Number.isFinite(goodHit.line)
+    caseAdd(
+      'planrefs-two-state',
+      planRefsOk && twoState,
+      `真实读数：${PLAN_REF_IDS.length} 处引用现读命中=${planRefsOk}` +
+        `｜合成扰动（本册不存在的 id）⇒ ${badHit === null ? 'null ⇒ 会被记成「未判定」⇒ 该腿判红' : '**仍返回对象** ⇒ 该腿恒绿、无牙'}` +
+        `｜对照：A1-9 ⇒ ${goodHit ? `L${goodHit.line}` : 'null'}（须非空且带行号）⇒ ${twoState ? '两态可分辨' : '**不能两态**'}`,
+    )
+  }
+
+  // ⑦ K1 件 3：失败留档的**两态**（抽取器有牙 + 真写/真读回）
+  {
+    /**
+     * 两段都要真：
+     *   ① 抽取器：合成 TAP 里**必须**抠出 `not ok` 的**全文块**（含断言消息）；干净 TAP 必须抠出 0（不得无中生有）。
+     *   ② 归档通道：真写一份、真读回来、逐字段比对 —— 「可被重新读到」这句话的机器落点。
+     *      ⚠ 用临时目录 + `MANA_A1_FAILURE_DIR`，跑完复原环境变量（不许把自测痕迹留在真实归档目录里）。
+     */
+    const tap = ['TAP version 13', 'not ok 3 - X 用例', '  ---', '  error: "boom"', '  expected: 1', '  actual: 2', '  ...', 'ok 4 - Y 用例', '1..4'].join('\n')
+    const got = extractNotOk(tap)
+    const clean = extractNotOk('ok 1 - A\n1..1')
+    const extractorTwoState = got.length === 1 && got[0].name === 'X 用例' && /expected: 1/.test(got[0].block) && clean.length === 0
+    let ioTwoState = false
+    let ioDetail = ''
+    const prevDir = process.env.MANA_A1_FAILURE_DIR
+    try {
+      const dir = mkdtempSync(join(tmpdir(), 'mana-a1-dump-'))
+      createdDirs.push(dir)
+      process.env.MANA_A1_FAILURE_DIR = dir
+      const probe = { kind: 'mana-a1-check-failure-dump', exitCode: 1, items: [{ id: 'A1-X' }], raw: [{ file: 'f', notOk: got }] }
+      const w = writeFailureDump(probe)
+      const back = w.path ? JSON.parse(readFileSync(w.path, 'utf8')) : null
+      ioTwoState = Boolean(w.path && back && back.exitCode === 1 && back.raw[0].notOk[0].name === 'X 用例' && /expected: 1/.test(back.raw[0].notOk[0].block))
+      ioDetail = w.path ? `写入 ${statSync(w.path).size} B ⇒ 读回：exitCode=${back?.exitCode} notOk=${back?.raw?.[0]?.notOk?.[0]?.name}` : `写失败：${w.writeError}`
+      rmSync(dir, { recursive: true, force: true })
+    } catch (error) {
+      ioDetail = `归档两态**未判定**：${String(error.message).slice(0, 100)}`
+    } finally {
+      if (prevDir === undefined) delete process.env.MANA_A1_FAILURE_DIR
+      else process.env.MANA_A1_FAILURE_DIR = prevDir
+    }
+    caseAdd(
+      'failure-dump-two-state',
+      extractorTwoState && ioTwoState,
+      `抽取器：合成 TAP ⇒ ${got.length} 条（须 1；名字=${got[0]?.name}，块内含断言消息=${/expected: 1/.test(got[0]?.block ?? '')}）／干净 TAP ⇒ ${clean.length} 条（须 0，不得无中生有）｜归档：${ioDetail} ⇒ ${extractorTwoState && ioTwoState ? '两态可分辨' : '**不能两态**'}`,
+    )
+  }
+
+  // ⑧ K1 件 1：生产链路腿**判定函数**的合成两态（含「输入形态退化」那一态）
+  {
+    /**
+     * ⚠ 本用例防三种退化（前两种是**本席实测踩到过的真缺陷**）：
+     *   ① 判定写在腿里、且对**数组**判 `=== 0` ⇒ 「无牙」分支不可达 ⇒ 判据恒绿（v1 的真身）；
+     *   ② 用例只解析**人读文本** ⇒ 文本印得好看、判定却是死的，用例跟着一起绿（⑧ v1 的真身，对拍 6 复现）；
+     *   ③ 扰动体没跑成（锚点过期）却被当成「扰动通过」。
+     *   ⇒ 故这里**直接调判定函数**，喂计数与数组两种输入，要求各合成态给出不同答案。
+     */
+    const clean = { leaked: 0, injected: 1, mLeaked: 6, mInjected: 1, mutErr: null }
+    const vClean = runtimeAuditVerdict(clean)
+    const vNoTeeth = runtimeAuditVerdict({ ...clean, mLeaked: 0 })
+    const vNoArrival = runtimeAuditVerdict({ ...clean, injected: 0 })
+    const vMutantDown = runtimeAuditVerdict({ ...clean, mutErr: '变异锚点命中 0 次' })
+    const vArrayShape = runtimeAuditVerdict({ ...clean, mLeaked: [1, 2, 3] })
+    const vLeak = runtimeAuditVerdict({ ...clean, leaked: 6 })
+    const twoState =
+      vClean === '' && vNoTeeth !== '' && vNoArrival !== '' && vMutantDown !== '' &&
+      vArrayShape.includes('内部错误') && vLeak.includes('泄漏') &&
+      vNoTeeth !== vClean && vNoArrival !== vNoTeeth && vMutantDown !== vNoTeeth
+    let real = null
+    try { real = await a1RuntimeAuditLeak() } catch (error) { real = { note: `抛错：${error.message}`, why: String(error.message) } }
+    const ok = twoState && real.why === ''
+    caseAdd('runtime-audit-two-state', ok,
+      `合成两态：干净 ⇒ ${JSON.stringify(vClean)}（须空）／扰动无命中 ⇒ ${JSON.stringify(vNoTeeth).slice(0, 60)}（须非空）／无到达 ⇒ ${JSON.stringify(vNoArrival).slice(0, 50)}（须非空）／扰动未跑成 ⇒ ${JSON.stringify(vMutantDown).slice(0, 50)}（须非空）／**数组输入** ⇒ ${JSON.stringify(vArrayShape).slice(0, 70)}（须报内部错误 —— 这一态正是 v1 的死法）｜真实运行：${real.why ? `红（${real.why.slice(0, 60)}）` : '绿'} ⇒ ${ok ? '两态可分辨' : '**不能两态**'}`,
     )
   }
 
