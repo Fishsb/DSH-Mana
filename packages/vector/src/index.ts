@@ -41,6 +41,13 @@ import { recallVector, type RecallCandidate } from './recall.ts'
 import type { EmbedOutcome, RecallOutcome } from './adapt.ts'
 import { vec0UnavailableReason, VEC0_SEMANTICS } from './vec0.ts'
 import { RRF_DEFAULT_K } from './rrf.ts'
+import {
+  DEFAULT_RECALL_GATE_WIRING,
+  recallGateReadout,
+  runRecallGate,
+  type RecallGateKnobs,
+  type RecallGateReadout,
+} from './recall-gate-hook.ts'
 
 export const name = 'mana-vector'
 
@@ -62,6 +69,15 @@ export interface Config {
   embedEnabled: boolean
   /** 嵌入超时毫秒；0 = 按端点自动（本机 30s / 云端 8s）。 */
   embedTimeoutMs: number
+  /**
+   * **Recall Gate 接线**（W1-4）。
+   *
+   * 接的是 `dsh-mana-long-term` 的 `recallGate`（**按包名运行时解析**，故本包 `inject` 不变、
+   * 不新增依赖边；取舍与代价逐条写在 `recall-gate-hook.ts` 文件头）。
+   * ⚠ 门控**不改变** `recall()` 的契约字段（`channel`/`rankBy`/`degraded` 仍由向量管道决定，
+   * 见本文件 recall 段的说明），它把**判定读数**（probed/judged/judgeIds…）作为增量字段带出来。
+   */
+  recallGate: RecallGateKnobs
 }
 
 export const Config: Schema<Config> = Schema.object({
@@ -75,6 +91,17 @@ export const Config: Schema<Config> = Schema.object({
   embedBaseUrl: Schema.string().default('http://127.0.0.1:11434/v1'),
   embedEnabled: Schema.boolean().default(true),
   embedTimeoutMs: Schema.number().default(0),
+  // ⚠ **嵌套 Schema.object 而不是拍平**（本仓「一个旋钮一处声明」的形态）：
+  //   拍平会新增 4 个顶层键 ⇒ 与既有配置面（model/dim/rrfK/route…）混在一起，
+  //   且"这几个键是一组"这件事在类型上消失。
+  // ⚠ 缺省值取自 `DEFAULT_RECALL_GATE_WIRING`（**唯一真源**）的**显式字面量**：
+  //   schemastery 的 default 参与结构推导，直接塞冻结对象会让类型面与运行面各存一份值。
+  recallGate: Schema.object({
+    enabled: Schema.boolean().default(true),
+    threshold: Schema.number().default(0.7),
+    topN: Schema.number().default(10),
+    judgeEnabled: Schema.boolean().default(true),
+  }).default({ enabled: true, threshold: 0.7, topN: 10, judgeEnabled: true }),
 })
 
 export interface ManaVectorService {
@@ -110,6 +137,16 @@ export interface ManaVectorService {
   getMemoryVector(memoryId: string): { ok: true; dim: number } | { ok: false; reason: string }
   /** vec0 三条语义的机检锚点（启用 vec0 的席必须逐条造负例）。 */
   vec0Semantics(): typeof VEC0_SEMANTICS
+  /**
+   * **最近一次检索的门控读数**（W1-4 接线面的即时可观测出口）。
+   *
+   * ⚠ 返回的是 `RecallGateReadout` —— **与 `mana/recall` 载荷里挂的读数是同一个形状**
+   *   （同一转换函数 `recallGateReadout`）⇒ 服务面查到的与审计里看到的不可能漂开。
+   * ⚠ 进程内、**只保留最近一次**：它是"接线真跑了"的即取面（**无信封**调用也能查）。
+   *   跨进程/历史审计看 `mana_trace` 的 recall 载荷（带信封时）。
+   * `null` ⇔ 本进程还没走过 `recall()`（**不得读成"门控没接"** —— 那是 `unwiredReason` 的事）。
+   */
+  lastRecallGate(): RecallGateReadout | null
 }
 
 /** `recall()` 的会话信封：给了就 emit `mana/recall`（A1-11 的字段断言读它）。 */
@@ -158,6 +195,12 @@ export function apply(ctx: Context, config: Config): void {
     },
   })
 
+  /**
+   * **最近一次检索的门控读数**（不带信封的调用也能查；见服务面的 `lastRecallGate()`）。
+   * ⚠ 只保留最近一次、进程内：它不是历史账（历史账在 `mana_trace` 的 recall 载荷里）。
+   */
+  let lastGate: RecallGateReadout | null = null
+
   const service: ManaVectorService = {
     plugin: name,
     status: () => ({
@@ -171,8 +214,57 @@ export function apply(ctx: Context, config: Config): void {
     embed: (texts) => embedTexts(embedCfg, texts),
     recall: async (query, candidates, topK = 10, envelope) => {
       const outcome = await recallVector({ ...embedCfg, rrfK: config.rrfK }, store, query, candidates, topK)
+
+      /**
+       * ── **Recall Gate 接线**（W1-4）：检索路径的出口调用 `recallGate` ────────────────
+       * 本包是 `recallGate` 的**生产调用方**（接线前全仓 `packages/<pkg>/src` 里调用方 = 0，
+       * 四态记 NONE）。门控按包名运行时解析 long-term（本包 `inject` 不变、**不新增注册点**），
+       * 解析/调用的取舍与代价见 `recall-gate-hook.ts` 文件头。
+       *
+       * **送进去的候选 = `outcome.items`**（向量管道融合后的有序命中），
+       * `localScore` 用融合分 `score`：门控只吃 `{key, localScore}`，**它自己不做检索** ——
+       * 两份候选面（管道的 / 门控的）由**同一处**产生，不存在"这边检索、那边另编一份"。
+       * ⚠ 降级时 `items` 是**有序的本地分结果**（`recall.ts` 的有意行为，不是空）⇒ 降级
+       *   也照样送判（这正是 A1-8「Recall → 返回有序 items」要的那条支路）。
+       * ⚠ **无信封时也要跑**：A1-8 的取值面是**返回对象**（`记录`），若只在有信封时跑，
+       *   「门控到底调用没有」就会退化成"取决于调用方有没有给信封"（不可判）。
+       *
+       * ── 两处**有意不改变既有行为**的取舍（各自写出理由，便于对拍）───────────────
+       * ① `outcome`（`RecallOutcome`）**逐字不动**：门控读数走 `lastRecallGate()` 与
+       *    `mana/recall` 载荷的**契约外增量字段**，不进 `RecallOutcome`（那是 adapt.ts 的契约面）。
+       * ② 门控**不折叠进 `items` 排序**（不改 `channel`/`rankBy`/`degraded`/`hitCount`）：
+       *    `rankBy` 的取值是 A1-11 的机检锚点（`b11-vector.test.mjs` 逐字断言），
+       *    在**未由册面拍板**"召回结果按 jev_prob 排序"之前改它 = 让那条既有判据变成假红/假绿；
+       *    且 `rankBy='jev_prob'` 的含义是"**本结果按它排序**" —— 只带读数不改排序却改这个字段，
+       *    就是把读数伪装成排序依据（本仓最防的形态）。⇒ 读数里显式带 `applied:false`（**可断言**，
+       *    不是一句注释），"按概率重排"列 `[建议决策]`。
+       */
+      const gateRecord = await runRecallGate(
+        ctx,
+        {
+          requestId: envelope?.requestId ?? `recall:${query}`,
+          query,
+          candidates: outcome.items.map((it) => ({ key: it.key, localScore: it.score })),
+          topK,
+          ...(envelope ? { sessionId: envelope.sessionId, turnId: envelope.turnId } : {}),
+        },
+        {
+          // 配置面四个旋钮原样透传（**不在这里重新解释它们**），包名取自 hook 的唯一真源
+          // ⚠ 包名**不经配置**：可配就等于多一个"能把接线指歪"的旋钮，而解析失败只在运行期可见。
+          ...config.recallGate,
+          specifier: DEFAULT_RECALL_GATE_WIRING.specifier,
+        },
+      )
+      // ⚠ **同一个**读数对象既进服务面又进载荷（`lastGate` 与下面的 payload 用同一份）
+      //   ⇒ 两处不可能出现"审计说 A、服务面说 B"。
+      const gateReadout = recallGateReadout(gateRecord)
+      lastGate = gateReadout
+
       if (envelope) {
-        const payload: ManaRecall = {
+        // ⚠ **契约外增量字段**（`ManaRecall` 本身在 `packages/core/src/`，本席只读面 ⇒ 不加字段）：
+        //   门控读数挂在同一载荷上，使「这次召回门控跑到哪一步」与召回**同一条审计记录**，
+        //   不需要二次查询、也不会与召回行漂开（"事件发了 vs 审计可查"成对发生，同 F-01 口径）。
+        const payload: ManaRecall & { readonly recallGate: RecallGateReadout } = {
           sessionId: envelope.sessionId,
           turnId: envelope.turnId,
           requestId: envelope.requestId,
@@ -182,6 +274,7 @@ export function apply(ctx: Context, config: Config): void {
           channel: outcome.channel,
           rankBy: outcome.rankBy,
           degraded: outcome.degraded,
+          recallGate: gateReadout,
         }
         // ⚠ A1-1 的 recall 段落点（F-01）：此前本包**只广播、不落库** ⇒
         //   五类里的 'recall' 在 mana_trace 上**永远为空**，判据结构上不可能满足。
@@ -226,6 +319,7 @@ export function apply(ctx: Context, config: Config): void {
       return got.ok ? { ok: true, dim: got.item.dim } : { ok: false, reason: got.reason }
     },
     vec0Semantics: () => VEC0_SEMANTICS,
+    lastRecallGate: () => lastGate,
   }
 
   ctx.effect(() => {
