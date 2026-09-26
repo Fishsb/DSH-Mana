@@ -6,3 +6,26 @@ node_modules/
 packages/*/lib/
 # 运行态：心跳与本地判据基线（可由工具重生成）
 tools/.a0-10-baseline.json
+# 任务看板执行隔离：worktree 是运行态产物（全新检出，可由 `git worktree add` 重建），不入版本。
+# ⚠ 覆盖面缺口（如实登记）：忽略后「树内的未跟踪残留」对 `git status` 不可见 —— 例如某席
+#   在隔离树里留下的证据文件。故删除 worktree 前必须另落「删除前证据清单」（N4 卡已如此做）。
+.dsh-worktrees/
+# 仓根一次性探针/读数残留：非源码、非在途改动，保留在盘上（被会议记录引用为证据）。
+# 此前仅存于 .git/info/exclude（本机私有、不进版本）⇒ 上收本文件使其可审计、跨克隆一致。
+# 上收前实测：以下模式对**已跟踪**文件命中 0（无既有件被误伤）。
+.impl-*
+.verify-*
+.verify-head/
+.a010-*
+.a15-*
+.arch-*
+.c3-*
+.c4-*
+.u1-*
+.u2-*
+.v1-rollout-probe/
+.d3.cjs
+.jev-src-backup.ts
+u1-*.txt
+u2-*.txt
+*:Zone.Identifier
