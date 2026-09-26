@@ -12,6 +12,7 @@ packages/core/src/event-types.ts
 packages/core/src/index.ts
 packages/core/src/open.ts
 packages/core/src/schema.ts
+packages/forgetting/src/activity.ts
 packages/forgetting/src/archive.ts
 packages/forgetting/src/criteria.ts
 packages/forgetting/src/index.ts
@@ -36,7 +37,9 @@ packages/long-term/src/activation.ts
 packages/long-term/src/decay.ts
 packages/long-term/src/index.ts
 packages/long-term/src/params.ts
+packages/long-term/src/recall-gate.ts
 packages/long-term/src/retirement.ts
+packages/long-term/src/write-gate.ts
 packages/metacognition/src/criteria.generated.ts
 packages/metacognition/src/criteria.ts
 packages/metacognition/src/index.ts
@@ -44,6 +47,16 @@ packages/metacognition/src/profile-index.ts
 packages/metacognition/src/profile-pipeline.ts
 packages/metacognition/src/profile.ts
 packages/perception/src/index.ts
+packages/prompts/src/consolidation.ts
+packages/prompts/src/encoding.ts
+packages/prompts/src/forgetting.ts
+packages/prompts/src/index.ts
+packages/prompts/src/itacl.ts
+packages/prompts/src/learning.ts
+packages/prompts/src/reconsolidation.ts
+packages/prompts/src/registry.ts
+packages/prompts/src/retrieval.ts
+packages/prompts/src/scheduling.ts
 packages/reconsolidation/src/columns.ts
 packages/reconsolidation/src/history.ts
 packages/reconsolidation/src/index.ts
@@ -52,6 +65,7 @@ packages/reconsolidation/src/trace.ts
 packages/reconsolidation/src/updates.ts
 packages/reconsolidation/src/window.ts
 packages/reconsolidation/src/windows.ts
+packages/scheduler/src/chains.ts
 packages/scheduler/src/goal-stack.ts
 packages/scheduler/src/index.ts
 packages/ui/src/client/host.ts
@@ -66,9 +80,12 @@ packages/user-model/src/precision.ts
 packages/vector/src/adapt.ts
 packages/vector/src/cosine.ts
 packages/vector/src/embed.ts
+packages/vector/src/graph.ts
 packages/vector/src/index.ts
+packages/vector/src/recall-gate-hook.ts
 packages/vector/src/recall.ts
 packages/vector/src/rrf.ts
 packages/vector/src/vec-blob.ts
 packages/vector/src/vec0.ts
+packages/working-memory/src/compression.ts
 packages/working-memory/src/index.ts
