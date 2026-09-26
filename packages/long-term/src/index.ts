@@ -1,11 +1,33 @@
 /**
  * `dsh-mana-long-term` —— Mana 长时记忆：编码 + ACT-R 激活方程 + 三路混合检索
  *
- * ── 当前状态：**B3.1 已填实现**（本条与下面的历史记录并列，不覆盖）─────────────────────
+ * ── 当前状态：**B3.1 已填实现 + W1-3 已接线写入路径**（本条与下面的历史记录并列，不覆盖）──
  * 本包曾长期是 74 行"诚实的空壳"。B3.1 落地了 **ACT-R 激活方程 + 时间衰减**，
  * 故 `status().behavior` 由 `'skeleton'` 改为 **`'active'`**（改为据实现事实回报，见下 §行为面）。
- * 尚未实现（仍属后续批次，**不得**读作已完成）：三道门控（B3.2）、三路混合检索（B3.2）、
- *   落库写入（`base_level_activation` 列的写者）、`S` 的 Pavlik–Anderson 更新（B4.2）。
+ *
+ * ⚠ **W1-3（2026-09-26）改变了本包的形态面，必须交代**：此前 `memory_items` 在生产侧
+ *   **没有任何写者**（`core.writeMemoryItem` 的 3 个 `packages/<pkg>/src` 命中**全是注释**——
+ *   `metacognition/src/profile-pipeline.ts:14`、`user-model/src/index.ts:28/106` 都在说
+ *   "本模块不调用它"）⇒「记忆写入路径」整条是断的，而「表是空的」与「Write Gate 把一切都判掉了」
+ *   **同形**。W1-3 把 `perception(输入采集) → Write Gate(判值不值得留) → 本包(编码落库)` 接上：
+ *   · 新增 `write-gate.ts`（判定面，见该文件头：bigram 预过滤 + 一次 `worth_keeping` fan-out + fail-open）；
+ *   · `apply` 新增**一条** `mana/observation` 监听器（`ctx.on` **直挂**，与
+ *     `attention/src/index.ts:806` 同一条路径；`inject` 仍只声明 `['mana-core']`）。
+ *   ⇒ 三条既有判据**按设计红了**（它们抓的正是"多了一条行为而没人交代"），本批**同步改写口径**
+ *     而不是删：⑦/`RG-⑤`/`retirement ⑥` 的 effect 计数 **3 → 4**（多出的那条即 `ctx.on`，
+ *     且**逐条点名**三个旧标签仍在 ⇒"删掉一条旧行为来给新行为腾位置"同样会红）；
+ *     ⑧ 保留"**本包不写 `mana_trace` 一行**"的读数，但把探针触发串换成**预过滤不可能命中**的串
+ *     并**先断言该前提**（原串在启用预过滤后进不了判定 ⇒ 该判据会因**错误的原因**变绿 = 假绿）。
+ *     ⚠ 为什么必须改而不是绕：⑦ 的意图是"**多一条行为即红 ⇒ 强制交代**"，本批正是被它叫醒的。
+ *   · `status()` 新增 `writeGate` 读数（`registered` / `degradedCount` / `lastFailure` /
+ *     `lastState`）：`registered=false` ⇒ **要么没挂上、要么 `ctx.on` 抛了**（后者计数在
+ *     `degradedCount` + 具名 `lastFailure`）。为什么必须分态：cordis 的 `ctx.emit` 无接收者时
+ *     **不报错、不计数** ⇒ 只看事件面，"没挂上"与"挂了但没有输入"**同形**（都是"没写行"）。
+ *
+ * 尚未实现（仍属后续批次，**不得**读作已完成）：三路混合检索（B3.2）、
+ *   `base_level_activation` 列的生产写者、`supersedes` 分支（rollout:103 的 fan-out 只接了
+ *   `worth_keeping` 一路，`choice` 那一路未接 ⇒ 本批**不声称**三道门控齐活）、
+ *   `S` 的 Pavlik–Anderson 更新（B4.2）。
  *
  * ── 实现面（`src/`，判据在 `tests/activation.test.mjs`；软删除面在 `tests/retirement.test.mjs`）
  *  · `params.ts`      —— 5 个工程参数 + 1 个派生量 `s` 的**唯一出处**（C14 唯一写者）
@@ -53,20 +75,51 @@
  *   走 core 的 `registerPassThroughPreStep`（唯一写点）。漏调的后果**不报错**：
  *   本仓实测上游不调 `next()` ⇒ 下游哨兵 reached=0、返回 undefined、全程无异常。
  *
- * ── 行为面（B3.1 的覆盖边界，如实声明）─────────────────────────────────────────────
- * B3.1 的交付是**纯计算**：不写 `mana_trace`、不落库、不注册业务监听器。
- * 故 `skeleton.test.mjs` 判据⑦（effect 面恰好 3 条）与 ⑧（`mana_trace` 0 行）**仍然成立**，
- * 无需改动 —— 见 `docs/handoff/S14.md` §4 对"⑦⑧要不要改"的逐条判断。
- * ⚠ 诚实边界：`behavior: 'active'` 目前**没有任何判据强制它**（这正是 R2b 说的"反向不可机检"）。
- *   本包新增了 `tests/activation.test.mjs` 判据⑥：**导出面被挖空即红** —— 它覆盖的是
+ * ── 行为面（覆盖边界，如实声明）───────────────────────────────────────────────────
+ * **B3.1 期**：交付是**纯计算** —— 不写 `mana_trace`、不落库、不注册业务监听器，
+ * 故当时 ⑦（effect 面恰好 3 条）与 ⑧（`mana_trace` 0 行）**成立且无需改动**
+ * （见 `docs/handoff/S14.md` §4 对"⑦⑧要不要改"的逐条判断）。
+ *
+ * **W1-3 期（本批）**：本包**第一次有了写行为** ⇒ 上面两条判据**按设计红了**（⑦ 抓的正是
+ * "多了一条行为而没人交代"）。本批的处理是**同步改写口径并把新旧形态都钉住**：
+ *   · ⑦ → **恰 4 条** effect（多出的那条 `ctx.on('mana/observation')` 即本批新增），
+ *     并**逐条点名** `service` / `ctx.provide(` / `agent/pre-step` 三个旧标签仍在
+ *     ⇒「删掉一条旧行为来给新行为腾位置」同样会红（不是"只查数量"）。
+ *   · ⑧ → **保留**"本包不写 `mana_trace` 一行"的读数（写记忆 ≠ 写 trace，两者是**两张表**），
+ *     但把探针的触发串换成**预过滤不可能命中**的串并**先断言该前提**：原串在启用预过滤后
+ *     根本进不了判定 ⇒ 该判据会**因为错误的原因变绿**（假绿，本仓最忌）。改写后它测的仍是
+ *     "本包不写 trace"，而"写了记忆"这一新事实由**新增的** `tests/write-gate.test.mjs` 覆盖。
+ *
+ * ⚠ 诚实边界（未修）：`behavior: 'active'` 的反方向仍**没有判据强制**它。
+ *   本包有 `tests/activation.test.mjs` 判据⑥：**导出面被挖空即红** —— 它覆盖的是
  *   "实现被搬走"，**不**覆盖"实现还在而 behavior 写回 skeleton"。后者仍是盲区，未修。
  */
 import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-agent'
 import type { DatabaseSync } from 'node:sqlite'
-import { registerPassThroughPreStep, type ManaCoreService } from 'dsh-mana-core'
+import { registerPassThroughPreStep, type ManaCoreService, type ManaObservation } from 'dsh-mana-core'
 import { ACTR_PARAMS } from './params.ts'
 import { decay } from './decay.ts'
+import {
+  encodeIdPart,
+  JEVD_TRACE_WRITTEN_KEY,
+  judgeIdFor,
+  judgeIdParts,
+  recallGate,
+  traceWrittenOf,
+  RECALL_GATE_DEFAULTS,
+  RECALL_GATE_DEFAULT_THRESHOLD,
+  RECALL_GATE_QUESTION,
+  RECALL_GATE_SOURCE,
+  RECALL_GATE_STATES,
+  sortByLocalScore,
+  type RecallGateCandidate,
+  type RecallGateConfig,
+  type RecallGateHit,
+  type RecallGateOutcome,
+  type RecallGateRequest,
+  type RecallGateState,
+} from './recall-gate.ts'
 import {
   activation,
   associativeActivation,
@@ -96,10 +149,44 @@ import {
   type MemoryRow,
   type SoftDeleteOutcome,
 } from './retirement.ts'
+import {
+  bigrams,
+  coreSink,
+  deriveMemoryId,
+  prefilterWorthKeeping,
+  // ⚠ `traceWrittenOf` **不在此重复 import**：它已由上面 recall-gate 的 import 带进来
+  //   （同一个实现，两处 import 会 TS2300 duplicate —— 也正是"别立第二份"的编译期证据）。
+  writeGate,
+  writeJudgeIdFor,
+  WRITE_GATE_DEFAULTS,
+  WRITE_GATE_DEFAULT_THRESHOLD,
+  WRITE_GATE_FAILURE_KINDS,
+  WRITE_GATE_JUDGE_TYPE,
+  WRITE_GATE_QUESTION,
+  WRITE_GATE_SOURCE,
+  WRITE_GATE_STATES,
+  WRITE_GATE_TRACE_EVENT,
+  PREFILTER_BANK,
+  PREFILTER_MIN_OVERLAP,
+  type PrefilterResult,
+  type WriteGateConfig,
+  type WriteGateFailureKind,
+  type WriteGateOutcome,
+  type WriteGateSink,
+  type WriteGateState,
+} from './write-gate.ts'
 
 export const name = 'mana-long-term'
 
-/** 依赖 core（方案 §9.1）。方案 §9.1 写 `core, jev, vector`；本轮仍未接线 ⇒ 先只声明 core，接线期再追加（避免装配期停 waiting）。 */
+/**
+ * 依赖 core（方案 §9.1）。方案 §9.1 写 `core, jev, vector`。
+ *
+ * ⚠ **本批不追加任何新依赖**（`mana-jev` / 宿主服务都不加）。理由：本包**只经契约事件面**
+ *   `mana/jev/judge` 用判定链（靠 `ctx.waterfall` 走），**不需要** jev 的服务对象；
+ *   写进 `inject` 会让"没装 jev"变成**装配期停等待** —— 而判定链缺席本来就是一个**合法
+ *   且可分辨**的状态（`failureKind='no-judge-listener'` + fail-open 仍写入），
+ *   不该被升级成"插件起不来"。依赖方向也因此保持单向（不引 `dsh-mana-jev`）。
+ */
 export const inject: string[] = ['mana-core']
 
 /**
@@ -145,6 +232,62 @@ export const IMPLEMENTED_RETIREMENT_EXPORTS = [
   'assertNoRetiredLeak',
   'sha256Hex',
   'contentBytes',
+] as const
+
+/**
+ * **Recall Gate 面**的实现清单（B3.2-R）——与上面两张清单**并列不合并**（同一条纪律：
+ * 往既有清单里加名字会让 `skeleton.test.mjs:87` 与 `activation.test.mjs:232` 两条既有判据红，
+ * 而"改判据让它变绿"正是本仓禁止的动作 ⇒ 新面独立清单 + 新面独立判据文件，旧面零改动）。
+ *
+ * ⚠ 它是**一等判据面**：`tests/recall-gate.test.mjs` ① 逐个断言"是函数"，把实现搬走即红。
+ *   ⚠ 也登记 `RECALL_GATE_STATES` 与三个问法常量：它们是**被判据点名的字面量面**
+ *   （`rel_<id>` 的问法与三态枚举若从实现里消失，判据必须红，而不是"值恰好兜住了"）。
+ */
+export const IMPLEMENTED_RECALL_GATE_EXPORTS = [
+  'recallGate',
+  'sortByLocalScore',
+  // ⚠ 本批新增（c2）：判定键派生是**落痕唯一性**的真源，必须能被判据按字面量点名
+  //   —— 否则「逐候选是否唯一」只能靠人读代码（同 retirement 的 SQL 常量口径）。
+  'judgeIdFor',
+  // ⚠ 本批新增（f3）：单射化所需的转义与反解 —— 它们把「id 唯一」从"靠调用方自觉"
+  //   变成"结构上不可能"，故与派生函数同列在册（搬走任一个 ⇒ 判据红）。
+  'encodeIdPart',
+  'judgeIdParts',
+  // ⚠ 本批 f3 收尾：**反向**不变量的读侧原语（生产者写、本模块读；`Symbol.for` 免 import）。
+  'traceWrittenOf',
+] as const
+
+/**
+ * **Write Gate 面**的实现清单（W1-3）——与上面三张清单**并列不合并**（同一条纪律：
+ * 往既有清单里加名字会让 `skeleton.test.mjs:87` 与 `activation.test.mjs:232` 两条既有判据红，
+ * 而"改判据让它变绿"正是本仓禁止的动作 ⇒ 新面独立清单 + 新面独立判据文件，旧面零改动）。
+ *
+ * ⚠ 它是**一等判据面**：`tests/write-gate.test.mjs` ① 逐个断言"是函数/是串"，
+ *   把实现搬走/改名即红。`WRITE_GATE_STATES` / `WRITE_GATE_QUESTION` / `WRITE_GATE_JUDGE_TYPE`
+ *   是**被判据点名的字面量面**：三态枚举与问法若从实现里消失，判据必须红，
+ *   而不是"值恰好兜住了"（与 `RECALL_GATE_STATES` 同口径）。
+ *
+ * ⚠ **`traceWrittenOf` 不重复登记**（它已在上面那张 Recall Gate 的清单里）：同一个导出
+ *   名字登记两次会让"这一面被挖空"的断言出现两个归属地。
+ */
+export const IMPLEMENTED_WRITE_GATE_EXPORTS = [
+  'writeGate',
+  'prefilterWorthKeeping',
+  'bigrams',
+  'deriveMemoryId',
+  'writeJudgeIdFor',
+  'coreSink',
+  'traceWrittenOf',
+  'WRITE_GATE_STATES',
+  'WRITE_GATE_FAILURE_KINDS',
+  'WRITE_GATE_SOURCE',
+  'WRITE_GATE_QUESTION',
+  'WRITE_GATE_JUDGE_TYPE',
+  // ⚠ 留痕标签是**被判据点名的字面量面**：它冒充 S1 五类与否必须可断言。
+  'WRITE_GATE_TRACE_EVENT',
+  'WRITE_GATE_DEFAULT_THRESHOLD',
+  'PREFILTER_BANK',
+  'PREFILTER_MIN_OVERLAP',
 ] as const
 
 /** ACT-R 纯函数面（只读）。**派生量唯一写者**在此：`A`/`B`/`decay` 只在本包计算。 */
@@ -230,6 +373,48 @@ export interface ManaSvc {
    *   （`skeleton.test.mjs` ⑦ 的 effect 恰好 3 条因此**不受本批影响**，实测保持 3）。
    */
   readonly retirement: ManaLongTermRetirement
+  /**
+   * **Recall Gate 面**（B3.2-R）——按 `rel_<id>` 逐候选走既有 `mana/jev/judge` waterfall。
+   *
+   * ⚠ **ctx 是显式入参**（与 `retirement` 的 `db` 同一形态）：本包**不持有** ctx、
+   *   **不注册**监听器、**不写库**、**不 emit** ⇒ effect 面仍恰好 3 条、`mana_trace` 仍 0 行。
+   *   ⚠ 代价（如实记）：`apply(ctx)` **无条件**注册了 `agent/pre-step` 的直通监听器（G9 要求），
+   *   在该链上**无法**拿到 ctx ⇒ 本服务**不被 pre-step 链消费**；要接进 pre-step 须另开一批
+   *   （届时必须重新审 effect 面与 ⑦⑧ 两条判据）。本批**不**做这件事。
+   */
+  recallGate(ctx: Context, req: RecallGateRequest, overrides?: Partial<RecallGateConfig>): Promise<RecallGateOutcome>
+  /**
+   * **Write Gate 面（W1-3）** —— 判「这条观察值不值得留」并**落库**。
+   *
+   * `ctx` / `db` / `sink` 三个都是**显式入参**（与 `retirement` 的 `db`、`recallGate` 的 `ctx`
+   * 同一形态）：本包的服务面**不持有**库句柄、**不**自己开库 ⇒ `apply` 的 effect 面保持可数。
+   *
+   * ⚠ **本面是"接口"，不是"已发生"**：它被调用才产生写入。生产侧的**自动**触发是下面
+   *   `status().writeGate.registered` 描述的那条 `mana/observation` 监听器；
+   *   两者缺一都不能读成"写入路径是通的"。
+   */
+  writeGate(db: DatabaseSync, sink: WriteGateSink, obs: ManaObservation, overrides?: Partial<WriteGateConfig>): Promise<WriteGateOutcome>
+  /**
+   * **本包写入路径的运行期读数**（W1-3）。三态**必须可分辨**：
+   *
+   * | 字段 | 含义 | 读错的后果 |
+   * |---|---|---|
+   * | `registered` | `mana/observation` 监听器**是否已挂上** | false 而当作"都正常" ⇒ 静默 0 行 |
+   * | `degradedCount` | 监听器**注册失败/写门抛错**的累计次数 | 不读它 ⇒ 失败与"没有输入"同形 |
+   * | `lastFailure` | 最近一次失败的**具名真因**（无失败时 null） | 不读它 ⇒ 只能知道"有错"不知道"错在哪" |
+   * | `lastState` | 最近一次判定的 `WriteGateState`（没判过时 null） | 与 `registered=false` **必须分辨**：一个是没挂上，一个是挂上了但没输入 |
+   *
+   * ⚠ `registered` 在 `apply` **内同步置位**（监听器直挂，不经懒挂通道）⇒ 读到 false 就是
+   *   真的没挂上（`ctx.on` 抛了），不会是"还没来得及挂"。
+   */
+  readonly writeGateStatus: {
+    registered: boolean
+    degradedCount: number
+    lastFailure: string | null
+    lastState: WriteGateState | null
+    /** 本门问法（语料面唯一真源，判据按此断言问法没被改）。 */
+    question: string
+  }
 }
 
 declare module '@deepseek-ai/cordis' {
@@ -281,18 +466,152 @@ function makeRetirement(): ManaLongTermRetirement {
 export function apply(ctx: Context): void {
   const core: ManaCoreService | undefined = ctx.get('mana-core')
   if (!core) throw new Error('mana-long-term: 缺少 mana-core 服务（inject 未满足）')
+  // ⚠ 窄化别名：下面的监听器/闭包里 `core` 会退回 `| undefined`（TS 不做跨闭包窄化），
+  //   而运行期上面已抛过 ⇒ 该断言是**结构性**的，不是"应该不会"。
+  const coreSvc: ManaCoreService = core
+
+  /**
+   * ── Write Gate 的运行期账目（W1-3）──────────────────────────────────────────
+   * ⚠ `lastFailure` 存的是**具名真因**（不是布尔）：本仓 `mana/plugin/inactive` 全仓零消费方
+   *   （见 attention 文件头的普查），故"发一条没人听的归因事件"等于没归因 ——
+   *   这里改为**值本身**就是归因，且由 `status()` 与 `mana_trace` **两处**可读。
+   */
+  const wg = {
+    registered: false,
+    degradedCount: 0,
+    lastFailure: null as string | null,
+    lastState: null as WriteGateState | null,
+  }
 
   const service: ManaSvc = {
     plugin: name,
     status: () => ({ plugin: name, wired: true, behavior: 'active' }),
     activation: makeActivation(),
     retirement: makeRetirement(),
+    recallGate: (ctx, req, overrides) => recallGate(ctx, req, overrides),
+    // 显式入参三个（ctx/db/sink 都由调用方给）⇒ 服务面不持有库句柄。
+    // ⚠ 与事件监听器走**同一条** runGate：两个入口各自记账，`writeGateStatus` 才有意义
+    //   （若服务面绕过它，"手动调用"就不会进 degradedCount —— 那是两个真源）。
+    writeGate: (db, sink, obs, overrides) => runGate(db, sink, obs, overrides),
+    get writeGateStatus() {
+      return {
+        registered: wg.registered,
+        degradedCount: wg.degradedCount,
+        lastFailure: wg.lastFailure,
+        lastState: wg.lastState,
+        question: WRITE_GATE_QUESTION,
+      }
+    },
   }
 
   ctx.effect(() => {
     const dispose = ctx.provide('mana-long-term', service)
     return () => dispose()
   }, 'dsh-mana-long-term: service')
+
+  /**
+   * ── 把 `perception → Write Gate → 本包(编码落库)` 接上（W1-3）──────────────────
+   *
+   * ⚠ **接线形态照既有先例**（`attention/src/index.ts:806`）：`apply` 内**直接**
+   *   `ctx.on('mana/observation', …)`，`inject` 仍只声明 `['mana-core']`。
+   *   本批**一度**写成 `ctx.inject(['mana-agent'], …)`（以为要等宿主的 agent 服务）
+   *   —— 那是**错的**：`mana-agent` **全仓零命中**，是我凭空想的服务名，
+   *   而 `ctx.inject` 等不到服务就**永不回调** ⇒ 监听器永远不挂、`registered` 恒 false。
+   *   那正是本包最忌的形态：**接线看起来接好了、其实从不执行**。
+   *   （本仓改名纪律：拿不准的服务名先用 grep 证伪，别按语义自己造一个。）
+   *   ⇒ 改回直挂：`inject:['mana-core']` 满足后监听器即生效，与 attention 同一条路径。
+   *
+   * ⚠ **"有没有监听器"如何可观测**：cordis 的 `ctx.emit` 无接收者时**不报错、不返回计数**
+   *   ⇒ 单看事件面，"监听器没挂上"与"挂了但没有输入"**同形**。故新增
+   *   `status().writeGate.registered`（挂没挂）+ `lastState`（挂上了但没判过 = null）
+   *   两态并读 —— 这是本仓"让失败不可观测"纪律在本门上的落点。
+   *
+   * ⚠ `ctx.on` **自带一条 effect**（实测：`fiber.getEffects()` 里就是
+   *   `ctx.on("mana/observation")`，卸载随 fiber 释放）⇒ 无需额外 `ctx.effect` 包裹，
+   *   本包的 effect 数因此由 3 → **4**（`skeleton.test.mjs` ⑦ 与 `recall-gate.test.mjs` RG-⑤
+   *   已按新口径同步改写，并**逐条点名**三个旧标签仍在）。
+   */
+  try {
+    ctx.on('mana/observation', (obs: ManaObservation) => {
+      // ⚠ 监听器**同步返回**（`mana/observation` 是 emit 型，见 event-types.ts）：体内只派发，
+      //   真正的判定/落库在异步链上 ⇒ `perception.perceive` 的同步栈不会被本包阻塞，
+      //   本包的异常也不会冒泡进采集方（采集方不该因为"记忆写不进去"而失败）。
+      void runGate(coreSvc.db, coreSink(coreSvc), obs)
+    })
+    wg.registered = true
+  } catch (error) {
+    // 注册失败必须**可读**：否则 `registered=false` 会被读成"还没挂上"（与"挂不上"同形）。
+    wg.degradedCount += 1
+    wg.lastFailure = 'ctx.on(mana/observation) 注册失败：' + (error instanceof Error ? error.message : String(error))
+    recordFailure(wg.lastFailure)
+  }
+
+  /**
+   * **本包唯一的写门入口**（服务面与事件监听器**都**走这里）。
+   *
+   * ⚠ 为什么必须收成一处：若监听器走一条、服务面走另一条，则
+   *   `writeGateStatus.degradedCount` 只统计得到其中一条 —— 两个入口的失败就有了**两个真源**，
+   *   而"从事件进来的失败看不见"正是本仓最忌的静默形态。
+   *
+   * ⚠ 只记账 `lastState`/`degradedCount`，**不改写 outcome**：返回值如实反映本次判定，
+   *   服务面调用方拿到的仍是发`writeGate()`的原始读数（记账是旁路，不是二次加工）。
+   */
+  async function runGate(
+    db: DatabaseSync,
+    sink: WriteGateSink,
+    obs: ManaObservation,
+    overrides?: Partial<WriteGateConfig>,
+  ): Promise<WriteGateOutcome> {
+    try {
+      const outcome = await writeGate(ctx, db, sink, obs, overrides)
+      wg.lastState = outcome.state
+      // 写门自己已经把归因放进 outcome（state / degraded / reason / failureKind）。
+      // 这里只在**真的出了问题**时把它抬到服务面 + 归因面，判据是**两个可枚举量**：
+      //   · failureKind !== null ⇒ 判定链那一侧坏了（抛错/无监听器/降级/落痕失败）；
+      //   · state === 'unavailable' ⇒ 写面没成（含 write=false 的只判不写）。
+      // ⚠ 之所以用"失败种类"而不是"有没有写行"来判：rejected / skipped_* 都是**正常**
+      //   的不写（判过不值得 / 已退休 / 没过预过滤），把它们算进降级计数会让真故障被淹没。
+      const failed = outcome.failureKind !== null || outcome.state === 'unavailable'
+      if (failed) {
+        wg.degradedCount += 1
+        wg.lastFailure =
+          outcome.state + ' / ' + String(outcome.failureKind) + '：' +
+          String(outcome.reason === null ? '（无 reason）' : outcome.reason)
+        recordFailure(wg.lastFailure)
+      }
+      return outcome
+    } catch (error) {
+      wg.degradedCount += 1
+      wg.lastFailure = '写门抛错：' + (error instanceof Error ? error.message : String(error))
+      recordFailure(wg.lastFailure)
+      // ⚠ 抛出而不是吞掉：调用方（服务面）必须能分辨"写门自己炸了"。
+      //   事件路径的调用方已经用 `void` 显式忽略了它（采集方不因记忆写不进失败），
+      //   但**抛出的同时**上面已记账 ⇒ 不会静默。
+      throw error
+    }
+  }
+
+  /**
+   * 归因落 `mana_trace`：`event_type` 用**本包自有命名空间**（`WRITE_GATE_TRACE_EVENT`）。
+   *
+   * ⚠ **不得写成裸名五类之一**（本批一度写 `'injection'`，是错的）：
+   *   五类那五个裸名是 **S1 契约**的，`chain-e2e` 只断言「各 ≥1」（下界）⇒ 本包的降级行
+   *   去冒充 `injection` 会**替真链凑数**，把"真链为什么缺这一类"掩盖掉。
+   *   （与 `learning/src/trace.ts:10-15` 逐条同因。）
+   */
+  function recordFailure(reason: string): void {
+    try {
+      coreSvc.writeTrace({
+        eventType: WRITE_GATE_TRACE_EVENT,
+        sessionId: '',
+        turnId: 0,
+        payload: { plugin: WRITE_GATE_SOURCE, stage: 'write-gate', degraded: true, reason },
+      })
+    } catch {
+      // trace 也写不成时**不抛**：本函数本身就在失败路径上，再抛会盖掉原始真因。
+      // 但把失败**累加进内存计数**（degradedCount 已 +1），由 status() 可读 —— 不是静默。
+    }
+  }
 
   // G9：waterfall 直通 + next()。**无条件注册**（不得由任何配置门控，见文件头）。
   registerPassThroughPreStep(ctx, name)
@@ -309,6 +628,31 @@ export {
   noiseTerm,
   retrievalProbability,
 } from './activation.ts'
+// Recall Gate 面（B3.2-R）—— 公共导出，供其它包**只读**消费。
+export {
+  encodeIdPart,
+  JEVD_TRACE_WRITTEN_KEY,
+  judgeIdFor,
+  judgeIdParts,
+  recallGate,
+  traceWrittenOf,
+  sortByLocalScore,
+  RECALL_GATE_DEFAULTS,
+  RECALL_GATE_DEFAULT_THRESHOLD,
+  RECALL_GATE_QUESTION,
+  RECALL_GATE_SOURCE,
+  RECALL_GATE_STATES,
+} from './recall-gate.ts'
+export { RECALL_GATE_FAILURE_KINDS } from './recall-gate.ts'
+export type {
+  RecallGateCandidate,
+  RecallGateFailureKind,
+  RecallGateConfig,
+  RecallGateHit,
+  RecallGateOutcome,
+  RecallGateRequest,
+  RecallGateState,
+} from './recall-gate.ts'
 // 软删除 / 恢复面（A2-6 / A2-7）—— 公共导出，供其它包**只读**消费。
 export {
   assertNoRetiredLeak,
@@ -328,3 +672,31 @@ export {
   sha256Hex,
 } from './retirement.ts'
 export type { LiveSearchResult, MemoryCounts, MemoryRow, SoftDeleteOutcome } from './retirement.ts'
+// ── Write Gate 面（W1-3）—— 公共导出，供其它包**只读**消费 / 判据按字面量点名 ──────────
+export {
+  bigrams,
+  coreSink,
+  deriveMemoryId,
+  prefilterWorthKeeping,
+  writeGate,
+  writeJudgeIdFor,
+  PREFILTER_BANK,
+  PREFILTER_MIN_OVERLAP,
+  WRITE_GATE_DEFAULTS,
+  WRITE_GATE_DEFAULT_THRESHOLD,
+  WRITE_GATE_FAILURE_KINDS,
+  WRITE_GATE_JUDGE_TYPE,
+  WRITE_GATE_QUESTION,
+  WRITE_GATE_SOURCE,
+  WRITE_GATE_STATES,
+  // ⚠ 留痕标签是**被判据点名的字面量面**：它是否冒充 S1 五类必须可断言（故与实现同源导出）。
+  WRITE_GATE_TRACE_EVENT,
+} from './write-gate.ts'
+export type {
+  PrefilterResult,
+  WriteGateConfig,
+  WriteGateFailureKind,
+  WriteGateOutcome,
+  WriteGateSink,
+  WriteGateState,
+} from './write-gate.ts'

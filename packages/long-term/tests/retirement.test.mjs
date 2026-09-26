@@ -352,9 +352,18 @@ test('⑥ 真装配：svc.retirement 逐项可用 + 经服务面复算 A2-6/A2-7
     '负向对拍：把一个退休 id 塞进 hits ⇒ assertNoLeak **必须**抛（否则它是条恒绿的装饰）',
   )
 
-  // ── 形态面不得被本批改变：effect 仍恰好 3 条、服务卸载即净
+  // ── 形态面：effect 按 **W1-3 口径** 恰 4 条（原 3 + Write Gate 监听器），且旧标签逐条仍在
+  //
+  // ⚠ 本行由 W1-3 改写：W1-3 给本包接了写入路径（`mana/observation` → Write Gate），
+  //   那是**一条真行为** ⇒ 它 +1 条 effect，本判据**按设计红了**（这正是它存在的意义：
+  //   强制交代"你改了形态面"）。改写时**同时保留旧标签的逐条断言**——只改数字的话，
+  //   "删掉 service / provide / pre-step 中任一条来腾位置"也会绿（拆东墙补西墙）。
   const labels = (fiber.getEffects() ?? []).map((e) => String(e.label))
-  assert.equal(labels.length, 3, `本批不得新增 effect（仍须 3 条）；实测 ${labels.length}：${JSON.stringify(labels)}`)
+  assert.equal(labels.length, 4, `effect 面应为 4 条（W1-3 起：原 3 条 + Write Gate 监听器）；实测 ${labels.length}：${JSON.stringify(labels)}`)
+  assert.ok(labels.some((l) => l.includes(': service')), `须含 service effect（旧行为）；实测 ${JSON.stringify(labels)}`)
+  assert.ok(labels.some((l) => l.includes('ctx.provide(')), `须 provide 服务（旧行为）；实测 ${JSON.stringify(labels)}`)
+  assert.ok(labels.some((l) => l.includes('agent/pre-step')), `G9：须注册 pre-step 监听器（旧行为）；实测 ${JSON.stringify(labels)}`)
+  assert.ok(labels.some((l) => l.includes('mana/observation')), `W1-3：须注册 mana/observation 监听器；实测 ${JSON.stringify(labels)}`)
   await fiber.dispose()
   await settle(300)
   assert.equal(ctx.get('mana-long-term'), undefined, '卸载后服务必须消失（"卸载即净"）')

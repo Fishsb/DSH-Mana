@@ -142,45 +142,124 @@ test('⑤ 不得导出 Config（假旋钮不得回流）', async () => {
   )
 })
 
-test('⑦ effect 面精确计数：本包仍是空壳（多一条行为即红 ⇒ 强制交代）', async () => {
+/**
+ * ⑦ effect 面精确计数 —— **W1-3 由 3 → 4，口径与理由（本批交代）**
+ *
+ * 本判据的设计意图是「**多一条行为即红 ⇒ 强制交代**」，不是"永久锁死 3 条"。
+ * W1-3 给本包加上了**第一条真写行为**（`mana/observation` → Write Gate → `memory_items`），
+ * 它**按设计红了**（这正是本判据存在的意义），故本批**同步改写口径而不是删判据**。
+ *
+ * ⚠ **为什么仍要逐条点名三个旧标签**：只断言"数量 == 4"的话，「删掉 `agent/pre-step` 那条
+ *   （G9 结构义务）来给新监听器腾位置」也会**绿** —— 那是"拆东墙补西墙"的形态。
+ *   逐条点名 ⇒ 少任何一条旧的都红。
+ *
+ * ⚠ **数量 4 的口径**：`ctx.on` 在 cordis 里**自带一条 effect**（本批实测：
+ *   `fiber.getEffects()` 里就是 `ctx.on("mana/observation")`），故新监听器 +1 而不是 +2；
+ *   本批**没有**额外 `ctx.effect` 包裹它。
+ */
+test('⑦ effect 面精确计数：本包仍拒绝未交代的行为（多一条行为即红 ⇒ 强制交代）', async () => {
   ran += 1
-  // R2b 新增：把"本包仍是空壳"从 `behavior` 常量自称，升级为**可证事实**。
-  // 空壳的可观察面恰好三项：service effect / ctx.provide / ctx.on('agent/pre-step')。
-  // 任何真行为（真写行路径、业务事件监听、定时器）都会改变该集合 ⇒ 本判据必红。
+  // W1-3：本包已有一条真写行为 ⇒ 期望值由 3 改 4（旧标签逐条点名，见上）。
   const { fiber } = await mount()
   const labels = (fiber.getEffects() ?? []).map((e) => String(e.label)).sort()
   assert.equal(
     labels.length,
-    3,
-    `空壳的 effect 面必须恰好 3 条；实测 ${labels.length}：${JSON.stringify(labels)}。` +
-      '若这是新增的真行为 ⇒ 须同步把 status().behavior 改为 \'active\' 并补 R 形态反证判据',
+    4,
+    `本包的 effect 面必须恰好 4 条（W1-3 起：空壳三项 + Write Gate 监听器）；` +
+      `实测 ${labels.length}：${JSON.stringify(labels)}。` +
+      '再有新增的真行为 ⇒ 本判据必红，须同步交代（改口径 + 补 R 形态反证判据），不得直接放宽数量',
   )
+  // ── 三个旧标签逐条点名（防"删旧行为给新行为腾位置"）────────────────────────
   assert.ok(labels.some((l) => l.includes(': service')), `须含 service effect；实测 ${JSON.stringify(labels)}`)
   assert.ok(labels.some((l) => l.includes('ctx.provide(')), `须 provide 服务；实测 ${JSON.stringify(labels)}`)
-  assert.ok(labels.some((l) => l.includes('agent/pre-step')), `须注册 pre-step 监听器；实测 ${JSON.stringify(labels)}`)
+  assert.ok(labels.some((l) => l.includes('agent/pre-step')), `G9 义务：须注册 pre-step 监听器；实测 ${JSON.stringify(labels)}`)
+  // ── 新增的那一条单独点名（它才是 W1-3 的行为面）────────────────────────────
+  assert.ok(
+    labels.some((l) => l.includes('mana/observation')),
+    `W1-3 起本包须注册 mana/observation 监听器（写入路径的触发点）；实测 ${JSON.stringify(labels)}`,
+  )
 })
 
 test('⑧ 行为面缺席：本包不写任何 mana_trace 行（与 ⑦ 互补）', async () => {
   ran += 1
-  // 与 ⑦ 互补：⑦ 查"没加东西"，⑧ 查"真没写行"。二者合起来使"空壳"成为机检事实。
+  /**
+   * ⚠ **W1-3 改写（原判据：`ctx.emit('mana/observation') ⇒ mana_trace 增量 0`）**。
+   *
+   * 原判据在 W1-3 之后会变成**假绿**：它用的探针串 `'P1 空壳行为面探针'` 与问法
+   *   `WRITE_GATE_QUESTION` 的 bigram 交集为 **0** ⇒ 被 bigram 预过滤挡下 ⇒ 写门**压根没进**。
+   *   于是"没有新行"成立的原因是"**这一步没发生**"，而不是"本包不写" —— 判据绿，
+   *   但它想测的东西一次都没被测到（本仓最忌的形态，故本席主动改写而不是留着）。
+   *
+   * 新口径 = **成对两条腿**（都非平凡）：
+   *   ⓐ 预过滤**未命中** ⇒ 写门未进入 ⇒ `mana_trace` / `memory_items` **双双 0 增量**；
+   *   ⓑ 预过滤**命中** ⇒ 写门**真进入**（`memory_items` +1，这一腿证明 ⓐ 不是平凡通过），
+   *      且 **`mana_trace` 恰好 1 行**（降级留痕），**标签必须是本包命名空间**，
+   *      **不得是 S1 五类裸名之一**（否则会替真链凑数，掩盖 A1-1 的缺失）。
+   *
+   * ⚠ ⓑ 的 1 行是**刻意的**：本包此时无判定链 ⇒ `failureKind='no-judge-listener'` ⇒
+   *   按"降级必须显式"落 1 行归因。它与 ⓐ 的 0 行合起来才说明"留痕只在真出问题时发生"。
+   */
   const { ctx } = await mount()
   const core = ctx.get('mana-core')
   assert.ok(core, 'core 服务须可读')
   const tables = core.db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all().map((r) => r.name)
   assert.ok(tables.includes('mana_trace'), 'mana_trace 表须存在（否则本判据平凡通过）')
-  const before = core.db.prepare('SELECT count(*) c FROM mana_trace').get().c
+  const traceCount = () => Number(core.db.prepare('SELECT count(*) c FROM mana_trace').get().c)
+  const itemCount = () => Number(core.db.prepare('SELECT count(*) c FROM memory_items').get().c)
+  const mod = await import(new URL('../src/write-gate.ts', import.meta.url).href)
+
+  // ── ⓐ 预过滤未命中的串：写门不得进入（且这一点必须被断言，不能靠"恰好是 0"）
+  const BLOCKED = 'P1 空壳行为面探针'
+  assert.equal(
+    mod.prefilterWorthKeeping(BLOCKED).hit,
+    false,
+    '前置：本探针串必须被预过滤挡下（否则 ⓐ 测的不是"没进入"）',
+  )
+  const t0 = traceCount()
+  const i0 = itemCount()
   ctx.emit('mana/observation', {
     sessionId: 's-p1', turnId: 1, requestId: 'r-p1', at: new Date().toISOString(),
-    content: 'P1 空壳行为面探针', source: 'test',
+    content: BLOCKED, source: 'test',
   })
-  await settle(200)
-  const after = core.db.prepare('SELECT count(*) c FROM mana_trace').get().c
+  await settle(250)
+  assert.equal(traceCount(), t0, `ⓐ 被预过滤挡下 ⇒ mana_trace 不得新增（实测 ${traceCount() - t0} 行）`)
+  assert.equal(itemCount(), i0, `ⓐ 被预过滤挡下 ⇒ memory_items 不得新增（实测 ${itemCount() - i0} 行）`)
+
+  // ── ⓑ 预过滤命中的串：写门真进入 ⇒ ⓐ 的"0"才有意义
+  const ENTERS = '这条观察值得长期记住：⑧ 探针'
   assert.equal(
-    after, before,
-    `空壳不得写任何行（实测 before=${before} after=${after}）；` +
-      `若本包已有真行为 ⇒ 须改 status().behavior 并补 R 形态反证判据（"卸载后不再产生新行"）`,
+    mod.prefilterWorthKeeping(ENTERS).hit,
+    true,
+    '前置：本探针串必须通过预过滤（否则 ⓑ 测的不是"进去了"）',
   )
-  assert.equal(before, 0, `本探针期间 mana_trace 应为空；实测 ${before}`)
+  const t1 = traceCount()
+  const i1 = itemCount()
+  ctx.emit('mana/observation', {
+    sessionId: 's-p1', turnId: 1, requestId: 'r-p1b', at: new Date().toISOString(),
+    content: ENTERS, source: 'test',
+  })
+  await settle(350)
+  // ⓑ-1 写门**真进入**了（这是 ⓐ 非平凡的证据：同一接口、只换了串就产生了行）
+  assert.equal(itemCount() - i1, 1, `ⓑ 预过滤命中 ⇒ memory_items 必须真增 1 行（实测 ${itemCount() - i1}）`)
+  // ⓑ-2 留痕恰 1 行，且标签在本包命名空间内（**不冒充 S1 五类**）
+  const added = traceCount() - t1
+  assert.equal(added, 1, `ⓑ 无判定链 ⇒ 降级留痕应恰 1 行（实测 ${added}）`)
+  const rows = core.db.prepare('SELECT event_type, payload FROM mana_trace ORDER BY seq DESC LIMIT 1').all()
+  assert.equal(
+    rows[0].event_type,
+    mod.WRITE_GATE_TRACE_EVENT,
+    '留痕标签必须是本包命名空间常量：' + rows[0].event_type,
+  )
+  assert.ok(
+    rows[0].event_type.startsWith('mana/long-term/'),
+    '留痕标签必须在 mana/long-term/ 命名空间内：' + rows[0].event_type,
+  )
+  // ⚠ 要害：**不得**是 S1 五类裸名之一（否则会替真链凑数，掩盖 A1-1 的缺失）
+  assert.ok(
+    !['observation', 'attention', 'decision', 'recall', 'injection'].includes(rows[0].event_type),
+    '★ 本包留痕**不得冒充 S1 五类裸名**（会掩盖 chain-e2e 的五类判据）：' + rows[0].event_type,
+  )
+  assert.ok(String(rows[0].payload).includes('no-judge-listener'), '归因载荷必须点名真因：' + rows[0].payload)
 })
 
 test('⑥ 用例计数自检（防本文件被截断/删用例 —— 空文件会报 tests 1 / pass 1 的假绿）', () => {
