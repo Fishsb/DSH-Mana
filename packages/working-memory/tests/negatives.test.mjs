@@ -9,6 +9,7 @@
  * | M3 | 抹掉降级位（selector 抛错静默返回空） | C4（显式降级 + 留 failure 字段） |
  * | M4 | 抹掉"是否真省"读数（reduced 恒 true） | C10（摘要反超时如实报负） |
  * | M5 | 抹掉截断量记账（truncatedChars 恒 0） | C11/C12（记账恒等式） |
+ * | M6 | 去掉"末态须回到上界内"的落地判据（"压了但没够"报成"压住了"） | C17（真回到上界内） |
  *
  * ## 三条纪律（本仓血的教训，逐条落在此文件的实现里）
  *  · **对拍要打对靶**：变异改的是 **lib**（包名解析面真正装载的那一层）。
@@ -137,6 +138,28 @@ test('M4 reduced 恒 true ⇒ C10"如实报负"腿必红', async () => {
   assert.equal(r.triggered, true, 'M4 前置：确实触发了压缩（否则测的不是这条腿）')
   assert.ok(r.savedChars < 0, 'M4 前置：本例摘要确实反超原文（savedChars<0）')
   assert.equal(r.reduced, true, 'M4: 变异后 reduced 恒 true ⇒ 与外层真实读数自相矛盾（C10 的必红点）')
+})
+
+// ── M6：把"压了但没够"重新报成"压住了" ⇒ C17 必红（独立复核席 2026-09-26 补）──────
+//   洞的由来：cap=1 + 2 条时 keepRecent 夹住折叠量 ⇒ 末态 size 仍 2 > 上界 1，
+//   而实现曾照报 compressed=true ⇒ 调用方读到"已压住"就不再兜底（**假绿**）。
+//   本变异的语义**正是**那个坏形态：去掉"末态须回到上界内"这一条落地判据。
+test('M6 去掉"末态真回到上界内"的落地判据 ⇒ C17 必红（"压了但没够"被报成"压住了"）', async () => {
+  const r = await negativeControl(
+    'M6',
+    // ⚠ 锚点取**判据语句本身**（在 lib 里唯一），不取周围的注释/空白。
+    'if (afterChars >= beforeChars || afterChunks > capacityChunks)',
+    'if (afterChars >= beforeChars)',
+    // 与 C17 甲腿完全同形的调用：2 条 / 容量 1 / keepRecent 缺省 1
+    (m) => m.compressChunks(mkChunks(2, 100), 1),
+  )
+  // 必红的判据：C17 断言 compressed === false 且 capacityReached === false
+  assert.equal(r.compressed, true, 'M6: 变异后把"压了但没够"报成"压住了"（这正是 C17 的必红点）')
+  assert.equal(r.capacityReached, true, 'M6: 连带把"未达上界"也报成"已达"')
+  assert.ok(
+    r.afterChunks > 1,
+    'M6: 而事实是末态条数仍 ' + r.afterChunks + ' > 上界 1 ⇒ 读数与事实脱钩（假绿）',
+  )
 })
 
 // ── M5：抹掉截断量记账 ⇒ C11/C12 记账恒等式必红 ─────────────────────────────

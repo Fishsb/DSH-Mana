@@ -183,6 +183,60 @@ test('C6 第一层不变量：压缩**不得**让内容变长（savedChars 恒 >
 
 // ══ 第二层：会话级压缩（五段式交接摘要）═════════════════════════════════════
 
+test('C17 第一层"压了但没够"腿（独立复核席实测补洞）：keepRecent 夹住折叠量 ⇒ **不得**报 compressed=true', () => {
+  // ## 洞的由来（**实测复现**，不是推演）
+  //   本席用独立性质探针（2265 条断言）扫参数格点时命中：@compressChunks(2 条, cap=1)@
+  //   ⇒ 实现返回 compressed=true，而条数 **2 → 2 一条没减**。
+  //   成因：折叠量 = min(over+1, before-keepRecent) = min(2, 1) = 1 ⇒ 折 1 条留 1 条，
+  //   末态 tail(1) + 摘要(1) = **2**，而容量上界是 1。
+  //   危害正是本仓最忌的形态：调用方读到 compressed=true 会认为「已经压回上界了」，
+  //   于是**不再兜底**；而事实是 size 仍高出上界一格 —— 压了个寂寞却显示压住了（**假绿**）。
+  const mk = (n, len) => Array.from({ length: n }, (_, k) => ({ requestId: 'r' + (k + 1), content: rep(len), seq: k + 1, at: 'T' }))
+
+  // (甲) 洞的原样：容量 1 / 2 条各 100 码点，keepRecent 缺省 1 ⇒ 折不动，必须**如实承认**
+  const r = cmp.compressChunks(mk(2, 100), 1)
+  assert.equal(r.afterChunks, 2, '前置：本条正是"折 1 留 1"⇒ 末态条数仍是 2')
+  assert.equal(r.afterChunks > 1, true, '前置：末态确实仍**高于**容量上界 1')
+  assert.equal(r.compressed, false, '压了但没回到上界内 ⇒ **不得**报 compressed=true（假绿的落点）')
+  assert.equal(r.capacityReached, false, '必须显式回报"未达上界"（调用方据此继续兜底）')
+  assert.equal(r.overflowRemaining, 1, '仍高出上界 1 条 —— 这个数就是"压了但没够"的读数')
+  // ⚠ 既然没落地，就必须**一条都没动**（半途折了 1 条却不报 compressed，那才是真丢内容）
+  assert.deepEqual(r.chunks.map((c) => c.requestId), ['r1', 'r2'], '未达上界 ⇒ 也必须**未改动内容**（不得半途折叠）')
+  assert.deepEqual([r.beforeChunks, r.afterChunks, r.savedChars], [2, 2, 0], '未落地 ⇒ 前后读数相等、零省字')
+  assert.equal(r.foldedChunks, 0, '未落地 ⇒ 零折叠（账不得虚报折叠动作）')
+
+  // (乙) 反向对照：同 2 条、容量 2（恰满）⇒ 同样不动作，但**未达的语义不同**（无溢出）
+  const r2 = cmp.compressChunks(mk(2, 100), 2)
+  assert.equal(r2.compressed, false, '恰满不压（与两闸同口径）')
+  assert.equal(r2.capacityReached, true, '恰满 ⇒ 上界是达的（与"压了但没够"必须可分辨）')
+  assert.equal(r2.overflowRemaining, 0, '恰满 ⇒ 零溢出')
+
+  // (丙) 反向对照：同 2 条、容量 1 但 keepRecent=0 ⇒ 折得动 ⇒ 必须真压且回到上界内
+  const r3 = cmp.compressChunks(mk(2, 100), 1, { keepRecent: 0 })
+  assert.equal(r3.compressed, true, '放开就绪性下限后折得动 ⇒ 必须真压')
+  assert.equal(r3.afterChunks, 1, '折 2 条成 1 条摘要 ⇒ 回到上界内')
+  assert.equal(r3.capacityReached, true, '真压 ⇒ 上界是达的')
+  assert.equal(r3.overflowRemaining, 0, '真压 ⇒ 零溢出')
+  assert.ok(r3.savedChars > 0, '真压必省字')
+
+  // (丁) 容量轴不设闸 ⇒ **恒已达**（没有上界可言，不得记成"未达"）
+  for (const cap of [0, -3]) {
+    const rn = cmp.compressChunks(mk(4, 10), cap)
+    assert.equal(rn.compressed, false, '无闸 ⇒ 不压缩（沿用 <=0 = 不设闸约定）')
+    assert.equal(rn.capacityReached, true, '无闸（cap=' + cap + '）⇒ 视为已达，不得记 phantom 的"未达"')
+    assert.equal(rn.overflowRemaining, 0, '无闸 ⇒ 零溢出')
+  }
+
+  // (戊) 结构与事实同源：capacityReached ⇔ overflowRemaining === 0（两位不得各说各话）
+  for (const cap of [1, 2, 3, 0, -1]) for (const n of [0, 1, 2, 3, 5]) {
+    const rr = cmp.compressChunks(mk(n, 20), cap)
+    assert.equal(
+      rr.capacityReached, rr.overflowRemaining === 0,
+      'capacityReached 与 overflowRemaining 必须同源（cap=' + cap + ' n=' + n + '）',
+    )
+  }
+})
+
 test('C7 第二层：五段式结构**逐字**（Goal/Decisions/State/Next/Anchors）+ 键集精确', () => {
   const chunks = Array.from({ length: 3 }, (_, k) => ({ requestId: 'r' + k, content: rep(30), seq: k + 1, at: 'T' }))
   const r = cmp.handoff(chunks, 100) // 90/100 = 90% > 80% ⇒ 触发

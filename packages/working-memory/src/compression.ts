@@ -116,6 +116,23 @@ export interface CompressionRecord {
   degraded: boolean
   /** 降级原因（degraded=false 时为 null）。**失败必须留字段**，不得只回一个空结果。 */
   failure: string | null
+  /**
+   * 末态是否**真的回到容量上界内**（= afterChunks <= capacityChunks；容量轴不设闸时恒 true
+   * —— 没有上界可言，不是「未达」）。
+   *
+   * ⚠ 为什么单列这一位：`compressed` 的**定义**是「折了且尺寸真回到上界内」。
+   *   当 `keepRecent`（就绪性下限）夹住了折叠量时，末态可能**仍高于**上界
+   *   （实测：容量 1 + 2 条 ⇒ 折 1 条留 1 条，size 仍是 2 = 压了但没够）。
+   *   那种情形若照报 compressed=true，调用方会读成「已经压住了」而**不再兜底** ——
+   *   正是本仓最忌的假绿。故此处如实回报：compressed=false + capacityReached=false
+   *   + `overflowRemaining` > 0，由既有容量闸（未被本模块改动）继续兜底。
+   */
+  capacityReached: boolean
+  /**
+   * 末态仍**高于**容量上界的条数（0 = 已回到上界内或无闸）。
+   * 与 `capacityReached` 配对：「压了但没够」到底还差几条，读这一个数就知道。
+   */
+  overflowRemaining: number
 }
 
 /** 第一层压缩的返回：压缩后的**新**数组 + 记账 + 可回查摘要。 */
@@ -144,7 +161,10 @@ export type KeepSelector = (chunks: readonly WorkingChunk[]) => number[]
  *   这条不变量是「压缩真的省了」的判据 —— 没有它，一个把所有内容原样复制的「压缩」
  *   也会显示 compressed=true 而读数看起来正常。
  *
- * ⚠ 不变量：有动作必有账（compressed=true ⇒ beforeChunks > afterChunks 且 savedChars > 0）。
+ * ⚠ 不变量：有动作必有账（compressed=true ⇒ beforeChunks > afterChunks **且** savedChars > 0
+ *   **且** afterChunks <= capacityChunks —— 第三条 =「末态真回到上界内」）。
+ *   只折了但没压回上界（keepRecent 夹住）**不**认 compressed，落回 noop 并报
+ *   capacityReached=false / overflowRemaining>0（由既有容量闸继续兜底）。
  *
  * @param chunks   输入快照（**不被修改**）
  * @param capacityChunks 条数上界（<= 0 = 不设闸 ⇒ 不压缩）
@@ -160,6 +180,11 @@ export function compressChunks(
   const beforeChunks = chunks.length
   const beforeChars = chunksChars(chunks)
 
+  // ⚠ **先算溢出量**（必须在 noop 之前）：noop 的所有出口都要如实回报「末态是否仍超上界」，
+  //   否则「压了但没够」与「本来就不超」在记账面上又同形。
+  const gatedCap = Number.isFinite(capacityChunks) && capacityChunks > 0
+  const overCap = gatedCap ? beforeChunks - capacityChunks : 0
+
   /** 不动作时的统一回执（所有「没压」的出口走它 ⇒ 记账字段不可能漏填）。 */
   const noop = (degraded: boolean, failure: string | null): CompressionResult => ({
     compressed: false,
@@ -172,6 +197,9 @@ export function compressChunks(
     summaryChars: 0,
     degraded,
     failure,
+    // 无闸（overCap <= 0）⇒ 没有上界可言，视为已达；有闸且超 ⇒ 如实报未达。
+    capacityReached: overCap <= 0,
+    overflowRemaining: overCap > 0 ? overCap : 0,
     chunks: chunks.map((c) => ({ ...c })),
     foldSummary: [],
   })
@@ -193,9 +221,10 @@ export function compressChunks(
   }
 
   // ── 判据②：容量轴不开闸 / 未超 / 无可折叠空间 ⇒ 不动作（记账如实回 false）──
-  if (!Number.isFinite(capacityChunks) || capacityChunks <= 0) return noop(false, null)
+  // （闸的存在性与溢出量在上面就已算好：`gatedCap` / `overCap` —— 那是 noop 回执要用的读数。）
+  if (!gatedCap) return noop(false, null)
   const keepRecent = Math.max(0, strategy.keepRecent ?? 1)
-  const over = beforeChunks - capacityChunks
+  const over = overCap
   // ⚠ **严格大于才动作**（与两闸边界腿同口径）：恰满容量**不得**压缩 ——
   //   否则「管住了」与「根本没管」在边界点上又会同形。
   if (over <= 0) return noop(false, null)
@@ -235,7 +264,13 @@ export function compressChunks(
   //   若折叠后反而更长（摘要串比被折掉的头部长），**不压**并如实记账 ——
   //   否则 compressed=true / savedChars<0 会被读成「压住了」。
   const afterChars = chunksChars(tail) + codePointLen(body)
-  if (afterChars >= beforeChars) return noop(false, null)
+  // ⚠ **判据先于落地**：「字符数真省下」**与**「尺寸真回到容量上界内」两条**同时**成立，
+  //   才认 `compressed`。只折了几条但末态仍超上界（keepRecent 就绪性下限夹住折叠量，
+  //   实测：容量 1 + 2 条 ⇒ 折 1 留 1，size 仍 2）⇒ 不入落地分支：照报 true 会被调用方
+  //   读成「已经压住了」而**不再兜底**（假绿）。此处如实回落 compressed=false +
+  //   capacityReached=false + overflowRemaining>0，由既有容量闸继续兜底。
+  const afterChunks = tail.length + 1
+  if (afterChars >= beforeChars || afterChunks > capacityChunks) return noop(false, null)
 
   const folded: WorkingChunk = {
     requestId: 'compressed:' + firstSeq + '-' + lastSeq,
@@ -248,7 +283,7 @@ export function compressChunks(
   return {
     compressed: true,
     beforeChunks,
-    afterChunks: out.length,
+    afterChunks,
     beforeChars,
     afterChars,
     savedChars: beforeChars - afterChars,
@@ -256,6 +291,9 @@ export function compressChunks(
     summaryChars: codePointLen(body),
     degraded: false,
     failure: null,
+    // 走到这里 ⇒ 上面那条判据已保证末态回到上界内（故两值恒为已达/零溢出）。
+    capacityReached: true,
+    overflowRemaining: 0,
     chunks: out,
     foldSummary: [
       'seq ' + firstSeq + '-' + lastSeq + '：' + head.length + ' 条 / ' + droppedChars +

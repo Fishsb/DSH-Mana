@@ -59,13 +59,18 @@ import { fileURLToPath } from 'node:url'
 const TEST_FILES = [
   // F4 席建 + G2 席扩到 13（W1–W14）
   ['tests/working-memory.test.mjs', 13],
-  // ⚠ W2-C2 席新增（v10 §30.2 三层压缩）：C1–C16 正向腿 + R1–R3 两闸回归腿。
+  // ⚠ W2-C2 席新增（v10 §30.2 三层压缩）：C1–C17 正向腿 + R1–R3 两闸回归腿。
+  //   C17（独立复核席 2026-09-26 补）是**独立性质探针实测撞出来的洞**：cap=1 + 2 条时
+  //   实现报 compressed=true 而条数 2→2（压了但没回到上界内）⇒ 调用方会误以为"已压住"
+  //   而不再兜底。修法是让 compressed 要求「末态真回到上界内」，并新增
+  //   capacityReached / overflowRemaining 两位如实回报。C17 就是这条的回归腿。
   //   登记值 = 该文件 ^test( 行数（新文件不加登记在本闸会红，这是设计意图）。
-  ['tests/compression.test.mjs', 19],
-  // ⚠ W2-C2 席新建的**负向对拍**面（M1–M5）：每条打一个靶，锚点与下面的 MUTATION_ANCHORS 逐字一致。
+  ['tests/compression.test.mjs', 20],
+  // ⚠ W2-C2 席新建的**负向对拍**面（M1–M6）：每条打一个靶，锚点与下面的 MUTATION_ANCHORS 逐字一致。
   //   登记它是**必须的**：闸⑤ 只数 TAP 里的 ok，若不登记，这份文件被删掉时闸⑤ 会**数不到而恒红**
   //   —— 那是"红得对但原因错"；登记后"文件被删"由闸① 直接点名，职责分明。
-  ['tests/negatives.test.mjs', 5],
+  //   M6（独立复核席 2026-09-26 补）= C17 那个洞的对拍靶。
+  ['tests/negatives.test.mjs', 6],
 ]
 
 /**
@@ -91,6 +96,9 @@ const MUTATION_ANCHORS = [
   // ⚠ 短锚点 `truncatedChars,` 在 lib 命中 **2** 次（初始化与真赋值各一处）⇒ 对拍会打错靶。
   //   改打**唯一的那条真赋值**（抹掉它 ⇒ 截断量恒 0 ⇒ 记账恒等式不成立）。两处登记必须逐字一致。
   ['truncatedChars = orig - codePointLen(body);', 'M5 去掉截断量记账（恒等式不成立 ⇒ C11/C12 必红）'],
+  // ⚠ 独立复核席 2026-09-26 补：C17 的洞（"压了但没够"报成"压住了"）对应的对拍靶。
+  //   锚点取**判据语句本身**，在 lib 里唯一；与 negatives.test.mjs 的 M6 逐字一致。
+  ['if (afterChars >= beforeChars || afterChunks > capacityChunks)', 'M6 去掉"末态须回到上界内"的落地判据（C17 必红）'],
 ]
 
 const HERE = fileURLToPath(new URL('.', import.meta.url))
@@ -137,11 +145,12 @@ for (const [rel, expected] of TEST_FILES) {
   else if (pass !== expectedTotal) bad('TAP # pass = ' + pass + '，登记总数 = ' + expectedTotal)
   else ok('全量：' + tests + ' 用例全绿（pass=' + pass + ' / fail=' + fail + '，退出码 ' + r.status + '）')
 
-  // ⑤ 负向对拍腿：TAP 里必须真有 5 条 M1..M5 的 ok（防对拍被改成恒绿/短路）
-  const mTitles = ['M1', 'M2', 'M3', 'M4', 'M5']
+  // ⑤ 负向对拍腿：TAP 里必须真有 6 条 M1..M6 的 ok（防对拍被改成恒绿/短路）
+  //   ⚠ 逐条点名而不是数前缀：同名灌水（别的用例名里也含 "M6"）会数出假"多"。
+  const mTitles = ['M1', 'M2', 'M3', 'M4', 'M5', 'M6']
   const mOk = mTitles.filter((t) => out.includes(' - ' + t + ' ')).length
-  if (mOk !== mTitles.length) bad('负向对拍腿：TAP 里 M1..M5 的 ok 只有 ' + mOk + '/' + mTitles.length + ' —— 对拍被删/被短路/被改成恒绿')
-  else ok('负向对拍腿：M1..M5 共 ' + mTitles.length + ' 条 ok 真跑过（逐条点名，防同名灌水）')
+  if (mOk !== mTitles.length) bad('负向对拍腿：TAP 里 M1..M6 的 ok 只有 ' + mOk + '/' + mTitles.length + ' —— 对拍被删/被短路/被改成恒绿')
+  else ok('负向对拍腿：M1..M6 共 ' + mTitles.length + ' 条 ok 真跑过（逐条点名，防同名灌水）')
 }
 
 // ④ 产物内容腿：重编译 src 与 lib 逐字节比（**逐个产物**）
