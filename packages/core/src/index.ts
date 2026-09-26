@@ -22,7 +22,14 @@ import type { DatabaseSync } from 'node:sqlite'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import Schema from '@deepseek-ai/schemastery'
-import { openManaDb, probeVecVersion, withImmediateTransaction, type ManaDb } from './db.ts'
+import {
+  openManaDb,
+  probeVecVersion,
+  probeVecVersionDetail,
+  withImmediateTransaction,
+  type ManaDb,
+  type VecProbeReading,
+} from './db.ts'
 import {
   backupNow,
   pruneBackups,
@@ -260,8 +267,22 @@ export interface ManaCoreService {
   readonly schemaVersion: string
   /** 开库实测读数（取证用：journalMode 应为 'wal'）。 */
   readonly journalMode: string
-  /** `vec_version()` 探针：null = 扩展未装载（**显式事实，不是静默降级**）。 */
+  /**
+   * `vec_version()` 探针：null = **拿不到版本号**（显式事实，不是静默降级）。
+   *
+   * ⚠ 语义**逐字未变**（`string | null`）。要看「为什么拿不到」请用下面的 `vecProbe()`。
+   */
   vecVersion(): string | null
+  /**
+   * **探针的归因读数**（新增的第二条通道；`vecVersion()` 的返回形态未动）。
+   *
+   * ⚠ 为什么必须分开：`vecVersion() === null` 在旧实现下把四类失败折成同一个值 ——
+   *   「扩展未装载」（合规常态）与「库句柄坏了」（程序错误）**同形**，
+   *   而两者都会被 `tools/probes/vec0-semantics.mjs` 的方向读成「未装 ⇒ HANG」。
+   *   本方法把失败类别**可枚举**地暴露出来，使「探测没跑成」不再冒充「未装」。
+   *   ⛔ 它**不改变** W-1..3 的档位：判「未装 vs 装了且语义对」的仍是那份探针，不是本方法。
+   */
+  vecProbe(): VecProbeReading
   /** 写一条认知轨迹，返回自增 `seq`。 */
   writeTrace(entry: TraceEntry): number
   /**
@@ -393,6 +414,8 @@ export function apply(ctx: Context, config: Config): void {
     schemaVersion: opened.schemaVersion ?? SCHEMA_VERSION,
     journalMode: opened.journalMode,
     vecVersion: () => probeVecVersion(opened.db),
+    // 归因通道：与 vecVersion() 走**同一段实现**，只是多带 failure/reason/errorCode。
+    vecProbe: () => probeVecVersionDetail(opened.db),
     writeTrace(entry: TraceEntry): number {
       const stmt = opened.db.prepare(
         'INSERT INTO mana_trace (event_type, payload, session_id, turn_id, timestamp) VALUES (?, ?, ?, ?, ?)',
@@ -520,8 +543,35 @@ export function apply(ctx: Context, config: Config): void {
       return rows as unknown as UserModelHistoryRow[]
     },
     writeMemoryItem(item): void {
+      /**
+       * ⚠ **不得改回 `INSERT OR REPLACE`**（2026-09-26 修，实测复现）。
+       *
+       * 原实现用 `INSERT OR REPLACE` 且只列 5 列 ⇒ 对同一 id 重写时，**未列出的列全部被重置**
+       * （REPLACE = DELETE + INSERT 的语义）。实测在真库上被静默清空的列有 **7 列**：
+       *   `retired` 1→0（**静默复活**，违反「软删除可逆且不得自发撤销」）
+       *   `access_count` 7→0 · `base_level_activation` −1.5→0（ACT-R 激活被清零）
+       *   `reconsolidation_window_until` →null（再巩固窗口丢失）
+       *   `update_history` →null · `created_at` **被覆写成新时刻**
+       *   `vector` **BLOB→null** ← *最凶的一条*：向量检索的数据源被打空，而**读侧只看到「没命中」**，
+       *     与「库本来就空」**同形** ⇒ 属本仓最忌的「会掩盖其他问题」形态。
+       *
+       * 改为 **UPSERT**：冲突时只更新「本次写入真正提供的列」，其余列**原样保留**；
+       * 「从未存在过」仍走 INSERT。`created_at` 只在首次写入时落值（用 `COALESCE`），
+       * 重写**不再**篡改首见时刻。
+       *
+       * 反证对拍（不得只信本条注释）：`packages/core/tests/write-memory-item-upsert.test.mjs`
+       *   · 造一条带 retired/access_count/vector 的记忆 ⇒ 重写 ⇒ **7 列逐列断言不得变化**；
+       *   · 变异回 `INSERT OR REPLACE` ⇒ 该判据**必红**（逐字节恢复，未用 git reset --hard）。
+       */
       opened.db
-        .prepare('INSERT OR REPLACE INTO memory_items (id, type, content, summary, created_at) VALUES (?, ?, ?, ?, ?)')
+        .prepare(
+          `INSERT INTO memory_items (id, type, content, summary, created_at)
+           VALUES (?, ?, ?, ?, ?)
+           ON CONFLICT(id) DO UPDATE SET
+             type = excluded.type,
+             content = excluded.content,
+             summary = excluded.summary`,
+        )
         .run(item.id, item.type, item.content, item.summary ?? null, item.at ?? new Date().toISOString())
     },
     recallLexical(rawQuery: string, limit = 50): LexicalRecallResult {
@@ -606,7 +656,15 @@ export function apply(ctx: Context, config: Config): void {
   registerPassThroughPreStep(ctx, name)
 }
 
-export { openManaDb, probeVecVersion, walApplied, withImmediateTransaction } from './db.ts'
+export {
+  openManaDb,
+  probeVecVersion,
+  probeVecVersionDetail,
+  isNoSuchFunctionError,
+  walApplied,
+  withImmediateTransaction,
+} from './db.ts'
+export type { VecProbeFailure, VecProbeReading } from './db.ts'
 export {
   backupNow,
   backupFileName,
