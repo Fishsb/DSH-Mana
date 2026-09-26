@@ -26,6 +26,27 @@
  *      Write Gate 段）明确：该事件全仓零消费方，「发一条没人听的归因事件」等于没归因，
  *      两处记同一件事必然漂开 ⇒ 值本身就是归因，落在下面的 trace 行 payload 里。
  *
+ * ── 蒸馏链（v10 §12.3 · E1 通电）为什么**必须**挂在本文件，而不是挂在 consolidation ────────
+ *   §12.3 的第一步是「**空闲 10 分钟**」，而 `packages/consolidation/src/distill.ts` 的文件头
+ *   明写「**不注册监听器、不起定时器**：触发源归 scheduler；空闲判定由**调用方传入 idleMs**
+ *   （"谁喂这个数"是接线问题，不是本文件的事）」。⇒ 那条链在交付时**有链无触发者** ——
+ *   与它自己要修的缺陷（`prefilterBySignalWords` 零消费方）是**同一形态**。
+ *
+ *   本文件因此新增一条**蒸馏链**，口径逐条如下（每一条都是可分辨的读数，不是注释承诺）：
+ *   · **触发源 = 真空闲**：本驱动者按会话维护「最近活动时刻」，活动 = 用户输入 或 回合边界。
+ *     ⚠ 不取「距上次回合边界多久」：那是**回合间隔**，会话可能在中途一直有输入（见
+ *     `lastActivityAt` 的注释与它的已知偏差）。
+ *   · **阈值两处**：触发侧 `DISTILL_TRIGGER_DEFAULT_THRESHOLD_MS`（本文件）与链内
+ *     `DISTILL_IDLE_THRESHOLD_MS`（consolidation）。两处**不相邻**（本包不 import 该包），
+ *     故两个数**都**进 trace payload（`thresholdMs`/`chainThresholdMs`）⇒ 漂开即**可读**，
+ *     判据 `tests/distill-wiring.test.mjs` ① 钉住两者相等。
+ *   · **未到点也照写行**（与 `generation/skipped` 同一条既有口径）：`phase='skipped'` +
+ *     `status='not-idle'` + idleMs 读数。不写的话，「没到点」与「压根没接」**同形**。
+ *   · **先 dispatched 再 settle**：蒸馏走一次真 LLM 往返 ⇒ 与生成链同款**异步收敛**，
+ *     两行同 trigger 可配对，「发起了没回来」与「压根没发起」因此可分辨。
+ *   · **本驱动者不做蒸馏判定**：白名单门/粒度判定/写回**全部**在 distillation 侧
+ *     （经 `distillProduce` 服务面），本包只负责**何时发起**与**如实记账**。
+ *
  * ── 反证判据（R 形态）**先天成立**的原因（这条必须说对，否则是 G11 平凡通过）────────────
  *   「卸载驱动者 ⇒ 该链不再产生新行」只有在**驱动者真写行**时才不是平凡通过。
  *   故本文件的每一条链任务**无条件**写一条 `mana-scheduler/chain/*` 行（连 0 输入也写，
@@ -78,6 +99,14 @@ export const TRACE_EVENTS = Object.freeze({
    *   「巩固判定跑没跑」与「生成调没调」就同形 —— 而这次要修的正是「生成零消费者**看不出来**」。
    */
   generation: `${DRIVER_NAMESPACE}/generation`,
+  /**
+   * **蒸馏链（v10 §12.3）**：真空闲（≥10 分钟无活动）⇒ `consolidation.distillProduce`
+   * （经 mana-consolidation 的服务面，**本包不 import** 该链的实现）。
+   *
+   * ⚠ 与 `generation` 分开一条事件名是同一条理由：蒸馏与深睡归纳是**两条不同的链**
+   *   （触发源、材料、写回落点都不同）。混在一行里，「蒸馏跑了」与「归纳跑了」不可分辨。
+   */
+  distillation: `${DRIVER_NAMESPACE}/distillation`,
   /** 覆盖面：每个回合边界把 §18.2 七行的**当下**状态落一行（含 not-driven 的行）。 */
   coverage: `${DRIVER_NAMESPACE}/coverage`,
   /** 链任务抛错（**绝不静默**：`catch` 里不写行就等于把故障吃掉）。 */
@@ -93,6 +122,169 @@ export const CHAIN_SERVICES = Object.freeze({
   forgetting: 'mana-forgetting',
   learning: 'mana-learning',
 })
+
+// ── 蒸馏链（v10 §12.3）的运行期结构接口 ───────────────────────────────────────
+/**
+ * 触发侧的**真空闲阈值缺省**（毫秒）= 「空闲 10 分钟」。
+ *
+ * ⚠ 这个数与 `packages/consolidation/src/distill.ts` 的 `DISTILL_IDLE_THRESHOLD_MS` 是
+ *   **同一口径的两处落点**（本包不 import 该包 ⇒ 无法共享常量）。既有教训（`idleMs` 的
+ *   8 处 `|| 10800000` 兜底）是「同一数值散落多处、其中大半年没生效」。故这里不靠注释承诺
+ *   一致，而靠：
+ *     ① 本数经 `DriverConfig.distillIdleThresholdMs` 的缺省**只出现一次**（index.ts 引本常量）；
+ *     ② 每一行 trace 同时带 `thresholdMs`（本数）与 `chainThresholdMs`（链回报的数）⇒ 漂开可读；
+ *     ③ `tests/distill-wiring.test.mjs` ① 直接断言两者相等。
+ */
+export const DISTILL_TRIGGER_DEFAULT_THRESHOLD_MS = 10 * 60 * 1000
+
+/**
+ * 蒸馏链四个装配层参数的**缺省值唯一出处**（本文件持有；生产生效值就是这一份）。
+ *
+ * ⚠ 缺省为什么在这里而不是 `index.ts` 的 Config/schema：接线边界（见 `DriverConfig` 里那段）。
+ *   代价照实写：**生产装配下这四项不可从 profile 配置调整**（缺省即生效值）。
+ * ⚠ 若将来要把它们接进 Config，**必须**把缺省改成引本常量（而不是再写一遍字面量）——
+ *   同一数值散落多处正是本仓 `idleMs` 那 8 处兜底的教训。
+ */
+export const DISTILL_DEFAULTS = Object.freeze({
+  distillationEnabled: true,
+  distillIdleThresholdMs: DISTILL_TRIGGER_DEFAULT_THRESHOLD_MS,
+  distillCandidatesMax: 64,
+  distillationSessionsMax: 64,
+})
+
+/** 解析后的四个旋钮（内部使用；外部只见 Reading）。 */
+interface ResolvedDistillConfig {
+  readonly distillationEnabled: boolean
+  readonly distillIdleThresholdMs: number
+  readonly distillCandidatesMax: number
+  readonly distillationSessionsMax: number
+}
+
+/** 把可选旋钮折成确定值（缺省取 `DISTILL_DEFAULTS`）。 */
+export function resolveDistillConfig(config: Pick<DriverConfig, 'distillationEnabled' | 'distillIdleThresholdMs' | 'distillCandidatesMax' | 'distillationSessionsMax'>): ResolvedDistillConfig {
+  return {
+    distillationEnabled: config.distillationEnabled ?? DISTILL_DEFAULTS.distillationEnabled,
+    distillIdleThresholdMs: config.distillIdleThresholdMs ?? DISTILL_DEFAULTS.distillIdleThresholdMs,
+    distillCandidatesMax: config.distillCandidatesMax ?? DISTILL_DEFAULTS.distillCandidatesMax,
+    distillationSessionsMax: config.distillationSessionsMax ?? DISTILL_DEFAULTS.distillationSessionsMax,
+  }
+}
+
+/** 一次蒸馏请求（结构面；实现归 `packages/consolidation/src/distill.ts`，本包不 import）。 */
+export interface ChainDistillRequest {
+  readonly sessionId: string
+  /** 本会话的空闲毫秒数（**由本驱动者测**：链内不起定时器，见 distill.ts 文件头）。 */
+  readonly idleMs: number
+  /** 待蒸馏候选（本驱动者从会话自己的 trace 里取，见 `gatherDistillCandidates`）。 */
+  readonly candidates: readonly string[]
+}
+
+/**
+ * 蒸馏链的**回报读数**（结构面 —— 只声明本驱动者真正读的那几个字段）。
+ *
+ * ⚠ 这几个读数**全部**原样进 trace payload：蒸馏的六种终态各有名字，本驱动者不重判、
+ *   也不把它们折成"成功/失败"两档（折了就等于把"没到点""预筛挡了""真判了"同形）。
+ * ⚠ `writeEnabled` / `inserted` / `writeError` **必须分列**：「没写」有三种真因
+ *   （没开写面 / 被门挡了 / 写失败），只有分列才可分辨。
+ */
+export interface ChainDistillOutcome {
+  readonly state: string
+  readonly reason: string
+  readonly llmCalls: number
+  readonly llmDegraded: string | null
+  readonly writeEnabled: boolean
+  readonly inserted: readonly string[]
+  readonly idempotentSkips: number
+  readonly candidates: number
+  /** 预筛读数（`ran/scanned/hit/miss/empty/table`）—— 「筛了但全 miss」与「压根没筛」靠它分列。 */
+  readonly prefilter: {
+    readonly ran: boolean
+    readonly scanned: number
+    readonly hit: number
+    readonly miss: number
+    readonly empty: number
+    readonly table: string | null
+  }
+  /** 链内实际用的空闲阈值（与本文件的触发阈值**两处**，见 DISTILL_TRIGGER_DEFAULT_THRESHOLD_MS）。 */
+  readonly thresholdMs: number | null
+  /** 判定逐条读数（`vetoedBy` 分布是本驱动者读得到的最细一层；不重算）。 */
+  readonly vetoedBy: readonly (string | null)[]
+  /**
+   * 编码侧码判（§12.3 的**第二道门**）真跑了几条。
+   *
+   * ⚠ **0 不等于"通过了"**：它可能是没接线（`long-term` 未装配/产物缺失）。这个区别由
+   *   链内读数承载（`DistillDecision.codeGate.ran`），本驱动者只**如实回显条数**，
+   *   不把它折成布尔 —— 折了就分不出「没判」与「判过没通过」（本仓两道门的核心纪律）。
+   */
+  readonly codeGateRan: number
+  /** 写失败的**真因**（成功/未尝试写时为 null；不得用空串冒充）。 */
+  readonly writeErrors: readonly string[]
+}
+
+/**
+ * 蒸馏的**生产可达入口**（由 `mana-consolidation` 服务提供）。
+ *
+ * ⚠ 为什么经服务面而不是 `import`：本仓跨包连接一律走「事件 + 服务」，全仓跨包 import
+ *   只有 core 一处。本包**不 import** consolidation ⇒ 接口漂移编译期抓不到，只能靠
+ *   端到端判据抓（与 `ChainConsolidation`/`ChainSummary` 同一条既有取舍，代价照实写）。
+ */
+export interface ChainDistillation {
+  distillProduce(request: ChainDistillRequest): Promise<ChainDistillOutcome>
+}
+
+/**
+ * 从会话自己的 trace 里取蒸馏候选（v10 §12.3 第 ② 步的**输入面**）。
+ *
+ * ⚠ 为什么读 `mana_trace` 而不是「会话痕迹文件」：收割归守藏适配层的面，而该包已被裁定
+ *   **不落地**（触碰「不动 shoucang」）⇒ `distillSession` 的候选由**调用方喂入**。本驱动者在
+ *   本仓能找到、且与会话同源的材料只有 `mana_trace`。
+ * ⚠ **只取用户侧文本**（`event_type IN ('observation','attention')` 且 payload 无
+ *   `gate` 的行）：
+ *   · 不含 `mana-scheduler/chain/*` —— 那些是本驱动者自己的记账行，喂回去就是自产自食；
+ *   · 不含 `injection` 行 —— 注入块是**记忆库自己的内容**，再蒸馏一遍会把已有记忆
+ *     当成"新产出"重新写回（回音室）；
+ *   · 也不含 `decision`/`recall`（判定读数，不是会话内容）。
+ *   这两条排除不靠"模型会自己判断"，而是**查询条件**（结构性）。
+ * ⚠ 读不到会话内容（含 payload 解析失败）⇒ 如实进 `skipped` 的 `reason`，**不静默凑数**。
+ */
+export function gatherDistillCandidates(
+  core: ManaCoreService,
+  sessionId: string,
+  limit: number,
+): { readonly candidates: readonly string[]; readonly seen: number; readonly capped: boolean; readonly reason: string | null } {
+  const cap = Math.max(1, Math.floor(limit))
+  if (sessionId === '') {
+    return { candidates: [], seen: 0, capped: false, reason: 'no-session-identity：agent 上取不到 sessionId / session.id ⇒ 不落虚构分区' }
+  }
+  const rows = core.db
+    .prepare(
+      "SELECT payload FROM mana_trace WHERE session_id = ? AND event_type IN ('observation', 'attention')" +
+        ' ORDER BY seq ASC LIMIT ?',
+    )
+    .all(sessionId, cap + 1) as unknown as { payload: string | null }[]
+  const contents: string[] = []
+  let unreadable = 0
+  for (const row of rows.slice(0, cap)) {
+    let parsed: { content?: unknown } | null = null
+    try {
+      parsed = JSON.parse(row.payload ?? 'null') as { content?: unknown } | null
+    } catch {
+      // 解析失败**不得**被读成"该行没有内容"：分开计数，最后进 reason。
+      parsed = null
+    }
+    const content = parsed === null ? undefined : parsed.content
+    if (typeof content === 'string' && content.trim() !== '') contents.push(content)
+    else unreadable += 1
+  }
+  const reason =
+    contents.length === 0
+      ? '本会话在 mana_trace 里没有可蒸馏的用户侧内容（扫描 ' + String(rows.length) + ' 行，取不到内容 ' + String(unreadable) + ' 行）'
+      : unreadable > 0
+        ? '有 ' + String(unreadable) + ' 行 trace 的内容取不到（payload 缺失或解析失败）—— 已跳过，未拿别的行冒充'
+        : null
+  return { candidates: contents, seen: rows.length, capped: rows.length > cap, reason }
+}
+
 // ── §18.2 触发时机表（**唯一口径表**，逐行对齐 v10 原文）──────────────────────
 /**
  * 每一行的 `hostTrigger === null` 都必须带非空 `reason` —— 那是「本行没有可接的宿主事件面」
@@ -102,7 +294,7 @@ export interface SevenChainRow {
   readonly id: string
   /** §18.2 原文的「触发源」列。 */
   readonly v10Trigger: string
-  /** §18.2 原文的「触发链条」列。 */
+  /** 「触发链条」列（§18.2 原文口径；**恒非空**）。 */
   readonly v10Chains: readonly string[]
   /** 本仓实际挂的宿主事件；`null` = 无源可接。 */
   readonly hostTrigger: string | null
@@ -185,6 +377,35 @@ export const SEVEN_CHAIN_TABLE: readonly SevenChainRow[] = Object.freeze([
     requires: [CHAIN_SERVICES.learning],
   },
 ])
+
+/**
+ * **蒸馏链的触发声明（v10 §12.3）** —— 与 `SEVEN_CHAIN_TABLE` **同一行形状**，但**不并进它**。
+ *
+ * ⚠ 为什么不并进那张表（这条是实测抓出来的，不是口味问题）：`SEVEN_CHAIN_TABLE` 是
+ *   **§18.2「七链条触发时机」的唯一口径表**，既有判据（`tests/chains-e2e.test.mjs` T10）
+ *   逐条钉死它「恰好七行 + id 与顺序逐字」；而 §12.3 的会话蒸馏**不属那七行**
+ *   （v10 里它由 §12.3 自己规定触发，§18.2 表内没有它）。并进去 = 篡改那张表的口径，
+ *   并会让 T10 变红 —— 那是**拆东墙补西墙**（把既有判据的语义弄坏来给自己的改动腾位置）。
+ *   ⇒ 本行独立声明：形状同源（`SevenChainRow`），字段逐条齐（`v10Trigger`/`hostTrigger`/
+ *   `substitution`/`requires`），但**不改**七行表、**不进** `coverage()`（后者是 §18.2 的行覆盖面）。
+ *   ⇒ 这条链的运行态因此有**它自己的**读数（trace 的 `mana-scheduler/chain/distillation` 行
+ *   + `readings().distillation*`），不冒充覆盖率行。
+ */
+export const DISTILL_CHAIN_ROW: SevenChainRow = Object.freeze({
+  id: 'idle-distillation',
+  /** v10 §12.3 原文第一步，**逐字**。 */
+  v10Trigger: '空闲 10 分钟',
+  v10Chains: ['会话蒸馏'],
+  /**
+   * ⚠ **替代，不是 v10 原文**：§12.3 的触发源是「空闲 10 分钟」（实时钟），本仓无定时器
+   *   ⇒ 由回合边界**顺带检查真空闲**（本驱动者按会话维护最近活动时刻）。
+   *   与七行表里 `scheduled` 行的差别：那一行每回合都跑，本行**只在真空闲时才发起**。
+   */
+  hostTrigger: 'agent/turn-stopping',
+  substitution:
+    '本仓无定时器 ⇒ 回合边界顺带检查「真空闲」（按会话的最近活动时刻；阈值见 DISTILL_TRIGGER_DEFAULT_THRESHOLD_MS）',
+  requires: [CHAIN_SERVICES.consolidation],
+})
 
 // ── 运行期解析出来的**结构接口**（不 import 各包；只管本文件真正调到的那几个成员）────
 export interface ChainPerception {
@@ -369,6 +590,24 @@ export interface DriverConfig {
   readonly generationEnabled: boolean
   /** 送给生成链的素材上限（字符）；超出按此截断并**原样**把实际长度写进 payload。 */
   readonly generationMaterialMaxChars: number
+  // ── 蒸馏链（v10 §12.3）的四个**装配层**参数 ───────────────────────────────────
+  /**
+   * ⚠ **四个都是可选，且生产装配（`index.ts`）不转发它们** —— 这是**接线边界**，不是疏漏：
+   *   本卡写面只有 chains.ts，而把必填项加进来会强制改动 `index.ts` 的 Config/schema。
+   *   ⇒ 生效值由本文件的 `DISTILL_DEFAULTS` **唯一持有**（缺省即生产生效值），
+   *     它们的作用域是**装配层**：让判据能把阈值/上界设成边界值来跑腿（见 ⑥/⑤）。
+   * ⚠ **不是假旋钮**：每一项都改变可观测行为（⑥ 逐项证明）；但**也不能当作"生产可调项"** ——
+   *   在 profile 配置里写它们**不会**生效。这条边界由 `distill-wiring.test.mjs` ⑥ 显式断言，
+   *   使「以为能调」变成**可读的事实**而不是静默陷阱（本仓对"两处真源"的老教训）。
+   */
+  /** 蒸馏链是否发起。缺省 true。关掉**不是静默**（仍落 skipped 行 + 非空 reason）。 */
+  readonly distillationEnabled?: boolean
+  /** 蒸馏触发侧的真空闲阈值（毫秒）。缺省 = §12.3 原文的 10 分钟。 */
+  readonly distillIdleThresholdMs?: number
+  /** 每次蒸馏最多送几条候选（有界：无界会让「读满」与「被夹」同形）。 */
+  readonly distillCandidatesMax?: number
+  /** 记住多少会话的最近活动时刻（有界；超出按最久未活动逐出且丢弃可数）。 */
+  readonly distillationSessionsMax?: number
 }
 
 // ── 运行期状态读数（供 status()/chains() 与判据读）───────────────────────────
@@ -382,6 +621,30 @@ export interface DriverReadings {
   readonly bufferDropped: number
   readonly runsRecorded: number
   readonly errors: number
+  /**
+   * 蒸馏链（v10 §12.3）的**累计读数**。
+   *
+   * ⚠ 「发起了几次」与「真判了几次」**分列**：扫描了但没到空闲阈值的那一轮只增
+   *   `distillationScanned` 不增 `distillationDispatched` —— 把它们合成一个计数，
+   *   「链在跑但一直没到点」与「链压根没接」就同形了（本仓首位缺陷类）。
+   */
+  readonly distillationScanned: number
+  readonly distillationDispatched: number
+  /** 走完链（回报落库）的次数 —— 含被白名单/粒度挡下的，不只是写入成功的那几次。 */
+  readonly distillationSettled: number
+  /** 蒸馏链自身抛错的次数（照写 `chain/error` 行；不算进别的链的 `errors` 会漏账）。 */
+  readonly distillationErrors: number
+  /** 当前记住了几个会话的最近活动时刻（有界，见 `distillationSessionsMax`）。 */
+  readonly distillationSessions: number
+  /** 因超上界被逐出的会话数（**丢弃可数**，同 `bufferDropped`）。 */
+  readonly distillationSessionsDropped: number
+  /** 最近一次蒸馏的回报（无 = null；**不折成"全 0"**，那会让"没跑过"看起来像"跑了没产出"）。 */
+  readonly lastDistillation: {
+    readonly sessionId: string
+    readonly idleMs: number
+    readonly at: string
+    readonly outcome: ChainDistillOutcome
+  } | null
 }
 
 export interface ChainCoverageRow {
@@ -520,6 +783,12 @@ export interface ChainDriver {
 
 export function createChainDriver(deps: ChainDriverDeps): ChainDriver {
   const { ctx, core, config, goals } = deps
+  /**
+   * 蒸馏链的四个旋钮在此**折成确定值**（缺省归 `DISTILL_DEFAULTS`）。
+   * ⚠ 名字沿用 `config.distill*` 的写法，故下面**全部**读经这份解析结果 —— 任何一处直接读
+   *   `config.distillationEnabled` 都会在"未传"时得到 `undefined`（假绿温床）。
+   */
+  const distillCfg = resolveDistillConfig(config)
 
   /** 共激活激活流（有界；消费式清空）。 */
   let activationBuffer: { id: string; at: number }[] = []
@@ -530,6 +799,168 @@ export function createChainDriver(deps: ChainDriverDeps): ChainDriver {
     userMessagesSeen: 0,
     injectionsSeen: 0,
     errors: 0,
+    distillScanned: 0,
+    distillDispatched: 0,
+    distillSettled: 0,
+    distillErrors: 0,
+    distillSessionsDropped: 0,
+    lastDistillation: null as {
+      sessionId: string
+      idleMs: number
+      at: string
+      outcome: ChainDistillOutcome
+    } | null,
+  }
+
+  /**
+   * 每个会话的**最近活动时刻**（v10 §12.3 的「空闲」口径）。
+   *
+   * ⚠ **已知偏差，照实写而不是假装精确**：「活动」= 本驱动者收到该会话的**用户输入**或
+   *   **回合边界**。⇒ 会话在两次输入之间**连续跑工具、跑子会话**（都发生在回合内部）时，
+   *   本驱动者看不到其中间活动，计出的空闲会**偏大**。
+   *   为什么不用「距上次回合边界多久」：那是**回合间隔**（本轮结束时上一轮已结束多久），
+   *   会话中途一直有输入时它会**一直增长**，用它就等于「按回合间隔蒸馏」——不是 §12.3 的口径。
+   *   要更准得知道「本会话最近一次任何活动」，宿主没给这个面（`agent/status` 是 idle⇄running
+   *   两态、无时刻；`turn-stopping` 之前的所有步骤无事件面）⇒ 停在可归因的这一档。
+   */
+  const lastActivityAt = new Map<string, number>()
+
+  /** 记一次会话活动（有界：超出按**最久未活动**逐出，丢弃数可数 —— 同 learningBufferMax 的纪律）。 */
+  const noteActivity = (sessionId: string, at: number): void => {
+    lastActivityAt.set(sessionId, at)
+    const budget = Math.max(1, distillCfg.distillationSessionsMax)
+    while (lastActivityAt.size > budget) {
+      let oldestKey: string | null = null
+      let oldestAt = Number.POSITIVE_INFINITY
+      for (const [key, value] of lastActivityAt) {
+        if (value < oldestAt) {
+          oldestAt = value
+          oldestKey = key
+        }
+      }
+      if (oldestKey === null) break
+      lastActivityAt.delete(oldestKey)
+      state.distillSessionsDropped += 1
+    }
+  }
+
+  /**
+   * ⚠ 编码侧码判（§12.3 的第二道门）**不在这里解析**：它是 `long-term` 的判据面，属
+   *   **蒸馏链自己的依赖**，由 `mana-consolidation` 的 `distillProduce` 现解析（该包已有
+   *   「对 long-term 走 `import.meta.resolve` + 可选依赖」的既有取舍，见其文件头「册:509」）。
+   *   本驱动者**不引入第二条跨包解析边**（本文件头的硬约束①：跨包连接一律走事件 + 服务），
+   *   只如实回显链回报的 `codeGateRan` 条数。
+   */
+
+  /**
+   * **蒸馏链的收敛段**（v10 §12.3）—— 与 `runGeneration` 同一形态：先落 `dispatched`，
+   * 再 await，再落 `settled`/`failed`。两行同 `trigger` 可配对 ⇒「发起了但没回来」与
+   * 「压根没发起」**可分辨**（只有一行时这两件事同形）。
+   *
+   * ⚠ **本函数不做任何蒸馏判定**：白名单门/粒度判定/写回全在 distillation 侧。
+   *   本驱动者只决定**何时发起**、并把回报的读数**原样**落库。
+   */
+  const runDistillation = async (
+    ctxInfo: { sessionId: string; turnId: number },
+    request: ChainDistillRequest,
+  ): Promise<void> => {
+    const chain = 'distillation'
+    const trigger = 'turn:' + (ctxInfo.sessionId || 'no-session') + ':' + String(ctxInfo.turnId)
+    const distillation = svc<ChainDistillation>(CHAIN_SERVICES.consolidation)
+    if (distillation === undefined || typeof distillation.distillProduce !== 'function') {
+      trace(TRACE_EVENTS.distillation, ctxInfo.sessionId, ctxInfo.turnId, {
+        chain,
+        phase: 'skipped',
+        trigger,
+        assembled: false,
+        status: 'unassembled',
+        service: CHAIN_SERVICES.consolidation,
+        reason:
+          '未装配的服务或该服务无 distillProduce 面：' + CHAIN_SERVICES.consolidation +
+          ' —— 蒸馏链本回合**未发起**（不是「没有可蒸馏的」）',
+        idleMs: request.idleMs,
+        candidates: request.candidates.length,
+        v10Trigger: '空闲 10 分钟',
+      })
+      return
+    }
+    state.distillDispatched += 1
+    trace(TRACE_EVENTS.distillation, ctxInfo.sessionId, ctxInfo.turnId, {
+      chain,
+      phase: 'dispatched',
+      trigger,
+      assembled: true,
+      status: 'pending',
+      service: CHAIN_SERVICES.consolidation,
+      idleMs: request.idleMs,
+      thresholdMs: distillCfg.distillIdleThresholdMs,
+      candidates: request.candidates.length,
+      v10Trigger: '空闲 10 分钟',
+      substitution: '本仓无定时器 ⇒ 回合边界顺带检查真空闲',
+      source: 'mana-consolidation:distillSession',
+    })
+
+    let outcome: ChainDistillOutcome
+    try {
+      outcome = await distillation.distillProduce(request)
+    } catch (error) {
+      // 蒸馏链**刻意不吞预筛自身抛的错**（见 distill.ts 的「唯一例外」）⇒ 这里必须接住并
+      // 记一行，否则它就成了一个无人读的 unhandledRejection（本仓对该形态有实测教训）。
+      state.distillErrors += 1
+      trace(TRACE_EVENTS.error, ctxInfo.sessionId, ctxInfo.turnId, {
+        chain,
+        phase: 'failed',
+        trigger,
+        message: String((error as Error)?.message ?? error),
+        idleMs: request.idleMs,
+        v10Trigger: '空闲 10 分钟',
+      })
+      return
+    }
+    state.distillSettled += 1
+    state.lastDistillation = {
+      sessionId: ctxInfo.sessionId,
+      idleMs: request.idleMs,
+      at: new Date().toISOString(),
+      outcome,
+    }
+    trace(TRACE_EVENTS.distillation, ctxInfo.sessionId, ctxInfo.turnId, {
+      chain,
+      phase: 'settled',
+      trigger,
+      assembled: true,
+      status: 'ran',
+      service: CHAIN_SERVICES.consolidation,
+      // ── 六个终态各有名字，**原样**回显（本驱动者不折成"成功/失败"两档）──
+      state: outcome.state,
+      reason: outcome.reason,
+      idleMs: request.idleMs,
+      // ⚠ 触发侧阈值与链内阈值**并列**：两者相邻出现，漂开一眼可读（见 DISTILL_TRIGGER_*）。
+      thresholdMs: distillCfg.distillIdleThresholdMs,
+      chainThresholdMs: outcome.thresholdMs,
+      // ── 「零 LLM 成本」的可数落点：预筛未命中 ⇒ llmCalls 恒为 0 ──
+      llmCalls: outcome.llmCalls,
+      llmDegraded: outcome.llmDegraded,
+      prefilterRan: outcome.prefilter.ran,
+      prefilterScanned: outcome.prefilter.scanned,
+      prefilterHit: outcome.prefilter.hit,
+      prefilterMiss: outcome.prefilter.miss,
+      prefilterEmpty: outcome.prefilter.empty,
+      prefilterTable: outcome.prefilter.table,
+      admitted: outcome.candidates,
+      // ── 「没写」的三种真因**分列**（没开写面 / 被门挡了 / 写失败）──
+      writeEnabled: outcome.writeEnabled,
+      inserted: outcome.inserted.length,
+      insertedIds: outcome.inserted.slice(0, 20),
+      idempotentSkips: outcome.idempotentSkips,
+      vetoedBy: outcome.vetoedBy,
+      writeErrors: outcome.writeErrors,
+      // 第二道门真跑了几条（0 ≠ 通过 —— 见 ChainDistillOutcome.codeGateRan 的注释）。
+      codeGateRan: outcome.codeGateRan,
+      candidates: request.candidates.length,
+      v10Trigger: '空闲 10 分钟',
+      substitution: '本仓无定时器 ⇒ 回合边界顺带检查真空闲',
+    })
   }
 
   /** 取服务（**每次调用时**解析，不缓存 —— 常驻进程里后装配的链必须能被接上）。 */
@@ -644,7 +1075,14 @@ export function createChainDriver(deps: ChainDriverDeps): ChainDriver {
     if (!config.driverEnabled) return
     const p = payload as { agent?: unknown; message?: unknown } | undefined
     const text = extractUserText(p?.message)
-    // 非用户消息不是本行的触发源 ⇒ 不落行（落行会让 trace 被每一条内部消息淹没）。
+    /**
+     * ⚠ **空闲计时的打点在"是不是用户输入"之前**：这条事件叫 `inbox/inserted`，插入的
+     *   就是**输入** —— 非文本用户消息（图片/文件块）也是活动，凭 `text === null` 提前返回
+     *   会让会话一直在说话、而驱动者以为它空闲了 10 分钟。
+     */
+    const activitySession = resolveSessionId(p?.agent)
+    if (activitySession !== undefined) noteActivity(activitySession, Date.now())
+    // 非用户消息不是编码/检索链的触发源 ⇒ 不落行（落行会让 trace 被每一条内部消息淹没）。
     if (text === null) return
 
     state.userMessagesSeen += 1
@@ -882,6 +1320,100 @@ export function createChainDriver(deps: ChainDriverDeps): ChainDriver {
     state.ticks += 1
     state.lastTickAt = new Date().toISOString()
 
+    /**
+     * ── 蒸馏链（v10 §12.3）触发判定：**真空闲**才发起 ──────────────────────────────
+     *
+     * ⚠ 顺序**刻意在写"本回合还在干活"的链之前判**：`turn-stopping` 是 serial 型且此时
+     *   监听器按注册序依次跑，若本行写在下面那几条链之后，"空闲"就会把**同一轮**刚发生的
+     *   活动算进去（那些链本身不改活动时刻，但先后关系写清楚才不会被下一轮误读）。
+     * ⚠ **未到点/会话身份缺失/没材料/开关关着都照写行**（`phase='skipped'` + 非空 reason）——
+     *   静默返回会让「没到点」与「压根没接」同形（本仓首位缺陷类）。
+     * ⚠ **每个 skip 分支给自己的 `status`**（`disabled` / `no-session-identity` / `untracked` /
+     *   `not-idle` / `no-candidates`），**不是在落行处硬写一个状态**：硬写会让「开关关着」
+     *   与「没到点」在库里同形 —— 判据 `distill-wiring.test.mjs` ⑥ 就是被这条抓出来的（实测）。
+     */
+    const distillAction = ((): { readonly request: ChainDistillRequest | null; readonly skip: Record<string, unknown> | null } => {
+      if (!distillCfg.distillationEnabled) {
+        return {
+          request: null,
+          skip: {
+            status: 'disabled',
+            reason: 'distillationEnabled=false ⇒ 本回合**未发起**蒸馏（这是开关事实，不是「没有可蒸馏的」）',
+            idleMs: null,
+          },
+        }
+      }
+      if (sessionId === '') {
+        return {
+          request: null,
+          skip: {
+            status: 'no-session-identity',
+            reason: 'no-session-identity：agent 上取不到 sessionId / session.id ⇒ 不落虚构分区、不计空闲',
+            idleMs: null,
+          },
+        }
+      }
+      const lastAt = lastActivityAt.get(sessionId)
+      if (lastAt === undefined) {
+        return {
+          request: null,
+          skip: {
+            status: 'untracked',
+            reason: '本会话尚无活动打点（用户输入或往期回合边界）⇒ 空闲时长**不可测**，不猜一个数',
+            idleMs: null,
+          },
+        }
+      }
+      const idleMs = Math.max(0, Date.now() - lastAt)
+      if (idleMs < distillCfg.distillIdleThresholdMs) {
+        return {
+          request: null,
+          skip: {
+            status: 'not-idle',
+            reason:
+              '空闲 ' + String(idleMs) + 'ms < 阈值 ' + String(distillCfg.distillIdleThresholdMs) +
+              'ms ⇒ 本次**未触发**（这不是「跑了但没东西可蒸馏」）',
+            idleMs,
+          },
+        }
+      }
+      const gathered = gatherDistillCandidates(core, sessionId, distillCfg.distillCandidatesMax)
+      const candidates = gathered.candidates.slice()
+      if (candidates.length === 0) {
+        return {
+          request: null,
+          skip: { status: 'no-candidates', reason: gathered.reason ?? '本会话没有可蒸馏候选', idleMs, candidates: 0 },
+        }
+      }
+      /**
+       * ⚠ **发起前就打点**（不是等回报）：蒸馏可能跑很久（一次 LLM 往返），期间若又有输入
+       *   进来，下一次回合边界必须看到"已经有活动"⇒ 不会对同一段空闲重复发起。
+       *   打点与"是否发起"同处一屏 ⇒ 两者不可能漂开。
+       */
+      const dispatchedAt = Date.now()
+      noteActivity(sessionId, dispatchedAt)
+      state.distillScanned += 1
+      return {
+        request: { sessionId, idleMs, candidates },
+        skip: null,
+      }
+    })()
+
+    if (distillAction.request === null) {
+      trace(TRACE_EVENTS.distillation, sessionId, turnId, {
+        chain: 'distillation',
+        phase: 'skipped',
+        assembled: svc<unknown>(CHAIN_SERVICES.consolidation) !== undefined,
+        // status 由**分支**给出（见上面那条注释：硬写一个状态会让几种 skip 同形）。
+        status: (distillAction.skip?.status as string | undefined) ?? 'skipped',
+        service: CHAIN_SERVICES.consolidation,
+        thresholdMs: distillCfg.distillIdleThresholdMs,
+        ...(distillAction.skip ?? {}),
+        v10Trigger: '空闲 10 分钟',
+        substitution: '本仓无定时器 ⇒ 回合边界顺带检查真空闲',
+      })
+    }
+
     const cap = Math.max(1, config.maxChainItems)
     /** 一次读库供多条链复用（读侧投影只写一遍，避免两条链对「什么算活记忆」有第二套口径）。 */
     const reading = readLiveItems(core, cap)
@@ -1009,6 +1541,24 @@ export function createChainDriver(deps: ChainDriverDeps): ChainDriver {
       .slice(0, config.generationMaterialMaxChars)
     void runGeneration(ctxInfo, material)
 
+    /**
+     * ── 蒸馏链：**不 await**（同 `runGeneration`）────────────────────────────────────
+     * `turn-stopping` 由宿主 `await`，而蒸馏要真走一次 LLM 往返 ⇒ 在这里等会把宿主卡在
+     * 一次网络调用上。`runDistillation` 自己吞掉一切（内部 try/catch + 落 dispatched/failed
+     * 两行），不会成为 unhandledRejection。
+     */
+    if (distillAction.request !== null) {
+      void runDistillation(ctxInfo, distillAction.request)
+    }
+
+    /**
+     * 回合边界本身**就是一次活动** ⇒ 最后才更新打点。
+     *
+     * ⚠ 顺序是刻意的：若先更新再判空闲，`idleMs` 会恒为 0，本链**永不触发**且看上去
+     *   "开关是开的、行也照写"（最坏的一类假绿）。
+     */
+    if (sessionId !== '') noteActivity(sessionId, Date.now())
+
     // ── 覆盖面：§18.2 七行的**当下**状态（含 not-driven / not-ported 的行）──
     // 每 tick 一行：不落行的话，「某行从未被驱动」在库里与「驱动者没跑」同形。
     const rows = coverage()
@@ -1038,6 +1588,13 @@ export function createChainDriver(deps: ChainDriverDeps): ChainDriver {
     bufferDropped,
     runsRecorded: deps.runCalls(),
     errors: state.errors,
+    distillationScanned: state.distillScanned,
+    distillationDispatched: state.distillDispatched,
+    distillationSettled: state.distillSettled,
+    distillationErrors: state.distillErrors,
+    distillationSessions: lastActivityAt.size,
+    distillationSessionsDropped: state.distillSessionsDropped,
+    lastDistillation: state.lastDistillation,
   })
 
   return { onUserMessage, onInjection, onTurnBoundary, coverage, readings }

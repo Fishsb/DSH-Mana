@@ -62,6 +62,9 @@
  *   走 core 的 `registerPassThroughPreStep`（唯一写点）。漏调的后果**不报错**：
  *   本仓实测上游不调 `next()` ⇒ 下游哨兵 reached=0、返回 undefined、全程无异常。
  */
+import { createRequire } from 'node:module'
+import { fileURLToPath } from 'node:url'
+import { dirname, join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-agent'
 import { registerPassThroughPreStep, type ManaCoreService } from 'dsh-mana-core'
@@ -79,6 +82,93 @@ import {
   type SummaryOutcome,
   type SummaryRequest,
 } from './generation.ts'
+import {
+  coreDistillStore,
+  distillSession,
+  DISTILL_IDLE_THRESHOLD_MS,
+  type DistillCodeGate,
+  type DistillLlmService,
+  type DistillResult,
+} from './distill.ts'
+
+/**
+ * 蒸馏链在生产路径上的**请求面**（结构声明，不 import scheduler）。
+ *
+ * ⚠ 为什么不 `import type` scheduler：那会造出一条 consolidation → scheduler 的**依赖边**，
+ *   与既有依赖方向（scheduler 依赖 core；consolidation 的依赖方向见文件头「册:509」）相反。
+ *   本仓的结构接口都走本地声明（见 `ChainConsolidation`/`ChainSummary` 的先例）——
+ *   代价是接口漂移编译期抓不到，只能靠端到端判据抓，与那些先例同一条取舍。
+ */
+export interface DistillProduceRequest {
+  readonly sessionId: string
+  /** 本会话的空闲毫秒数（**由调用方测**；链内不起定时器 —— 见 distill.ts 文件头）。 */
+  readonly idleMs: number
+  readonly candidates: readonly string[]
+}
+
+/**
+ * 蒸馏链的**生产可达入口**（v10 §12.3）。
+ *
+ * ⚠ 它是本包把 `distillSession` 接到生产路径上的**唯一一条腿**：链内的写回面由
+ *   `coreDistillStore(core)` 供给（**不新开第二条记忆写路径**，见 distill.ts 文件头
+ *   「不写自己的审计表」）。**没有 core 时返回 `writeEnabled:false` 的读数**，不抛 ——
+ *   抛出去只会让"写面没装配"看起来像"链坏了"（两者的处置完全不同）。
+ */
+/**
+ * 编码侧码判（§12.3 的第二道门）的**运行期解析**。
+ *
+ * ⚠ 为什么和 `vector-cosine.ts` 同款走 `import.meta.resolve` + `createRequire` 而不是 `import`：
+ *   本包对 `long-term` 的依赖是**可选**的（见文件头「册:509」：声明成 inject 会成环）。
+ *   `import` 一个可选包会让"它没装"变成"本包起不来"，那正是本仓要防的静默形态。
+ * ⚠ **解析失败返回 null，不抛、不冒充** —— 链内该腿记 `ran:false`，
+ *   使「没接线」与「判过没通过」**永不同形**（这是两道门不坍成一道的前提）。
+ * ⚠ 每次调用**现解析**（不缓存模块对象）：与 `resolveVectorCosine`、`svc()` 同一条既有取舍
+ *   （常驻进程里后装配的包必须能被接上）。
+ */
+function resolveCodeGate(): DistillCodeGate | null {
+  try {
+    const entryUrl = import.meta.resolve('dsh-mana-long-term')
+    const source = join(dirname(fileURLToPath(entryUrl)), 'write-gate.js')
+    const req = createRequire(import.meta.url)
+    const mod = req(source) as { prefilterWorthKeeping?: unknown }
+    if (typeof mod.prefilterWorthKeeping !== 'function') return null
+    const fn = mod.prefilterWorthKeeping as (text: string) => {
+      hit: boolean
+      overlap: number
+      threshold: number
+      bankSize: number
+    }
+    return (text: string) => fn(text)
+  } catch {
+    // 归因不丢：链内的 codeGate.ran=false **就是**这里的读数（不另发事件 —— 见 distill.ts
+    // 「缺省为 null ⇒ 该腿记 ran:false，不是'通过'」）。
+    return null
+  }
+}
+
+export interface DistillProduceOutcome {
+  readonly state: string
+  readonly reason: string
+  readonly llmCalls: number
+  readonly llmDegraded: string | null
+  readonly writeEnabled: boolean
+  readonly inserted: readonly string[]
+  readonly idempotentSkips: number
+  readonly candidates: number
+  readonly prefilter: {
+    readonly ran: boolean
+    readonly scanned: number
+    readonly hit: number
+    readonly miss: number
+    readonly empty: number
+    readonly table: string | null
+  }
+  readonly thresholdMs: number | null
+  readonly vetoedBy: readonly (string | null)[]
+  readonly writeErrors: readonly string[]
+  /** 编码侧码判（第二道门）真跑了几条 —— **0 ≠ 通过**（见 distill.ts 的「两道门」）。 */
+  readonly codeGateRan: number
+}
 
 export const name = 'mana-consolidation'
 
@@ -171,6 +261,19 @@ export interface ManaSvc {
    *   留痕归调用方。这样「谁发起的一次生成」永远可回查，而本包不新增第二处审计真源。
    */
   summarize(request: SummaryRequest): Promise<SummaryOutcome>
+  /**
+   * **会话蒸馏链（v10 §12.3）的生产入口** —— `distillSession` 的唯一生产调用方落点。
+   *
+   * ⚠ 「链有了」≠「链在跑」：本包交付 `distill.ts` 时它是**零外部消费者**的（与它自己要修的
+   *   `prefilterBySignalWords` 同一形态）。本方法把它接到服务面上，由 scheduler 的空闲触发
+   *   调用 —— 判据 `tests/distill-wiring.test.mjs` 用**计数会抛的桩**证明生产路径真调到了它，
+   *   且「预筛未命中 ⇒ 桩零调用」。
+   * ⚠ 本方法**不起任何触发**（定时器/监听器）：何时发起归 scheduler（与 distill.ts 文件头的
+   *   「不注册监听器、不起定时器」一致）。
+   * ⚠ 它**不抛**（除预筛实现自身抛错，那是 distill.ts 刻意保留的归因通道）：失败一律折进
+   *   `state` + `reason`，由调用方决定留痕。
+   */
+  distillProduce(request: DistillProduceRequest): Promise<DistillProduceOutcome>
   /** 阈值快照（**只读**；证"阈值不是配置文件里的字面量"）。 */
   readonly thresholds: typeof CONSOLIDATION_PARAMS
 }
@@ -237,6 +340,55 @@ export function apply(ctx: Context): void {
     },
     writeRules: (rules) => writeProductionRules(core, rules),
     vectorRoute: () => ({ ok: route.ok, source: route.source, reason: route.ok ? null : route.reason }),
+    /**
+     * **会话蒸馏（v10 §12.3）的生产调用**。
+     *
+     * 逐条口径：
+     *  · 判定通道 `llm` 走 `ctx.get('mana-llm')` 的**现解析**（不缓存）—— 常驻进程里后装配的
+     *    llm 必须能被接上（与 `resolveDistillLlm`、本文件 `summarize` 同一条取舍）。
+     *  · 写回面 `store` 走 `coreDistillStore(core)` —— **唯一写口**，不新开第二条记忆写路径。
+     *  · `codeGate` 现解析（`resolveCodeGate()`，每次现取不缓存，同 `resolveVectorCosine`）——
+     *    它是 `long-term` 的判据面，**本包不重写它**（重写即第二份真源，两道门就坍成一道）。
+     *    解析不到 ⇒ 传 null，链内该腿记 `ran:false`（**不冒充通过**）。
+     *  · `prefilterOverride` **生产从不传**（传了就等于换掉 §12.3 的那道门）。
+     */
+    distillProduce: async (request: DistillProduceRequest): Promise<DistillProduceOutcome> => {
+      const llm = (ctx.get('mana-llm') ?? null) as unknown as DistillLlmService | null
+      const result: DistillResult = await distillSession({
+        sessionId: request.sessionId,
+        idleMs: request.idleMs,
+        candidates: request.candidates,
+        ctx,
+        llm,
+        store: coreDistillStore(core),
+        codeGate: resolveCodeGate(),
+      })
+      return {
+        state: result.state,
+        reason: result.reason,
+        llmCalls: result.llmCalls,
+        llmDegraded: result.llmDegraded,
+        writeEnabled: result.writeEnabled,
+        inserted: result.inserted,
+        idempotentSkips: result.idempotentSkips,
+        candidates: result.candidates.length,
+        prefilter: {
+          ran: result.prefilter.ran,
+          scanned: result.prefilter.scanned,
+          hit: result.prefilter.hit,
+          miss: result.prefilter.miss,
+          empty: result.prefilter.empty,
+          table: result.prefilter.table,
+        },
+        thresholdMs: result.idle.thresholdMs,
+        // ⚠ 「为什么被挡」的**分布**（不是布尔）：白名单/粒度/编码侧码判/写失败四条腿各自可读。
+        vetoedBy: result.decisions.map((d) => d.vetoedBy),
+        codeGateRan: result.decisions.filter((d) => d.codeGate.ran).length,
+        writeErrors: result.decisions
+          .map((d) => d.writeError)
+          .filter((e): e is string => typeof e === 'string' && e !== ''),
+      }
+    },
     // ⚠ 生成通道**每次现解析**（不缓存）：常驻进程里后装配的 prompts/llm 必须能被接上
     //   （与 scheduler/chains.ts 的 `svc()`、「每次调用时解析，不缓存」同一条既有取舍）。
     generationRoute: () => {
@@ -277,6 +429,30 @@ export type {
   SummaryPromptsService,
   SummaryLlmService,
 } from './generation.ts'
+// ── 蒸馏链（v10 §12.3）面 —— 公共导出，供生产**唯一调用方**（scheduler 的空闲触发）消费 ──
+export {
+  coreDistillStore,
+  distillSession,
+  DISTILL_IDLE_THRESHOLD_MS,
+  DISTILL_MAX_COARSE_CHARS,
+  DISTILL_MIN_TEXT_CHARS,
+  DISTILL_MEMORY_TYPE,
+  DISTILL_STATES,
+  DISTILL_TOPIC_SEPARATOR,
+} from './distill.ts'
+export type {
+  DistillCandidate,
+  DistillCodeGate,
+  DistillDecision,
+  DistillLlmService,
+  DistillResult,
+  DistillSessionInput,
+  DistillState,
+  DistillStore,
+} from './distill.ts'
+// ⚠ `DistillProduceOutcome`/`DistillProduceRequest` **不在这里再导一次**：它们在本文件顶部
+//   就地声明（`export interface`）⇒ 已经是本包的导出面，重复导出会 TS2484（实测）。
+//   这也正是不 `import type` scheduler 的代价落点：形状写在消费侧，漂移靠端到端判据抓。
 export type { SelectableMemory, SpindleSelection, SkipReason } from './select.ts'
 export type { MergePlan, NeocortexEntry, RippleVerdict } from './consolidate.ts'
 export type { ChunkingPlan, OperatorRun, ProductionRuleDraft, DropReason } from './chunking.ts'
