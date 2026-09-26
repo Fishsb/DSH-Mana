@@ -83,6 +83,11 @@ const MANIFEST = {
   learning: 'mana-learning',
   'user-model': 'mana-user-model',
   metacognition: 'mana-metacognition',
+  // W2-C1 新建包（v10 §25 的 20 个 Prompt 常量真源）。它 `inject` 为空 ——
+  // 不注册监听器、不读服务、不写库，故装配位次无先后约束。
+  // ⚠ 新增 packages/* 目录时**必须同步本清单**，否则三源互证的「盘上 17 / 清单 16」
+  //   会如实报红（这正是本判据存在的意义：不让新包静默漏装）。
+  prompts: 'mana-prompts',
 }
 
 // ── ① 真源：盘上的包目录集 ─────────────────────────────────────────────────
