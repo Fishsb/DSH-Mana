@@ -48,6 +48,12 @@ import {
   type RecallGateKnobs,
   type RecallGateReadout,
 } from './recall-gate-hook.ts'
+import {
+  recallGraphReadout,
+  runGraphLeg,
+  type RecallGraphKnobs,
+  type RecallGraphReadout,
+} from './graph.ts'
 
 export const name = 'mana-vector'
 
@@ -78,6 +84,15 @@ export interface Config {
    * 见本文件 recall 段的说明），它把**判定读数**（probed/judged/judgeIds…）作为增量字段带出来。
    */
   recallGate: RecallGateKnobs
+  /**
+   * **图检索腿**（W2-C3）：共现关联边 + 邻接扩展 —— v10 §14.3 的第三条腿（向量 + FTS5 + **图**）。
+   *
+   * ⚠ 与 `recallGate` 同处置：旋钮**不改变** `recall()` 的契约字段
+   *   （`channel`/`rankBy`/`degraded`/`hitCount` 仍由向量管道决定），
+   *   它把**图腿的判定读数**（ran/exact/edgesSeen/additions/keys…）作为增量字段带出来。
+   *   取舍与代价逐条写在 `graph.ts` 文件头（含"为什么不折进 items"）。
+   */
+  recallGraph: RecallGraphKnobs
 }
 
 export const Config: Schema<Config> = Schema.object({
@@ -102,6 +117,16 @@ export const Config: Schema<Config> = Schema.object({
     topN: Schema.number().default(10),
     judgeEnabled: Schema.boolean().default(true),
   }).default({ enabled: true, threshold: 0.7, topN: 10, judgeEnabled: true }),
+  // ⚠ 与 recallGate 同形：**嵌套 Schema.object 而不是拍平**（本仓「一个旋钮一处声明」的形态），
+  //   且缺省值取自 `DEFAULT_RECALL_GRAPH_KNOBS`（**唯一真源**）的**显式字面量**。
+  // ⚠ `hops` **不在配置面**：生产恒按 `GRAPH_HOPS_MAX` 之内的一跳走（`graph.ts` 的缺省），
+  //   "关掉扩展/放开两跳"这类**改行为**的开关只在判据的 `overrides` 里（显式传参才生效），
+  //   配置面不暴露 ⇒ 不存在"看起来开了、实际没扩"的旋钮（本仓禁的形态）。
+  recallGraph: Schema.object({
+    enabled: Schema.boolean().default(true),
+    hops: Schema.number().default(1),
+    scope: Schema.union(['seeds', 'global'] as const).default('seeds'),
+  }).default({ enabled: true, hops: 1, scope: 'seeds' }),
 })
 
 export interface ManaVectorService {
@@ -147,6 +172,16 @@ export interface ManaVectorService {
    * `null` ⇔ 本进程还没走过 `recall()`（**不得读成"门控没接"** —— 那是 `unwiredReason` 的事）。
    */
   lastRecallGate(): RecallGateReadout | null
+  /**
+   * **最近一次检索的图腿读数**（W2-C3 的即时可观测出口）。
+   *
+   * ⚠ 与 `lastRecallGate()` 同处置：返回的 `RecallGraphReadout` **与 `mana/recall` 载荷里
+   *   挂的读数是同一个形状**（同一转换函数 `recallGraphReadout`）⇒ 服务面查到的与审计里
+   *   看到的不可能漂开。进程内、**只保留最近一次**。
+   * `null` ⇔ 本进程还没走过 `recall()`（**不得读成"图腿没接"** —— 那是
+   *   `ran=false` + `unwiredReason` 的事；两者必须分开）。
+   */
+  lastRecallGraph(): RecallGraphReadout | null
 }
 
 /** `recall()` 的会话信封：给了就 emit `mana/recall`（A1-11 的字段断言读它）。 */
@@ -200,6 +235,8 @@ export function apply(ctx: Context, config: Config): void {
    * ⚠ 只保留最近一次、进程内：它不是历史账（历史账在 `mana_trace` 的 recall 载荷里）。
    */
   let lastGate: RecallGateReadout | null = null
+  /** **最近一次检索的图腿读数**（与 `lastGate` 同处置：只留最近一次、进程内）。 */
+  let lastGraph: RecallGraphReadout | null = null
 
   const service: ManaVectorService = {
     plugin: name,
@@ -260,11 +297,38 @@ export function apply(ctx: Context, config: Config): void {
       const gateReadout = recallGateReadout(gateRecord)
       lastGate = gateReadout
 
+      /**
+       * ── **图检索腿接线**（W2-C3）：v10 §14.3 的第三条腿 ────────────────────────────
+       * 读 `memory_items.related_ids`（**既有列，不新建表**）⇒ 构邻接 ⇒ 从种子扩一跳。
+       * 取舍、退化路径与优先级口径逐条写在 `graph.ts` 文件头；此处只写**接线决策**：
+       *
+       * ① 种子 = `outcome.items` 的键（与门控**同一份**候选面）⇒ 不存在"这边检索、那边另编一份"；
+       * ② **无信封时也跑**：读数面是返回值（`记录`），若只在有信封时跑，
+       *    「图腿到底跑了没有」就会退化成"取决于调用方给没给信封"（不可判）；
+       * ③ `keylessKeys` = **在候选里但没有任何分**的键（`rank` 为空）—— 撞键无值（sense=1）的落点。
+       *    ⚠ 判据是"没分"而不是"名次靠后"：带 dense/lexical 名的键是被 RRF **真融合过**的，
+       *      把它算成图扩展就是伪造成果（"带出来的"与"本来就在候选里"同形）。
+       * ④ `outcome`（`RecallOutcome`）**逐字不动**：图腿读数走 `lastRecallGraph()` 与
+       *    `mana/recall` 载荷的**契约外增量字段**，不进 `RecallOutcome`（那是 adapt.ts 的契约面）。
+       *    `rankBy`/`degraded` 是 A1-11 的机检锚点，**本腿一个字节都不改**（改它 = 让既有判据
+       *    变成假红/假绿）；`hitCount` 也不代记 —— 图腿的产出只走读数面，`applied:false` 可断言。
+       */
+      const scored = new Set<string>()
+      for (const it of outcome.items) if (Object.keys(it.rank).length > 0) scored.add(it.key)
+      const keylessKeys = candidates.filter((c) => !scored.has(c.key)).map((c) => c.key)
+      const graphResult = runGraphLeg(core.db, {
+        seeds: outcome.items.map((it) => it.key),
+        keylessKeys,
+        cfg: config.recallGraph,
+      })
+      const graphReadout = recallGraphReadout(graphResult, config.recallGraph.enabled)
+      lastGraph = graphReadout
+
       if (envelope) {
         // ⚠ **契约外增量字段**（`ManaRecall` 本身在 `packages/core/src/`，本席只读面 ⇒ 不加字段）：
         //   门控读数挂在同一载荷上，使「这次召回门控跑到哪一步」与召回**同一条审计记录**，
         //   不需要二次查询、也不会与召回行漂开（"事件发了 vs 审计可查"成对发生，同 F-01 口径）。
-        const payload: ManaRecall & { readonly recallGate: RecallGateReadout } = {
+        const payload: ManaRecall & { readonly recallGate: RecallGateReadout; readonly recallGraph: RecallGraphReadout } = {
           sessionId: envelope.sessionId,
           turnId: envelope.turnId,
           requestId: envelope.requestId,
@@ -275,6 +339,9 @@ export function apply(ctx: Context, config: Config): void {
           rankBy: outcome.rankBy,
           degraded: outcome.degraded,
           recallGate: gateReadout,
+          // ⚠ 图腿读数与门控读数**同一条审计记录**（不二次查询、不与之漂开），
+          //   同样是**契约外增量字段**：`ManaRecall` 的既有字段一个都没动。
+          recallGraph: graphReadout,
         }
         // ⚠ A1-1 的 recall 段落点（F-01）：此前本包**只广播、不落库** ⇒
         //   五类里的 'recall' 在 mana_trace 上**永远为空**，判据结构上不可能满足。
@@ -320,6 +387,7 @@ export function apply(ctx: Context, config: Config): void {
     },
     vec0Semantics: () => VEC0_SEMANTICS,
     lastRecallGate: () => lastGate,
+    lastRecallGraph: () => lastGraph,
   }
 
   ctx.effect(() => {

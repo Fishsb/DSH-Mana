@@ -16,15 +16,23 @@ import { spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 
-/** 期望的用例条数（**等式**，不是下界 —— 缺陷②的修法：删一条必须红）。 */
-const EXPECTED_CASES = 15
-/** 期望的测试文件（**逐个列名**，不用通配 —— 通配在空集下静默通过）。 */
-const FILES = ['b11-vector.test.mjs']
+/**
+ * 期望的测试文件与**各自的**用例条数（**等式**，不是下界 —— 缺陷②的修法：删一条必须红）。
+ * ⚠ **逐个列名**、不用通配（通配在空集下静默通过）。
+ * ⚠ 条数按文件分开（W2-C3 起）：全局合计相等只能证明"总数没变"，
+ *   一个文件删一条、另一个加一条就抓不到了 —— 逐文件等式才堵得住。
+ *   新判据文件必须在此登记；改条数必须**同时**改这里与文件内 ⓪ 的自检（两处同源同值）。
+ */
+const FILES = [
+  { file: 'b11-vector.test.mjs', cases: 15 },
+  { file: 'recall-graph.test.mjs', cases: 10 },
+]
 
 const here = dirname(fileURLToPath(import.meta.url))
 const failures = []
 
-for (const f of FILES) {
+let totalCases = 0
+for (const { file: f, cases: want } of FILES) {
   const p = join(here, f)
   if (!existsSync(p)) {
     failures.push(`缺文件：${f}`)
@@ -37,19 +45,22 @@ for (const f of FILES) {
   }
   const src = readFileSync(p, 'utf8')
   const cases = (src.match(/^test\(/gm) ?? []).length
-  if (cases !== EXPECTED_CASES) {
-    failures.push(`${f} 用例条数 ${cases} ≠ 期望 ${EXPECTED_CASES}（少一条 = 有判据被删走）`)
+  totalCases += cases
+  if (cases !== want) {
+    failures.push(`${f} 用例条数 ${cases} ≠ 期望 ${want}（少一条 = 有判据被删走）`)
   }
   // 内容指纹：闸不认识"半空"的文件（可读性检查，防止 1 条真断言 + 13 条空壳 test('x',()=>{})）
   if (!/assert\./.test(src)) failures.push(`${f} 内没有任何 assert.* —— 用例可能是空壳`)
+  // test.only 会让**其余判据静默不跑**（计数腿看不出来：文件里 test( 的条数没变）
+  if (/^test\.only\(/m.test(src)) failures.push(`${f} 里有 test.only —— 其余判据会静默不跑`)
 }
 
 if (failures.length) {
   console.error(`[vector·gate] 红：${failures.length} 项\n` + failures.map((f) => '  · ' + f).join('\n'))
   process.exit(1)
 }
-console.log(`[vector·gate] 前置检查通过：${FILES.length} 个文件 / ${EXPECTED_CASES} 条用例 / 非空 / 含 assert`)
+console.log(`[vector·gate] 前置检查通过：${FILES.length} 个文件 / ${totalCases} 条用例 / 非空 / 含 assert`)
 
-const args = FILES.map((f) => join(here, f))
+const args = FILES.map((f) => join(here, f.file))
 const r = spawnSync(process.execPath, ['--test', ...args], { stdio: 'inherit' })
 process.exit(r.status ?? 1)
