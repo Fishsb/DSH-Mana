@@ -57,7 +57,7 @@ export function absolutizeImports(text) {
  * @param opts.mutant        变异体：`{ replace: [[anchor, replacement], ...] }` —— 直接改写 lib 文本后装载
  * @param opts.coreMutant    同上，但改的是 core（用于「core 抛错」这类跨包路径）
  */
-export async function boot({ judge = 'ok', injectionEnabled, judgeState = 'S', mutant = null, coreMutant = null, extraConfig = null, hook = null } = {}) {
+export async function boot({ judge = 'ok', injectionEnabled, judgeState = 'S', mutant = null, coreMutant = null, extraConfig = null, hook = null, upstream = null } = {}) {
   const { Context } = await import(`${DSH}/cordis/lib/index.js`)
   const Loader = (await import(`${DSH}/cordis-plugin-loader/lib/index.js`)).default
   const dir = mkdtempSync(join(tmpdir(), 'mana-f2-'))
@@ -80,6 +80,14 @@ export async function boot({ judge = 'ok', injectionEnabled, judgeState = 'S', m
   ctx.plugin(Loader, { baseUrl: pathToFileURL(ROOT).href + '/' })
   await settle(180)
 
+  /**
+   * `upstream`：挂一条**上游**监听器（在装载本包之前注册 ⇒ 更外层）。
+   *
+   * ⚠ impl 席新增（2026-09-26）：D2 的真身是「上游**调了** `next()` 却**没把返回值传下来**」
+   *   —— 观察者式写法（DSH 生态常见）。它**不是**变异体，**不改本包一个字节**，
+   *   而是本包**真实遇到**的一种上游形态 ⇒ 用夹具参数表达，用真分发通道取证。
+   */
+  if (upstream) ctx.on('agent/pre-step', upstream)
   /** `hook`：在**装载任何 Mana 包之前**拿到 ctx（用于挂「上游」监听器 —— 更早注册 = 更外层）。 */
   if (hook) hook(ctx)
 

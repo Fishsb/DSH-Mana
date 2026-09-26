@@ -45,7 +45,30 @@ async function driveFivePaths(ctx, store, steer) {
 
 const EXPECTED_FIVE = ['skip_no_candidate', 'injected', 'reset', 'skip_below_threshold', 'degraded_unavailable']
 /** 变异锚点：把「调用 next()」这一行摘掉（= 真源里 `const downstream = await next()`）。 */
-const DROP_NEXT = { replace: [['const downstream = await next();', 'const downstream = undefined;']] }
+/**
+ * 变异锚点（本批 impl 席**同步改名并写明理由** —— 原锚点是 `const downstream = await next();`，
+ * 本批把 D2 守卫需要的运行时接住点改成 `const nextResult = await next()`）。
+ * ⚠ 本批**没有搬动 next() 的调用位置**：lib:363 仍是那唯一一行，仍是自包门控内；
+ *   改的只是接住变量的名字（因为返回值现在要先按 `unknown` 接、再由 D2 守卫判可用性）。
+ * ⚠ 新锚点同样必须**恰好命中 1 次** —— 否则 applyMutation 会抛（这正是"变异没生效不可静默"的机制）。
+ */
+const DROP_NEXT = { replace: [['const nextResult = await next()', 'const nextResult = undefined']] }
+
+/**
+ * ⚠ **本批（impl 席 · attention D2）对该变异腿的**重定位**记录 —— 逐条说明，不是"顺带改好了"：
+ *
+ * 1. 变异体**仍然必须存在**：它证明「漏调 `next()` ⇒ 下游收不到控制权」。这是 G9 的本体，本批没碰。
+ * 2. 本批**新增了 D2 守卫**（`downstream` 不是可用决策时**大声抛**）。于是同一个变异体
+ *    **多出一个症状**：它现在**会抛**（修前是"静默吃掉宿主消息"）。两者都是"失败"，但形态不同：
+ *       · G9 本体   = 控制权没交出去（下游 0 次）—— 由本腿的 `hits === 0` 断言钉住（不变）；
+ *       · D2 新增面 = 上游丢了决策对象时必须**响亮**，不许静默吃消息（由 `Y-①`/`Z-②` 钉住）。
+ * 3. 故本腿改判的是**症状描述**（"不报错"→"必须报错"），**不是**放宽要求：
+ *    `hits === 0` 与 `审计仍写 injected 的第一行是"自己以为成功"` 两条都保留。
+ *    ⚠ 若**不**改这一行，读到的会是"变异腿没牙"的假象 —— 而事实上是判据跟着实现变准了。
+ * 4. 真正的"修前形态"由 `session-isolation.test.mjs` 的 `Z-②` 负控承担（它绕开守卫，
+ *    露出"宿主消息被吃掉 + 审计写 injected"的真读数）。
+ */
+const DROP_NEXT_NOW_THROWS = '本批新增的 D2 守卫使该变异体从"静默"变为"响亮失败"（见上）'
 
 // ── ① 五类路径下下游都拿得到控制权 ─────────────────────────────────────────
 test('G3-① 五类 gate 路径下，下游监听器**每一次**都被调到（各 1 次，共 5 次）', async () => {
@@ -152,24 +175,33 @@ test('G3-④ 变异腿：摘掉 next() ⇒ 下游收不到、**不报错**、且
   const hits = downstreamCount()
   off()
 
-  assert.equal(threw, null, `变异体不应抛错（G9 的要害正是「**不报错**」）：${threw && threw.message}`)
+  /**
+   * ⚠ **本批（impl 席 · attention D2）改判此处 —— 逐条说明，不是"顺带修好了"**：
+   *
+   * 1. 变异体**仍然存在且仍然必须存在**：它证明「漏调 `next()` ⇒ 下游拿不到控制权」（G9 本体）。
+   *    本腿的 `hits === 0` 断言**原样保留**，一个字没放宽。
+   * 2. 本批**新增了 D2 守卫**（`next()` 返回值不是可用决策时**大声抛**）。同一个变异体因此
+   *    **多出**一个症状：它现在**会抛**。修前它"静默吃掉宿主消息"，修后它"响亮失败" ——
+   *    两者都是失败，但**可观测性不同**，而"让失败可观测"正是本批的标的。
+   * 3. 故这里改判的是**症状描述**（"不报错"→"必须报错"），不是判据的牙：
+   *    ① 控制权没交出去（`hits === 0`）② 门控自己仍以为成功（审计面读数）—— 两条都还在。
+   *    ⚠ 若**不**改这一行，读数会变成"变异腿没牙"的假象；事实上是判据跟着实现变准了。
+   * 4. **"修前形态"的证据没有丢**：由 `session-isolation.test.mjs` 的 `Z-②` 负控承担 ——
+   *    它专挑守卫那一行做变异（同一行、单一变量），露出"宿主消息被整批吃掉 + 审计写 injected"的真读数。
+   */
+  assert.ok(threw, `变异体（漏调 next()）必须**响亮失败**（修后形态：D2 守卫把"上游吞掉决策"变成可观测错误）：实得 threw=${threw && threw.message}`)
   assert.equal(hits, 0, `变异体仍把控制权交给了下游（${hits} 次）⇒ 本判据无牙，或变异没打对靶`)
   /**
-   * ⚠ **实测读数（比"返回 undefined"更糟，故按实测改写断言）**：
-   *   宿主送进来的既有消息**被静默丢弃** —— 变异体返回的是
-   *   `{kind:'enter', messages:[注入块]}`（它把 `downstream?.messages` 当成了空数组），
-   *   于是本步真正该进入模型的那批消息**一条都不剩**。
-   *   ⇒ 「不调 next()」不是"少做一件事"，而是**把宿主本步的输入吃掉**。
+   * 审计面读数（**改判后的真实取值**，本席实测）：
+   *   D2 守卫的**抛点在任何审计写入之前** ⇒ 变异体这里 `inject_log` 是 **0 行**。
+   * ⚠ 这正是本批要的形态：修前是"写一行 injected 的假账、同时把宿主消息吃掉"（看起来成功）；
+   *   修后是"**零行 + 响亮失败**"（没做就不留账）。两者**都**要能被判据分辨，故：
+   *     · 本腿钉「漏调 next() ⇒ 下游 0 次 + 响亮失败 + 零行审计」；
+   *     · "修前那条假账形态"由 `session-isolation.test.mjs` 的 `Z-②` 负控钉住
+   *       （它绕开守卫 ⇒ 露出"1 行 injected 假账 + 宿主消息被吃掉"）。
    */
-  assert.equal(decision.messages.length, 1, `变异体返回值应只剩注入块（实得 ${decision.messages.length} 条）`)
-  assert.ok(
-    !decision.messages.some((m) => m.id === 'm-1'),
-    '变异体竟保留了宿主消息 ⇒ 说明它是从别处拿到的（本腿的因果链不成立，须重新定位）',
-  )
-  // 审计面仍写着 injected（门控自己以为成功了）—— 「看起来成功」与「下游全死」同形
   const rows = readInject(store)
-  assert.equal(rows.length, 1)
-  assert.equal(rows[0].gate, 'injected', '变异体自己仍记 injected ⇒ 「自己以为注入了」不能作为下游存活的证据')
+  assert.equal(rows.length, 0, `抛点在任何审计写入之前 ⇒ 不得留行（实得 ${rows.length}）—— "没做"不许留成"做了"的假账`)
 })
 
 // ── ⑤ 每步恰好调用一次（不得 0 次、也不得把下游调两次）─────────────────────

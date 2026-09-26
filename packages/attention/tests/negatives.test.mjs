@@ -105,10 +105,14 @@ test('N2 把 fail-closed 两闸改成恒假 ⇒ 降级时照常注入（G2-①/G
 })
 
 // ── N3：摘掉 `await next()` ⇒ 下游收不到（**本批的核心对拍**）───────────────
-test('N3 摘掉 next() ⇒ 下游收不到且不报错（G3-④ 必红；G9 核心）', async () => {
+test('N3 摘掉 next() ⇒ 下游收不到（G3-④ 必红；G9 核心）· 症状改判见下', async () => {
   const finding = await negativeControl(
     'N3',
-    { replace: [['const downstream = await next();', 'const downstream = undefined;']] },
+    // ⚠ **本批 impl 席同步改名并写明理由**：原锚点 `const downstream = await next();` 在本批被改名成
+    //   `const nextResult = await next()`（D2 守卫需要先按 unknown 接住返回值再判可用性）。
+    //   **next() 的调用位置一个字节没动**（lib 里仍是那唯一一行，仍在自包门控内）。
+    //   锚点改名不是"放宽"：新锚点同样必须**恰好命中 1 次**，否则 applyMutation 直接抛。
+    { replace: [['const nextResult = await next()', 'const nextResult = undefined']] },
     async ({ ctx, store, arm, downstreamCount }) => {
       perceive(ctx, { content: '候选·N3', requestId: 'req-n3' })
       const hostMsg = { id: 'm-host', role: 'user', content: [{ type: 'text', text: '宿主本步的消息' }], source: { kind: 'user' } }
@@ -125,22 +129,21 @@ test('N3 摘掉 next() ⇒ 下游收不到且不报错（G3-④ 必红；G9 核�
       return { hits, threw, decision, rows: readInject(store) }
     },
   )
-  assert.equal(finding.threw, null, 'G9 的要害正是「**无异常**」——若对拍靠抛错变红，那不是本判据在护')
-  assert.equal(finding.hits, 0, `变异后下游仍被调到（${finding.hits} 次）⇒ 该对拍无牙`)
   /**
-   * ⚠ 实测读数（比预先假定的「返回 undefined」更须点名的形态，故按实测改写）：
-   *   变异体返回的仍是 `{kind:'enter', messages:[注入块]}`，但**宿主本步送进来的消息不见了**
-   *   —— 它把 `downstream?.messages` 当成了空数组。⇒ 「不调 next()」的真实后果是
-   *   **把宿主这一步的输入整批吃掉**，且全程没有任何异常。
+   * ⚠ **本批改判（impl 席 · D2）—— 症状描述改了，咽喉没松**：
+   *   修前：该变异体**不报错**，把宿主消息静默吃掉，自己还写一行 `injected` 假账。
+   *   修后：D2 守卫让同一变异体**响亮失败**（`ok` 的"不报错"这条**形态**因此反转）。
+   *   仍被强制要求的硬读数（一条没放宽）：
+   *     ① 下游**没**拿到控制权（`hits === 0`，G9 本体）；
+   *     ② 抛的是本包**具名**错误（可被上层分类，不是偶然 TypeError）；
+   *     ③ `inject_log` **零行**（抛点在写审计之前 ⇒ 不留假账）。
+   *   修前那条"假账 + 静默吃消息"的形态并未失去覆盖：见 `session-isolation.test.mjs` 的 `Z-②`。
    */
-  assert.equal(finding.decision.kind, 'enter', '变异体照样返回 enter（宿主看起来一切正常，这正是静默）')
-  assert.equal(finding.decision.messages.length, 1, `变异体返回值应只剩注入块（实得 ${finding.decision.messages.length}）`)
-  assert.ok(
-    !finding.decision.messages.some((m) => m.id === 'm-host'),
-    '宿主消息竟还在 ⇒ 本腿的因果链不成立（须重新定位变异点）',
-  )
-  // 「自己以为成功了」与「下游全死」同形：审计面照样写着 injected
-  assert.equal(finding.rows[0].gate, 'injected', '变异体自己仍记 injected ⇒ 不能用它当「下游活着」的证据')
+  assert.ok(finding.threw, '变异体（漏调 next()）必须**响亮失败**（修后形态：D2 守卫把它变成可观测错误）')
+  assert.match(String(finding.threw.message), /上游 pre-step 监听器调了 next\(\) 却没有把它的返回值传下来/, '抛出的应是本包具名错误（不是偶然的 TypeError）')
+  assert.equal(finding.hits, 0, `变异后下游仍被调到（${finding.hits} 次）⇒ 该对拍无牙`)
+  assert.equal(finding.decision, undefined, '变异体不得返回任何决策（它在下游未交出控制权时就失败了）')
+  assert.equal(finding.rows.length, 0, `不得留下审计行（实得 ${finding.rows.length}）—— "没做"不许留成"做了"`)
 })
 
 // ── N4：trace 标签换成**另一个 S1 类**（串类，不冒充前缀）────────────────────

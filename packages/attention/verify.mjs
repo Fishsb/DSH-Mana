@@ -50,6 +50,14 @@ const TEST_FILES = [
   // ⚠ 缺陷报告腿：**正向断言**（钉住当下的**缺陷读数**）—— 实现修好后它会变红，
   //   那是设计意图（判据形状跟着事实走），不是回归。变红时按 docs/handoff/F2.md §未决项 处置。
   ['tests/defect-report.test.mjs', 4],
+  // ⚠ impl 席新增（2026-09-26）：D1 会话分区 / D2 上游吞决策 两面的**双会话交错**与**负控**。
+  //   登记值 = 该文件 `^test(` 行数（新文件不加登记在本闸会红，这是设计意图）。
+  ['tests/session-isolation.test.mjs', 7],
+  // ⚠ impl 席 c1（2026-09-26 第 3 轮）：risk 席审出的 4 条缺口（上界逐出留痕 / 逐出丢块跟踪 /
+  //   无 sid 零痕迹 / 空 sessionId 在 emit 内抛）+ 两条"不得回退"复核。
+  ['tests/eviction-and-gaps.test.mjs', 8],
+  // ⚠ impl 席 f2（2026-09-26 第 5 轮）：risk 席第二轮复审的三条新缺口（N1′/D3′/D4′）+ 两条同类病因普查。
+  ['tests/f2-new-gaps.test.mjs', 18],
 ]
 
 /** 闸⑥ 的锚点登记：必须与 `tests/negatives.test.mjs` 里的变异锚点**逐字一致**。 */
@@ -60,9 +68,25 @@ const MUTATION_ANCHORS = [
   ["finish('reset', { reset: true,", 'N1 摘掉 reset 写入点'],
   ['if (!judge || judge.degraded === true) {', 'N2a fail-closed 闸（降级）'],
   ['if (prob === null || prob < config.jevThreshold) {', 'N2b fail-closed 闸（未过阈）'],
-  ['const downstream = await next();', 'N3 摘掉 next()'],
+  // ⚠ 2026-09-26 impl 席：D2 守卫要按 `unknown` 接住 `next()` 的返回值，接住变量由
+  //   `downstream` 改名为 `nextResult` ⇒ 本锚点**随真源改名**。**next() 的调用位置未动**
+  //   （lib 里仍是那唯一一行），语义不变（仍由 negatives.test.mjs 的 N3 摘掉它）。
+  //   改锚点**不是放宽**：新锚点同样必须恰好命中 1 次，命中 0 次本闸即红。
+  ['const nextResult = await next()', 'N3 摘掉 next()'],
   ['eventType: stageLabel(4),', 'N4 injection 段标签串类'],
   ['if (injectionBudgetCharsOf(raw) > config.injectionBudgetChars) {', 'N5 摘掉预算闸'],
+  // ⚠ impl 席新增：D2 守卫在真源里的锚点（`session-isolation.test.mjs` 的 Z-② 负控逐字用它）。
+  //   本闸保证"守卫生效"与"负控打得到靶"是同一件事：锚点消失 ⇒ 负控退化为空转 ⇒ 这里先红。
+  ['assertUsableDecision(downstream)', 'D2 守卫（Z-② 负控靶）'],
+  // ⚠ f2 收尾批新增：主广播兜底的锚点（`f2-new-gaps.test.mjs` 的 Z-⑤ 逐字使用）。
+  ["emitSyncGuarded('mana/decision', decision)", '主广播兜底（Z-⑤ 负控靶）'],
+  // ⚠ f2 收尾补齐新增：逐出留痕的归因入口（`f2-new-gaps.test.mjs` 的 Z-⑥ 逐字使用）。
+  ["writeTraceGuarded('mana_trace 写入失败(逐出留痕)', {", 'F-1 逐出留痕归因（Z-⑥ 负控靶）'],
+  ['const state = sessionStateFor(sid)', 'D1 会话分区（Z-① 负控靶）'],
+  // ⚠ impl 席 c1 新增：两条逐出相关锚点（`eviction-and-gaps.test.mjs` 的 Z-③ 逐字使用）。
+  ['logSessionEviction(record)', 'N1 逐出留痕（Z-③ 负控靶）'],
+  // ⚠ impl 席 f2 新增：N1′ 的算式单点（`f2-new-gaps.test.mjs` 的 Z-④ 逐字使用它）。
+  ['const droppedPending = evicted?.pending.length ?? 0', 'N1′ 丢候选计数（Z-④ 负控靶）'],
 ]
 
 const HERE = fileURLToPath(new URL('.', import.meta.url))
@@ -123,6 +147,27 @@ for (const [rel, expected] of TEST_FILES) {
   const negOk = (out.match(/^ok \d+ - N\d/gm) ?? []).length
   if (negOk !== 5) bad(`负向对拍腿：TAP 里 N1..N5 的 ok 只有 ${negOk}/5 —— 对拍被删/被短路/被改成恒绿`)
   else ok('负向对拍腿：N1..N5 共 5 条 ok 真跑过')
+  // ⚠ impl 席新增：本批两条负控（Z-① 会话分区回退 / Z-② 摘掉 D2 守卫）也必须是"真跑过"的 ok，
+  //   而不是"文件里写着"。与 N1..N5 同口径计数，防它们被改成恒绿。
+  // ⚠ 用例名用的是**带圈数字**（Z-①/Z-②），上一版写成 `Z-\d` 会恒数到 0（本席实测踩到）⇒ 按实测改正。
+  const zOk = (out.match(/^ok \d+ - Z-/gm) ?? []).length
+  if (zOk !== 6) bad(`负向对拍腿（impl 新增）：Z-①..Z-⑥ 的 ok 只有 ${zOk}/6 —— 对拍被删/被短路/被改成恒绿`)
+  else ok('负向对拍腿（impl 新增）：Z-①..Z-⑥ 共 6 条 ok 真跑过')
+  // ⚠ f2 收尾批新增：X-①（残码真删）/ X-②（归因不污染）/ X-③（主广播不外溢）也必须是"真跑过"。
+  // ⚠ 用例名是「X-①/X-②/X-③」（带圈数字）⇒ 匹配前缀 `X-` 即可，但必须**限定 3 条**；
+  //   本席第一版写成 `X-` 后被其它名字里含 "X-" 的用例（如 off-by 计数）灌水到 7 ⇒ 已按实测校正为
+  //   「恰好 3 条」并**逐条点名**，避免"多算也算过"。
+  // ⚠ 命名冲突（本席实测踩到）：本文件的收尾批判据叫 X-①②③，而 `session-isolation.test.mjs` 里
+  //   **另有一组同名的 X-①②③**（双会话交错）⇒ 只按 `X-[①②③]` 匹配会数到 **6** 条（假"多"）。
+  //   ⇒ 必须**连用例名的关键词一起点名**，否则这条计数腿本身就在"多算也算过"。
+  const Y_TITLES = ['Y-① F-1', 'Y-② F-2', 'Y-③ ③读数竞争', 'Y-④ 普查：有界窗口', 'Y-⑤ 普查：同文件里的空 catch', 'Y-⑥ R-1', 'Y-⑦ R-2']
+  const yOk = Y_TITLES.filter((title) => out.includes(` - ${title}`)).length
+  if (yOk !== Y_TITLES.length) bad(`收尾补齐判据腿：Y-①/Y-②/Y-③ 的 ok 只有 ${yOk}/${Y_TITLES.length} —— 判据被删/被短路/被同名的另一组用例冒充`)
+  else ok(`收尾补齐判据腿（Y-①…Y-⑦）共 ${Y_TITLES.length} 条 ok 真跑过（逐条点名，防同名灌水）`)
+  const X_TITLES = ['X-① 残码真删', 'X-② 归因不污染', 'X-③ 主广播抛错不得炸宿主']
+  const xOk = X_TITLES.filter((title) => out.includes(` - ${title}`)).length
+  if (xOk !== X_TITLES.length) bad(`收尾批判据腿：X-①/X-②/X-③ 的 ok 只有 ${xOk}/${X_TITLES.length} —— 判据被删/被短路/被同名的另一组用例冒充`)
+  else ok('收尾批判据腿：X-①/X-②/X-③ 共 3 条 ok 真跑过（逐条点名，防同名灌水）')
 }
 
 // ④ 产物内容腿：重编译 src 与 lib 逐字节比

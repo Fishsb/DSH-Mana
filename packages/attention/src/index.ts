@@ -25,11 +25,43 @@
  *
  * 阶段 1 的判定链在此接上 `mana/jev/judge`（**必须用 `ctx.waterfall` 分发**，用 `ctx.emit`
  * 会同步抛 `TypeError: next is not a function`，G6）。
+ *
+ * ## f2 席（2026-09-26 第 5 轮）补的三条：D3′ / D4′ / N1′ —— 以及"还有几处"的普查
+ *
+ * **D4′ · 旁路 emit 在同步栈内**：本文件所有 `ctx.emit` 共 8 处，按"是否在调用方同步栈内"分成两类：
+ *   | # | 位置 | 类别 | 处置 |
+ *   |---|---|---|---|
+ *   | 1 | `logSessionEviction` 的 `mana/injection` | **旁路**，且在 `ingest` 同步栈内（逐出由 perceive 触发） | 改 `safeEmitDeferred`（出同步栈 + 兜异常并计数） |
+ *   | 2 | N4 空 sessionId 的 `mana/plugin/inactive` | **旁路**，同上 | 改 `safeEmitDeferred` |
+ *   | 3 | N4 正常路径的 `mana/attention` | **主广播**（同步契约） | 不动 |
+ *   | 4 | 无 sid 分支的 `mana/plugin/inactive` | **旁路**，在宿主 dispatch 栈内 | 改 `safeEmitDeferred` |
+ *   | 5 | `ingest` 正常路径的 `mana/attention` | **主广播**（同步契约） | 不动 |
+ *   | 6 | `finish` 内的 `mana/injection` | **主广播**（既有：每次 pre-step 必发） | **同步可见保持不变**，改走 `emitSyncGuarded`（兜异常 + 计数） |
+ *   | 7 | `finish` 内**两段**记账（`inject_log` / `mana_trace`）的失败兜底 `mana/plugin/inactive` | **旁路**，在宿主 dispatch 栈内 | 改 `safeEmitDeferred`（R-2：此处原写"三段"，但第 ③ 段**已无 try/catch**，见 R-1） |
+ *   | 8 | 判定链结果 `mana/decision` | **主广播**（同步契约） | **同步可见不变**，改走 `emitSyncGuarded` |
+ *
+ *   **f2 收尾批（③④）的两条补充**：
+ *   · 主广播**保持同步**（`mana/attention` 的既有消费者 `scheduler:133` / `working-memory:233`
+ *     在**同一次 emit 内**读状态并写库 ⇒ 出栈会改变可见时序 = 动别人的行为），但新增
+ *     `emitSyncGuarded`：**同步派发 + try/catch + 计数**。「可见」与「异常冒泡炸宿主」是两件事。
+ *   · ⚠ **`mana/decision` 目前全仓零消费者**（本批逐仓库核对：只有 `core/src/event-types.ts` 的
+ *     类型声明与 `packages/attention` 自己的 emit；无任何 `ctx.on('mana/decision', …)`）。
+ *     它是**为阶段 2+ 预留的事件面**，不是"有人在用"。写在这里以免下一位读者按"有人消费"去改它
+ *     —— 也正因为零消费者，它抛错**只有本包这一侧能被保护**，故它同样走 `emitSyncGuarded`。
+ *   ⇒ 结论：**旁路 4 处全部出同步栈；主广播 4 处保持同步但全部兜异常 + 计数**。
+ *     这条普查写在这里，是为了下一次改动能直接对照"还剩几处"。
+ *
+ * **D3′ · 无 sid 分支不抛**：该分支原样 `return await next()` ⇒ 上游吞决策时**不抛**而对照分支**抛**
+ *   （同一病因两副面孔）。现两条分支共用 `isUsableEnterDecision` + `ERR_UPSTREAM_SWALLOWED`。
+ *
+ * **N1′ · 逐出算式漏 `pending`**：`lossFree` 原只看"去重集/块表" ⇒ "有候选但还没注入"的会话被判成
+ *   无损，逐出时**静默丢候选**，那一步随后记 `skip_no_candidate`（与"本来就没候选"同形）。
+ *   现算式**只写一遍**（`makeEvictionRecord`），`pending` 计入，并**报 `droppedPending`**。
  */
 import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-agent'
 import Schema from '@deepseek-ai/schemastery'
-import { createUserMessage } from '@deepseek-ai/dsh-llm'
+import { createUserMessage, type UserMessage } from '@deepseek-ai/dsh-llm'
 import {
   MANA_STAGES,
   registerPassThroughPreStep,
@@ -41,6 +73,132 @@ import {
   type ManaObservation,
   type ManaStage,
 } from 'dsh-mana-core'
+
+/**
+ * ── impl 席 · 本批修的两条「让失败不可观测」的债（2026-09-26）────────────────────
+ *
+ * ## D2 · 调了 `next()` 却不 return 其结果的上游 ⇒ 宿主本步消息被整批吃掉
+ *   `agent/pre-step` 是 **waterfall（环绕中间件）**。上游监听器只要「调了 `next()` 但没把
+ *   它的返回值传下来」（观察者式写法，DSH 生态常见），本包收到的 `downstream` 就是 `undefined`。
+ *   旧实现在这条路径上用 `Array.isArray(downstream?.messages) ? … : []` 兜底 ⇒ 把「没有决策」
+ *   当成「决策里没有任何消息」，**返回 `{kind:'enter', messages:[本包块]}`** ⇒ 宿主这一步本该
+ *   进模型的历史消息**一条不剩**，而全程无异常、`inject_log` 还写着 `injected`
+ *   ⇒ 「看起来成功」与「把宿主输入吃掉」表面同形（本仓首位缺陷类）。
+ *   ⇒ 现口径：`downstream === undefined/null` **大声抛**（失败可观测），且抛点**在任何审计写入之前**；
+ *     因此 `inject_log` **不得**新增 `injected` 行 —— 「没做」不许留成「做了」的假账。
+ *     ⚠ 为什么不留一条留痕再抛：5 类 `gate` 枚举是**冻结契约**，里面没有「上游把决策吞了」
+ *       这一类；自造第 6 类同时违反领域模型与 A1-13 判据口径。唯一正确形态是**响亮失败**。
+ *
+ * ## D1 · 四处门控状态是按「插件实例」而非「会话」分区的
+ *   `pending` / `injectedRequests` / `injectedBlocks` / `lastJudgeProbability` 原先都是实例级，
+ *   而同函数里**早已取到 `sid`**。宿主跑子代理会话是常态 ⇒ 后果两条：
+ *     · **串档**：A 会话的候选被注入 B 会话的步；
+ *     · **假绿**：I2「每条记忆每 session 最多注入一次」退化为**跨会话全局去重**。
+ *   ⇒ 现口径：四处一律按 `sid` 分区的 `Map`；`sid` 取不到时**大声抛**（不落 `''` 虚构分区）。
+ *     会话状态在 `agent/disposed` 时释放，且设有上界（超出按最旧逐出 —— 有界、显式、可断言）。
+ */
+
+/**
+ * 逐出/释放类留痕所用的 trace 标签（**全部取自既有裸名五类**，不新增事件、不改契约）。
+ *
+ * ⚠ 为什么复用 `injection` 段而不是造第 6 类标签：A1-1 的判据是「五类标签集合等式」
+ *   与「标签 ⊆ MANA_STAGES」两条同时成立 ⇒ 造第 6 类会直接判红；而"该会话的去重集被重置"
+ *   在语义上本就属于 Injection Gate 的**决策面**（gate='reset' 的既有含义正是"账目必须重置"）。
+ *   区分手段 = payload 里的 `reason` 字段（与既有 `inj` 载荷同构，纯加法、无字段冲突）。
+ */
+export const SESSION_EVICTION_REASON = 'session-state-evicted'
+/** `MANA_STAGES` 里 injection 段的索引（逐出留痕与注入段共用同一段，见其调用点注释）。 */
+const INJECTION_STAGE_INDEX = 4
+/** 逐出留痕所用的 gate：`reset`（既有含义就是"账目必须重置"），**不新增第 6 类**。 */
+const EVICTION_GATE: InjectionGate = 'reset'
+/** `mana/plugin/inactive` 的 `missing[0]` 值：会话无法归属（N3 的落痕判据锚点）。 */
+export const TRACE_REASON_NO_SESSION_ID = 'attention:no-session-id'
+
+/** 会话状态上界（超出按最旧逐出）。读数见 `status().maxSessions`。 */
+export const MAX_SESSION_STATES = 256
+
+/** `downstream` 不是决策对象时的显式失败（D2）。 */
+export const ERR_UPSTREAM_SWALLOWED =
+  'mana-attention: 上游 pre-step 监听器调了 next() 却没有把它的返回值传下来（downstream === undefined/null）。' +
+  '若按「决策里没有消息」处理，宿主本步要进模型的既有消息会被整批吃掉且不报错（G9 的静默形态）。处置：让该上游 return await next()。'
+
+/** `sid` 取不到时的显式失败（D1）。 */
+/** `mana/observation` 的 `sessionId` 无效（空/纯空白）时的具名失败（N4）。 */
+export const ERR_INVALID_OBS_SESSION_ID =
+  'mana-attention: mana/observation 的 sessionId 为空/纯空白 ⇒ 该观察无法归入任何会话分区。' +
+  '拒绝在 emit 分发链内抛（那会让 perception.perceive 收到异常且**零 trace**，观测不可得）。' +
+  '校验必须先发生在源头 perception.perceive；本包在 ingest 内只做兜底记账、不当场抛。'
+
+/**
+ * `next()` 返回了对象、但形状不合宿主契约（`enter` 却缺 `messages` 数组，或 `kind` 未知）。
+ *
+ * ⚠ 与 `ERR_UPSTREAM_SWALLOWED` **分开**（f2 席 · 实测踩到）：core 的 G9/R0 前置用例用一个
+ *   **不完整的决策桩** `{ messages: [] }` 分发 pre-step —— 那是"上游给了形状不合的决策"，
+ *   不是"上游把决策吞了"。两件事的处置不同：前者要上游按契约补形状，后者要上游 return 它的 next()。
+ *   合并成一条错误会让排查者拿到**指向错误位置的线索**（本仓「错误位置远离真因」的既有教训）。
+ */
+export const ERR_MALFORMED_DECISION =
+  'mana-attention: 上游 pre-step 监听器返回的对象不合宿主 PreStepDecision 契约' +
+  '（enter 必须带 messages 数组；reject 不带）。处置：让该上游返回宿主契约形状的决策。'
+
+export const ERR_NO_SESSION_ID =
+  'mana-attention: agent/pre-step 载荷里取不到会话 id（agent.sessionId 与 agent.session.id 都为空）。' +
+  '禁止用空串兜底：那会把所有会话并进同一个虚构分区，正是跨会话串档的形态。'
+
+/**
+ * 取本次 pre-step 所属**会话**的稳定身份。
+ *
+ * ⚠ 顺序（本席 runtime 实测：`agent.sessionId` 与 `agent.session.id` **都可能出现**，
+ *   且**都不等于** `agent.id`，后者是 agent 身份、不是 session 身份）：`sessionId` → `session.id`。
+ *   **不**回退到 `agent.id`：换一个身份维度分区会把「按会话」静默变成「按 agent」。
+ * ⚠ 不返回 `''`：空串 = 所有会话一个分区 = 串档（见 ERR_NO_SESSION_ID）。
+ */
+/**
+ * `next()` 的返回值是不是一个**可用的决策**（D2 的唯一判据）。
+ *
+ * ⚠ 判据形态（见调用点）：**只留一条通道**。把"不是对象 / 不是 enter / messages 不是数组"
+ *   三种情形**合并**成同一个失败 —— 否则负控摘守卫时会崩在 TypeError 上，报红原因从
+ *   "宿主输入被吃掉"变成"崩了"（循环论证）。
+ * ⚠ `reject` 是**合法**决策（宿主 reject 分支没有 messages）⇒ 放行，由调用方按 kind 分派。
+ */
+/**
+ * 断言 `next()` 的返回值可用；不可用即抛具名错（**全文件唯一的抛点**）。
+ *
+ * ⚠ 存在的理由（f2 席 · D3′）：原先主分支与"无 sid"分支各写一遍守卫 ⇒ ① 同一病因两副面孔
+ *   （一条抛、一条原样透传 `undefined`）；② 变异器锚点出现 2 次 ⇒ 负控直接失效（实测踩到）。
+ *   收成一个函数后，"要不要抛"只在一处决定，锚点也自然唯一。
+ */
+export function assertUsableDecision(decision: unknown): void {
+  if (decision === undefined || decision === null) throw new Error(ERR_UPSTREAM_SWALLOWED)
+  if (!isUsableEnterDecision(decision)) throw new Error(ERR_MALFORMED_DECISION)
+}
+
+export function isUsableEnterDecision(decision: unknown): boolean {
+  if (typeof decision !== 'object' || decision === null) return false
+  const kind = (decision as { kind?: unknown }).kind
+  if (kind === 'reject') return true
+  /**
+   * ⚠ **`kind` 缺席视为 `enter`** —— 这不是宽松，是**与宿主一致**（f2 席实测校准）：
+   *   宿主 loop 消费该决策的原文是 `if (decision.kind === 'reject') return decision;
+   *   return { ...decision, assembly }`（`dsh-agent-loop/lib/index.js:911-924`）——
+   *   **它只判 `reject`**，其余一律当"进入这一步"。故 `{ messages: [...] }` 这种不带 `kind`
+   *   的返回在**生产路径上本来就是合法的**，宿主自己的 `model-selection` 插件也走这条形态。
+   *   ⇒ 若把"缺 kind"判成不合契约，本包就会**拒绝一个宿主本来接受的决策**（这类"判据比宿主更严"
+   *     的写法会让今天能跑的插件明天挂掉 —— 本批差点踩到，如实记在读数文件里）。
+   *   仍然要求的只有一件事：`messages` 必须是数组（否则下面按数组消费会炸/静默丢）。
+   */
+  if (kind !== undefined && kind !== 'enter') return false
+  return Array.isArray((decision as { messages?: unknown }).messages)
+}
+
+export function resolvePreStepSessionId(agent: unknown): string | undefined {
+  const a = agent as { sessionId?: unknown; session?: { id?: unknown } } | undefined
+  for (const candidate of [a?.sessionId, a?.session?.id]) {
+    if (typeof candidate === 'string' && candidate.trim() !== '') return candidate
+  }
+  return undefined
+}
+
 
 /**
  * 取第 i 个 stage 的**裸名标签**（mana_trace.event_type 的真源 = core 的 MANA_STAGES）。
@@ -115,6 +273,48 @@ export function innerAngleCount(block: string): number {
 
 export interface ManaAttentionService {
   readonly plugin: string
+  /** `sid` 取不到时的显式失败（D1；见 ERR_NO_SESSION_ID）。 */
+  readonly noSessionIdError: string
+  /** `downstream === undefined/null` 时的显式失败（D2；见 ERR_UPSTREAM_SWALLOWED）。 */
+  readonly upstreamSwallowedError: string
+  /** 释放一个会话的门控分区（会话结束）；返回是否真的删掉（不静默）。 */
+  releaseSession(sid: string): boolean
+  /** 会话分区数（判据读数：分区表真的在动，而不是"我以为它在动"）。 */
+  sessionCount(): number
+  /** 某会话是否有待注入候选（**按会话**问，不从别处借读数）。 */
+  hasPending(sid: string): boolean
+  /** 最近活跃会话（只读投影用；**不参与**注入决策，判据据此断言投影与决策面是两件事）。 */
+  lastActiveSession(): string | null
+  /** 会话分区上界（**可读真值**：判据要断言"有界"，不许只是文档里写着）。 */
+  readonly maxSessions: number
+  /**
+   * 逐出流水（**只读**，最近 32 条）。
+   *
+   * ⚠ 它存在的唯一理由：让"上界逐出**真的发生过**"变成可断言的事实 —— 否则
+   *   「从未逐出」与「逐出了并静默重置了 I2 账目」在库上都只是"没看到异常"。
+   */
+  evictionLog(): readonly { sessionId: string; droppedPending: number; droppedDuplicateKeys: number; droppedTrackedBlocks: number; lossFree: boolean }[]
+  /** 逐出留痕里使用的 gate 值（判据据此在 `mana_trace` 里认领逐出行，不猜字面量）。 */
+  readonly evictionReason: string
+  /**
+   * 派发失败读数（**合并视图**，按时刻排序）。
+   *
+   * ⚠ `event` 以 `sync:` 开头 = **主广播**（同步派发）里监听器抛错被兜住；
+   *   否则 = **旁路**消息没送到。两类**分表存放**（原因不同、补救方向不同），合并视图只为兼容既有消费者。
+   */
+  deferredEmitFailures(): readonly { event: string; message: string; at: string }[]
+  /**
+   * 两张失败表各自的条数 + 上限。
+   *
+   * ⚠ 存在的理由：**合并视图看不出"某一类被另一类挤掉"**。主广播每步都派发，一个常驻抛错的监听器
+   *   几步就能填满窗口，而"逐出旁路没送到"每 256 会话才可能发生一次 ⇒ 后者会被结构性挤掉且无痕迹。
+   *   有了这个读数，"被挤掉"才可判据（详见 `pushFailure` 处的三条判断依据）。
+   */
+  emitFailureCounts(): { sync: number; bypass: number; cap: number; windowDropped: { sync: number; bypass: number } }
+  /** 各处**有界窗口**淘汰掉的条数（丢读数也要报数；全 0 才说明"没丢过读数"）。 */
+  windowDroppedCounts(): { failureSync: number; failureBypass: number; evictionLog: number; focusDropLog: number }
+  /** 聚焦项上限导致的候选丢弃流水（同类病因普查的第二处；空数组 = 没丢过）。 */
+  focusDropLog(): readonly { sessionId: string; dropped: number; at: string }[]
   /**
    * 处理一条观察：写 `mana_trace`（event_type='observation'）并广播 `mana/attention`。
    * 返回写入的 `seq`。
@@ -140,10 +340,242 @@ export function apply(ctx: Context, config: Config): void {
   const core: ManaCoreService | undefined = ctx.get('mana-core')
   if (!core) throw new Error('mana-attention: 缺少 mana-core 服务（inject 未满足）')
 
-  /** 本 session 内已放行、待注入的聚焦项（注入后即清，避免重复注入）。 */
-  const pending: ManaAttention[] = []
-  /** 已注入过的 requestId（I2：每条记忆每 session 最多注入一次）。 */
-  const injectedRequests = new Set<string>()
+  /** ── D1：门控状态**按会话**分区（原为插件实例级 ⇒ 跨会话串档 + I2 假绿）──────────
+   *
+   * ⚠ 三处集合 + 一处标量原先是实例级。宿主跑子代理会话是常态 ⇒
+   *   ① A 会话的候选被注入 B 会话的步（串档）；② I2 退化为跨会话全局去重（判据假绿）。
+   * ⚠ 分区键只认**会话身份**（见 resolvePreStepSessionId）：取不到就抛，不落空串。
+   * ⚠ 表有上界（MAX_SESSION_STATES）：无界增长会让「该清没清」不可观测；
+   *   超出按**最旧**逐出（Map 保持插入序，首个键即最旧）。会话结束时由 agent/disposed 主动释放。
+   */
+  interface SessionGatingState {
+    /** 本会话内已放行、待注入的聚焦项（注入后即清，避免重复注入）。 */
+    pending: ManaAttention[]
+    /** 本会话已注入过的 requestId（I2：每条记忆每 session 最多注入一次）。 */
+    injectedRequests: Set<string>
+    /** 本会话已注入、但**是否仍在上下文中**尚未逐块核对的块（reset 检测用的有序表）。 */
+    injectedBlocks: { blockId: string; messageId: string }[]
+    /** 最近一次判定链给出的概率（**仅该会话该次 pre-step 内**有效）。 */
+    lastJudgeProbability: number | null
+  }
+  const sessionStates = new Map<string, SessionGatingState>()
+  /**
+   * 服务面缺省分区：**只给不带会话上下文的调用**（如 `buildBlock()`）用。
+   * ⚠ 它**不是**任何真会话：pre-step 路径取不到 sid 是**真错误**（抛），服务面读缺省分区是**合法**的
+   *   —— 两者必须可分辨，否则「取不到身份」会表现成"读了一个正常会话"。
+   */
+  /** 服务面缺省分区名（**不是**真会话）；pre-step 路径永远读不到它。 */
+  const SERVICE_FACE_SESSION = '<service-face>'
+  /**
+   * 最近活跃的会话（**只读投影**用；pre-step 路径**从不**读它）。
+   *
+   * ⚠ 它的唯一用途：让不带 sid 的服务面调用（`buildBlock()`）读到"刚刚那条会话"的候选池 ——
+   *   这是**既有行为**（`core/tests/injection-gate.test.mjs` 的 P3 就是这么取的：先 `perceive`
+   *   再用 `buildBlock()` 断言块形态）。
+   * ⚠ 但它**不得**参与任何**注入决策**：注入永远按本次 pre-step 的 `sid` 读自己的分区，
+   *   否则「A 会话的候选被注入 B 会话的步」这条债就从后门回来了。该性质由新判据钉住
+   *   （见 `session-isolation.test.mjs` 的 X-③：两会话交错时注入面互不可见）。
+   */
+  let lastActiveSession: string | null = null
+  /**
+   * 逐出一个会话分区（**上界**触发的路径，与 `releaseSession` 是两件事）。
+   *
+   * ⚠ **为什么必须留痕**（N1，risk 席实测）：256 会话上界是**工程选择**，而 I2
+   *   「每条记忆每 session 最多注入一次」是**判据表硬不变式**。冲突时不变式只能"留痕地让路"：
+   *   逐出会连 `injectedRequests` 一起去掉 ⇒ **同一 requestId 在该会话里会被再注入一次**
+   *   （审计 1 行 → 2 行）。若不留痕，这条 I2 违例在库上与"正常注入"完全同形 —— 本仓首位缺陷类。
+   *   ⇒ 逐出**必须**写一行 trace 记账（见 `logSessionEviction`），且把去重集置空这件事
+   *     作为**可读事实**（`reason=SESSION_EVICTION_REASON`）落在 payload 里。
+   * ⚠ 为什么逐出时改"清空"而不是"把 `injectedRequests` 搬回新分区"：搬回来会让无界集合
+   *   复活（上界就白设了）；而"清空 + 落痕"把"哪些会话的 I2 账目被重置过"变成可查事实，
+   *   由判据/审计决定要不要追责。这是**显式让路**，不是静默破坏。
+   */
+  /**
+   * 逐出记录（**算式的唯一真源**）。
+   *
+   * ⚠ **N1′（f2 席修）**：上一版的 `lossFree` 算式出现在**两处**（流水记录与 trace 载荷），
+   *   且**都只看 `injectedRequests` / `injectedBlocks`、漏了 `pending`** ⇒ 一个"有候选但还没注入"
+   *   的会话被判成"无损"，逐出它时**静默丢掉候选**；随后那一步落 `gate='skip_no_candidate'`，
+   *   与「本来就没候选」**完全同形**（本仓首位缺陷类）。
+   *   ⇒ 现口径：① 算式**只写一遍**（本函数），流水与载荷共用同一个 record，不可能漂开；
+   *     ② `pending` 计入 `lossFree`；③ 逐出时**报出 `droppedPending`** —— 丢候选从"静默"变成**可数事实**。
+   *   ⚠ 为什么取"计数"而不是"保护带候选的会话不逐出"（risk 席给的 A/B 两选项，取 B）：
+   *     保护法会让新会话自己的首条消息在超限时无处可去（B 的裁决理由），且会破坏内存上界；
+   *     计数的代价是"候选仍可能被丢"，收益是它**再也无法静默**。
+   */
+  interface EvictionRecord {
+    sessionId: string
+    /** 逐出时该会话**尚未注入**的候选条数（>0 即"这次逐出丢掉了候选"）。 */
+    droppedPending: number
+    /** 逐出时该会话已注入过的 requestId 条数（>0 即 I2 账目被重置 ⇒ 同记忆可再注入一次）。 */
+    droppedDuplicateKeys: number
+    /** 逐出时该会话尚未核对是否仍在上下文的块数（>0 即 reset 检测不再覆盖这些块）。 */
+    droppedTrackedBlocks: number
+    /** 无损 = 三项全 0：这次逐出没有动任何账目、也没有丢任何候选或块跟踪。 */
+    lossFree: boolean
+  }
+  /** 由**一个** reader 构造记录：三项都从同一个 `evicted` 快照读，算式不重复。 */
+  const makeEvictionRecord = (sessionId: string, evicted: SessionGatingState | undefined): EvictionRecord => {
+    const droppedPending = evicted?.pending.length ?? 0
+    const droppedDuplicateKeys = evicted?.injectedRequests.size ?? 0
+    const droppedTrackedBlocks = evicted?.injectedBlocks.length ?? 0
+    return {
+      sessionId,
+      droppedPending,
+      droppedDuplicateKeys,
+      droppedTrackedBlocks,
+      lossFree: droppedPending === 0 && droppedDuplicateKeys === 0 && droppedTrackedBlocks === 0,
+    }
+  }
+  /**
+   * **聚焦项上限**导致的候选丢弃流水（有界，最近 32 条）。
+   *
+   * ⚠ 与逐出流水同类：都是"丢了东西必须报数"。两者的区别只在于触发条件
+   *   （`maxFocusItems` 超限 vs 会话分区上界），故**共用**"丢了一条记一条"的口径。
+   */
+  const focusDropLog: { sessionId: string; dropped: number; at: string }[] = []
+  /** 聚焦丢弃流水窗口淘汰计数（同上）。 */
+  let focusDropLogDropped = 0
+
+  /** 逐出流水窗口淘汰计数（丢读数也要报数）。 */
+  let evictionLogDropped = 0
+  /** 逐出流水（**进程内**、有界：只留最近 32 条），使"逐出发生过几次"可判据读取。 */
+  const evictionLog: EvictionRecord[] = []
+  /**
+   * 逐出留痕：写一行 `mana_trace`（标签仍是既有裸名五类之一）并旁路 emit。
+   *
+   * ⚠ 影响面逐条交代：
+   *   · 只在上界逐出时发生（256 分区 FIFO），**不进入任何一次 pre-step 的注入决策**；
+   *   · 载荷是**计数**（丢了几条候选/去重键/块跟踪），**不含任何记忆内容**（A1-9）；
+   *   · 写失败**不得**影响分区创建（try/catch 记账后继续）：逐出留痕是"记账"，不是"前置条件"。
+   *   · **D4′**：旁路 emit 走 `safeEmitDeferred`（出同步栈 + 监听器抛错被兜住并计数）——
+   *     逐出是在 `ingest` 的**同步栈**里发生的，同步 emit 会让监听器的异常**冒泡进 `perceive()`**。
+   */
+  const logSessionEviction = (record: EvictionRecord): void => {
+    /**
+     * ⚠ **本批（f2 收尾补齐 · F-1）修掉的形态**：这里原是 `try { core.writeTrace(...) } catch { /* 注释 *\/ }`
+     *   —— catch 体内**只有注释**，而注释自称"走旁路事件"。实测（risk 席第四次复审）：
+     *   `mana_trace` 写坏时 ⇒ **逐出 32 次、零留痕、零事件**。「注释承诺了、代码没做」= 本仓反复出现的
+     *   声明与生效不一致。现口径：走 `writeTraceGuarded`（**带归因** + 不冒泡 + 失败返回 0），
+     *   归因文本点名是**逐出留痕**这一路，与别处的 trace 失败可分辨。
+     * ⚠ 逐出本身仍不受影响（留痕是记账，不是前置条件）—— 但**失败必有归因**。
+     */
+    writeTraceGuarded('mana_trace 写入失败(逐出留痕)', {
+        // ⚠ 唯一化锚点（impl c1）：注入段另有一处 `stageLabel(4)`，变异器要求锚点**恰好命中 1 次**
+        //   ⇒ 逐出留痕这里显式写"段索引 4 = injection 段"的来源，不再与注入段同形。
+        eventType: stageLabel(INJECTION_STAGE_INDEX),
+        sessionId: record.sessionId,
+        turnId: 0,
+        payload: {
+          sessionId: record.sessionId,
+          turnId: 0,
+          requestId: `evict:${record.sessionId}`,
+          at: new Date().toISOString(),
+          gate: EVICTION_GATE,
+          blockId: null,
+          memoryId: null,
+          degraded: false,
+          reason: SESSION_EVICTION_REASON,
+          // ⚠ 三项计数**直接取自 record**（算式唯一真源，见 makeEvictionRecord）：两处重算必然漂开。
+          droppedPending: record.droppedPending,
+          droppedDuplicateKeys: record.droppedDuplicateKeys,
+          droppedTrackedBlocks: record.droppedTrackedBlocks,
+          lossFree: record.lossFree,
+        },
+      at: new Date().toISOString(),
+    })
+    safeEmitDeferred('mana/injection', {
+      sessionId: record.sessionId,
+      turnId: 0,
+      requestId: `evict:${record.sessionId}`,
+      at: new Date().toISOString(),
+      gate: 'reset',
+      blockId: null,
+      memoryId: null,
+      degraded: false,
+    })
+  }
+
+  /**
+   * 旁路 emit（**D4′**）：出同步栈 + 监听器异常被兜住并**计数**。
+   *
+   * ⚠ 为什么必须出同步栈：旁路路径（逐出留痕、无会话身份、留痕失败兜底）都发生在**调用方栈内**
+   *   —— `ingest` 由 `ctx.emit('mana/observation')` 同步调用（源头是 `perception.perceive`），
+   *   pre-step 监听器则在宿主 loop 的 dispatch 栈内。同步 emit 一旦有监听器抛错，
+   *   异常会**冒泡进调用方**：`perceive()` 收到异常（第 256 次调用就炸，risk 席实测），
+   *   或把宿主 loop 的这一步炸掉 —— 而这两个调用方都**不是**这条留痕的责任方。
+   * ⚠ 也不能"吞掉就算了"：异常计数进 `deferredEmitFailures`，可被 `status()` 与判据读到。
+   *   「发得出去、收得到就会炸进调用方」与「炸了没人知道」两种形态都要避免，故**兜住 + 留下读数**。
+   * ⚠ 只在**旁路**路径用：主广播（`mana/attention` / `mana/decision`）**不动** —— 它们是既有的
+   *   同步契约（working-memory / scheduler 在同 tick 内消费），改了就是动别人的行为。
+   */
+  type EmitFailure = { event: string; message: string; at: string }
+  /**
+   * **失败读数：两张表，不共用一个窗口**（本批 ③ 的裁决 —— 拆）。
+   *
+   * 判断依据（三条，逐条可核）：
+   *   ① **两类失败的补救方向不同**：`sync:` = 「有监听器在同步派发里抛错，异常被兜住了」（要去找那个监听器）；
+   *      旁路 = 「这条旁路消息没送到」（要去看是谁在收、以及为什么抛）。混在一张表里会让排查者按错的线索走。
+   *   ② **共享 32 条窗口会让"稀有的重要条目"被"高频噪声"挤掉**（可达性论证，不是口味）：
+   *      主广播在**每一次 pre-step** 上派发（`mana/injection` 每步一行、`mana/decision` 每步一行），
+   *      一个常驻抛错的监听器能在**几步之内**塞满窗口；而"逐出留痕的旁路没送到"是**每 256 个会话**才可能发生一次。
+   *      共用窗口 ⇒ 后者会被前者**结构性挤掉**（且没有任何读数显示"被挤掉过"）—— 正是本仓首位缺陷类。
+   *   ③ 拆表**不增加**维护面：两张表用同一个 `pushFailure` 写入点、同一个上限常量，不存在"两套逻辑漂开"。
+   * ⚠ 兼容：`deferredEmitFailures()` 仍返回**合并视图**（按时刻排序），既有用例与消费者不必改；
+   *   新增 `emitFailureCounts()` 暴露**两张表各自的条数**，使"某一类被挤掉"可被判据读出来。
+   */
+  const EMIT_FAILURE_CAP = 32
+  const syncEmitFailures: EmitFailure[] = []
+  const bypassEmitFailures: EmitFailure[] = []
+  /** 窗口淘汰计数（**丢读数也要报数**：被挤掉的失败条目数，按表分）。 */
+  const failureWindowDropped = { sync: 0, bypass: 0 }
+  const pushFailure = (bucket: EmitFailure[], failure: EmitFailure): void => {
+    bucket.push(failure)
+    while (bucket.length > EMIT_FAILURE_CAP) {
+      bucket.shift()
+      // ⚠ **丢条目也要报数**：窗口淘汰是"静默丢东西"的第 N 处（同类普查的落点）。
+      //   不记的话，「失败很多但窗口只留 32 条」与「正好只失败了 32 次」在读数上完全同形。
+      if (bucket === syncEmitFailures) failureWindowDropped.sync += 1
+      else failureWindowDropped.bypass += 1
+    }
+  }
+
+  /**
+   * **主广播**派发（f2 收尾批 ③）：**保持同步**（同 tick 可见是既有契约），但**兜住异常 + 计数**。
+   *
+   * ⚠ 为什么不能出同步栈：`mana/attention` 的既有消费者（`scheduler:133` / `working-memory:233`）
+   *   在**同一次 emit 内**读状态并写库 ⇒ 出栈会改变它们的可见时序（那就是动别人的行为）。
+   * ⚠ 为什么又必须兜：**「可见」与「异常冒泡炸宿主」是两件事**。`mana/decision` 全仓**零消费者**
+   *   （分类表 §D4′ 已注明），可只要有一个第三方监听器抛错，异常就会顺着 `ctx.emit` 冒泡进
+   *   宿主 loop 的 pre-step dispatch ⇒ **整步失败**，而失败原因看起来像"Mana 挂了"。
+   * ⇒ 取两全：**同步派发（时序不变） + try/catch（不外溢） + 计数（不静默）**。
+   *   计数与旁路共用 `deferredEmitFailures`（同一张读数表，避免两套计数漂开），但标签区分 `sync:` 前缀。
+   */
+  const emitSyncGuarded = (event: 'mana/attention' | 'mana/decision' | 'mana/injection', payload: unknown): void => {
+    try {
+      ctx.emit(event, payload as Parameters<typeof ctx.emit>[1])
+    } catch (error) {
+      pushFailure(syncEmitFailures, { event: `sync:${event}`, message: String((error as Error)?.message ?? error), at: new Date().toISOString() })
+    }
+  }
+  const safeEmitDeferred = (event: 'mana/injection' | 'mana/plugin/inactive', payload: unknown): void => {
+    queueMicrotask(() => {
+      try {
+        if (event === 'mana/injection') ctx.emit('mana/injection', payload as Parameters<typeof ctx.emit>[1])
+        else ctx.emit('mana/plugin/inactive', payload as Parameters<typeof ctx.emit>[1])
+      } catch (error) {
+        pushFailure(bypassEmitFailures, { event, message: String((error as Error)?.message ?? error), at: new Date().toISOString() })
+      }
+    })
+  }
+
+  /** 释放一个会话的分区（会话结束）。返回是否真的删掉（供判据断言，不静默）。 */
+  const dropSessionState = (sid: string): boolean => sessionStates.delete(sid)
+
+  // ⚠ 以下三行是**迁移说明**（供读者对照旧实现）：`pending` / `injectedRequests` / `injectedBlocks`
+  //   已并入上面的按会话分区状态，pre-step 内以**局部绑定** `state`/`pending`/… 指到本会话分区。
+
+
   /**
    * 已注入、但**是否仍在上下文中**尚未逐块核对的块（`reset` 检测用）——**有序表**。
    *
@@ -153,7 +585,7 @@ export function apply(ctx: Context, config: Config): void {
    *   答不了「**这一块**还在不在」⇒ 多块时旧块的 `injected` 行会永久标着已注入（假账）。
    *   表按注入顺序排列，逐条核对时顺序也在（宿主注入为尾部追加 ⇒ 表中次序 == 上下文里出现次序）。
    */
-  const injectedBlocks: { blockId: string; messageId: string }[] = []
+
   let injections = 0
   let lastGate: InjectionGate | null = null
   /**
@@ -162,11 +594,12 @@ export function apply(ctx: Context, config: Config): void {
    * ⚠ 存它是为了让 inject_log.jev_prob 有真源：该列若恒 NULL，「没判」与「判了」在库上同形
    *   （本仓首位缺陷类：让失败不可观测）。
    */
-  let lastJudgeProbability: number | null = null
+
 
   const ingest = (obs: ManaObservation): number => {
     // 真写一行：这是「卸载即净」可被机检的唯一依据（见文件头一）。
-    const seq = core.writeTrace({
+    // ⚠ 走带归因的写入口：写失败**不得冒泡进 `perception.perceive`**（同类病因普查，见 writeTraceGuarded）。
+    const seq = writeTraceGuarded('mana_trace 写入失败(observation)', {
       // 裸名标签从 MANA_STAGES 取（不写字面量 —— 三套名字的根源就是「各处各自手写」）。
       eventType: stageLabel(0),
       sessionId: obs.sessionId,
@@ -184,13 +617,59 @@ export function apply(ctx: Context, config: Config): void {
       degraded: false,
     }
     // ⚠ 入队**先于**广播：下游（working-memory/scheduler）在同一 tick 内读到的应是已入队状态。
-    if (config.maxFocusItems > 0) {
-      pending.push(att)
-      while (pending.length > config.maxFocusItems) pending.shift()
+    // ⚠ D1：入队进的是**本会话自己的**分区（`obs.sessionId`），不是插件实例级的公共队列。
+    //   空会话 id 在此**大声抛**：它会让所有会话并进同一个虚构分区（串档的形态）。
+    // ⚠ N4：空/纯空白 sessionId **不在 emit 分发链内抛** —— cordis 的 `emit` 是同步冒泡，
+    //   抛出去会让 `perception.perceive` 收到异常，且**本函数开头的 observation 行已经写了一半**
+    //   （trace 有行、分区没建）⇒ 「收到异常」与「零 trace」两种形态都出现过，观测不可得。
+    //   ⇒ 现口径三件事一起做：① **不抛**（不让源头炸）；② **明说**（trace + 旁路事件各一条）；
+    //     ③ **不建分区**（绝不把无效 id 变成一个"看起来正常"的会话）。
+    //   ⚠ 真正的**源头校验**（`perception.perceive` 拒绝空 sessionId）在 perception 包，
+    //     属他人写面 ⇒ 本轮**不越界**，已列 [越界转派]。
+    if (config.maxFocusItems > 0 && obs.sessionId.trim() === '') {
+      writeTraceGuarded('mana_trace 写入失败(空 sessionId 记账)', {
+        eventType: stageLabel(0),
+        sessionId: '',
+        turnId: att.turnId,
+        payload: { reason: TRACE_REASON_NO_SESSION_ID, requestId: att.requestId, invalid: 'empty-session-id' },
+        at: att.at,
+      })
+      // ⚠ D4′：两条都在**同步栈内**（`ingest` 由 `ctx.emit('mana/observation')` 同步调用）
+      //   ⇒ 监听器抛错会冒泡进 `perception.perceive`。旁路那条改出同步栈；
+      //   主广播 `mana/attention` 保持同步（既有契约，working-memory/scheduler 同 tick 消费）。
+      safeEmitDeferred('mana/plugin/inactive', { id: name, missing: [ERR_INVALID_OBS_SESSION_ID], at: att.at })
+      emitSyncGuarded('mana/attention', att)
+      return seq
     }
-    ctx.emit('mana/attention', att)
+    if (config.maxFocusItems > 0) {
+      const own = sessionStateFor(obs.sessionId)
+      lastActiveSession = obs.sessionId
+      own.pending.push(att)
+      /**
+       * ⚠ **同类病因普查（f2 席自问"还有几处"）**：这里是本文件中**第二处**"静默丢候选"的形态 ——
+       *   `maxFocusItems` 超限时 `shift()` 掉最旧的候选，随后那一步若候选池空就落
+       *   `gate='skip_no_candidate'`（与"本来就没候选"同形）。两处的共同病因 = **丢东西不报数**。
+       *   ⇒ 同样补计数：丢一条记一次（`droppedFocusItems`，可被 `status()` 读到）。
+       * ⚠ 为什么不改语义（不改成"不丢"）：`maxFocusItems` 是既有配置契约（缺省 4，方案 §9.4 原值），
+       *   改它会让"聚焦项上限"这个既有行为消失 —— 那是动别人的行为。本批只把"丢了"变成可数。
+       */
+      let droppedFocusItems = 0
+      while (own.pending.length > config.maxFocusItems) {
+        own.pending.shift()
+        droppedFocusItems += 1
+      }
+      if (droppedFocusItems > 0) {
+        focusDropLog.push({ sessionId: obs.sessionId, dropped: droppedFocusItems, at: att.at })
+        // ⚠ 同上：流水窗口淘汰也记数。
+        while (focusDropLog.length > 32) {
+          focusDropLog.shift()
+          focusDropLogDropped += 1
+        }
+      }
+    }
+    emitSyncGuarded('mana/attention', att)
     // 事件名与标签同源：这条 trace 行对应的就是刚广播的 mana/attention。
-    core.writeTrace({
+    writeTraceGuarded('mana_trace 写入失败(attention)', {
       eventType: stageLabel(1),
       sessionId: att.sessionId,
       turnId: att.turnId,
@@ -200,11 +679,84 @@ export function apply(ctx: Context, config: Config): void {
     return seq
   }
 
+  /**
+   * **带归因的 trace 写入**（f2 收尾批 · 同类病因普查的落点）。
+   *
+   * ⚠ 为什么需要它：`ingest` 的两条主记账与 `decision` 段原先都是**裸 `core.writeTrace`**
+   *   ⇒ 写失败会**冒泡进调用方**（`ingest` 由 `ctx.emit('mana/observation')` 同步调用 ⇒
+   *   `perception.perceive` 收到异常；`decision` 段在宿主 loop 的 dispatch 栈内 ⇒ 炸掉这一步）。
+   *   这与本批已修的 D4′ / N4 是**同一类**：**记账失败不得冒泡进调用方**。
+   * ⚠ 返回值：写成功 = 真 `seq`；写失败 = **0**（AUTOINCREMENT 从 1 起 ⇒ 0 是"没有行"的**显式**读数，
+   *   不是拿一个假 seq 冒充）。归因走旁路事件（`safeEmitDeferred`：出同步栈 + 兜异常）。
+   */
+  const writeTraceGuarded = (what: string, entry: Parameters<ManaCoreService['writeTrace']>[0]): number => {
+    try {
+      return core.writeTrace(entry)
+    } catch (error) {
+      safeEmitDeferred('mana/plugin/inactive', {
+        id: name,
+        missing: [`${what}: ${String((error as Error)?.message ?? error)}`],
+        at: new Date().toISOString(),
+      })
+      return 0
+    }
+  }
+
   /** 字符数（按**码点**计，避免把中文算成 3 字节导致预算失真）。 */
   const injectionBudgetCharsOf = (s: string): number => [...s].length
 
-  const buildBlock = (): string => {
-    const usable = pending.filter((p) => !injectedRequests.has(p.requestId))
+  /**
+   * 组装注入块。
+   *
+   * @param sid 会话 id。**不给** = 读「服务面缺省分区」（**不是**任何真会话的候选池）；
+   *   给 sid 且该会话**有分区** ⇒ 与 pre-step 内读的是**同一份**状态。
+   * ⚠ 为什么："服务面直取"与"真会话读"必须是**可分辨**的两件事 —— 旧实现在这里隐式读全局队列，
+   *   于是"服务面拿到的块"与"某会话真会被注入的块"表面同形（判据测的可能是另一个东西）。
+   */
+  const evictSessionState = (sid: string): boolean => sessionStates.delete(sid)
+
+  const sessionStateFor = (sid: string): SessionGatingState => {
+    const hit = sessionStates.get(sid)
+    if (hit) return hit
+    const fresh: SessionGatingState = { pending: [], injectedRequests: new Set<string>(), injectedBlocks: [], lastJudgeProbability: null }
+    sessionStates.set(sid, fresh)
+    while (sessionStates.size > MAX_SESSION_STATES) {
+      /**
+       * 候选挑选（N1/N2 + N1′）：**先挑无损候选** —— `pending` / `injectedRequests` / `injectedBlocks`
+       * **三项全空**的会话（过了步、但既没有候选也没有账目）。
+       * ⚠ **N1′**：上一版这里漏了 `pending` ⇒ "有候选但还没注入"的会话被判成无损，
+       *   逐出时**静默丢掉候选**，随后那一步落 `skip_no_candidate`，与"本来就没候选"同形。
+       *   算式现在只写在 `makeEvictionRecord` 里（唯一真源），这里用同一个判定。
+       * ⚠ 这不改变"上界"这件事：超限**一定**会删掉一个分区；改的只是**先删谁**与**删了要报数**。
+       */
+      const candidate = [...sessionStates.entries()].find(
+        ([key, st]) => key !== sid && makeEvictionRecord(key, st).lossFree,
+      )
+      const target = candidate?.[0] ?? sessionStates.keys().next().value
+      if (target === undefined || target === sid) break
+      const evicted = sessionStates.get(target)
+      evictSessionState(target)
+      // ⚠ 先把"这次逐出真的发生了什么"算成**一条 record** 再落痕：不去读已被删掉的 Map 条目（那会得到 0）。
+      const record = makeEvictionRecord(target, evicted)
+      evictionLog.push(record)
+      // 有界：只留最近 32 条（无界数组本身就是"该清没清"的另一种形态）。
+      // ⚠ 窗口淘汰**同时记数**（同类普查）：否则"逐出很多、流水只留 32 条"与"只逐出过 32 次"同形。
+      while (evictionLog.length > 32) {
+        evictionLog.shift()
+        evictionLogDropped += 1
+      }
+      logSessionEviction(record)
+    }
+    return fresh
+  }
+
+  const buildBlock = (sid?: string): string => {
+    // ⚠ 不给 sid ⇒ 读**最近活跃会话**的分区（只读投影，既有服务面行为）；没有任何会话 ⇒ 空块。
+    //   只在**已有分区**时读：读一个不存在的 key 不得**创建**该分区（那会让"问过"变成"存在过"）。
+    const key = sid ?? lastActiveSession ?? SERVICE_FACE_SESSION
+    const st = sessionStates.get(key)
+    if (!st) return ''
+    const usable = st.pending.filter((p) => !st.injectedRequests.has(p.requestId))
     if (usable.length === 0) return ''
     const raw = buildInjectionBlock(usable.map((u) => ({ requestId: u.requestId, content: u.content })))
     // 预算闸：超限则**截断**（不静默丢弃整块 —— 那会让 gate 说 injected 而实际没内容）。
@@ -218,7 +770,36 @@ export function apply(ctx: Context, config: Config): void {
     plugin: name,
     ingest,
     buildBlock,
-    status: () => ({ plugin: name, wired: true, injections, lastGate }),
+    status: () => ({ plugin: name, wired: true, injections, lastGate, sessionStates: sessionStates.size, maxSessions: MAX_SESSION_STATES, evictions: evictionLog.length }),
+    noSessionIdError: ERR_NO_SESSION_ID,
+    upstreamSwallowedError: ERR_UPSTREAM_SWALLOWED,
+    // ⚠ 显式绑定到本实例的分区表：**不给外部任何"直接读全局状态"的口子**。
+    releaseSession: (sid: string) => dropSessionState(sid),
+    sessionCount: () => sessionStates.size,
+    hasPending: (sid: string) => (sessionStates.get(sid)?.pending.length ?? 0) > 0,
+    lastActiveSession: () => lastActiveSession,
+    maxSessions: MAX_SESSION_STATES,
+    evictionLog: () => evictionLog.slice(),
+    // ⚠ D4′：旁路 emit 的失败读数（被兜住的异常条数；0 = 没人抛）。判据据此区分
+    //   「发得出去、外面收不到」与「收得到、但会炸进调用方」两种形态。
+    // ⚠ 拆表后仍提供**合并视图**（按时刻排序）：既有用例/消费者不必改；"哪一类被挤掉"由 emitFailureCounts 读。
+    deferredEmitFailures: () =>
+      [...syncEmitFailures, ...bypassEmitFailures].sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : 0)),
+    emitFailureCounts: () => ({
+      sync: syncEmitFailures.length,
+      bypass: bypassEmitFailures.length,
+      cap: EMIT_FAILURE_CAP,
+      // ⚠ 被窗口挤掉的条目数（"丢读数也报数"）：非零即说明有失败**从未被读到过**。
+      windowDropped: { ...failureWindowDropped },
+    }),
+    windowDroppedCounts: () => ({
+      failureSync: failureWindowDropped.sync,
+      failureBypass: failureWindowDropped.bypass,
+      evictionLog: evictionLogDropped,
+      focusDropLog: focusDropLogDropped,
+    }),
+    focusDropLog: () => focusDropLog.slice(),
+    evictionReason: SESSION_EVICTION_REASON,
   }
 
 
@@ -236,12 +817,103 @@ export function apply(ctx: Context, config: Config): void {
   ctx.on('agent/pre-step', async (payload, next) => {
     // ⚠ `sid`/`turn` 提到**外层**（不再只在 `finish` 里）：判定链的 requestId 兜底值
     //   也要用到它（见下方 `pre-step:${turn}`）。放在 finish 内会让外部拿不到（编译期 TS2304）。
-    const sid = String((payload as { agent?: { session?: { id?: unknown } } })?.agent?.session?.id ?? '')
+    const sid = resolvePreStepSessionId((payload as { agent?: unknown })?.agent)
+    /**
+     * ── D1 的"取不到会话身份"处置（本席第二版；第一版是**抛**，改判理由如下）────────────
+     *
+     * ⚠ 为什么**不抛**：抛点在本函数**开头**，即 `await next()` **之前** ⇒ 抛出去会让
+     *   **内层（下游）监听器一个都拿不到控制权** —— 那正是 G9 要防的"静默掐死下游"，
+     *   只不过这次是**响亮**地掐死，破坏性一样。
+     *   ⇒ 正确处置是 G9 义务与"可观测"**两件都做**：照常 `await next()`（交出控制权），
+     *     同时**显式记账**（不得静默 —— 本仓首位缺陷类）。
+     * ⚠ 也**不落空串分区**：`''` 会让所有会话并进同一个虚构分区（串档），且它在库上看起来
+     *   完全正常（`inject_log.session_id` 是 TEXT NOT NULL，空串合法）⇒ 假绿。故本分支
+     *   **完全不碰任何门控状态**（不注入、不写 inject_log、不写 trace），只记账 + 交出控制权。
+     * ⚠ 为什么能在不注入的情况下仍算"失败可观测"：走**既有** `mana/plugin/inactive` 事件
+     *   （8 事件契约内，非新增；core 亦用它记 backup 失败），载荷里点名真因。
+     *   ⚠ 如实标注：该事件**目前没有消费方**（与文件下方 catch 分支同一现状）——
+     *     它把"静默"变成"有一条事件发出"，但落库/告警仍待后续批次接。
+     */
+    if (sid === undefined) {
+      const at = new Date().toISOString()
+      /**
+       * ⚠ **N3：这里以前只 `emit` 一个事件** —— 而 `mana/plugin/inactive` 全仓**零消费方**
+       *   ⇒ 「发得出去、看不见」。现口径再加**两条落库/落 trace 的痕迹**（都走既有表与既有标签）：
+       *   ① `mana_trace` 一行（`event_type` 取既有裸名五类之一 = observation 段，载荷点名真因）；
+       *   ② `inject_log` **一行**，`session_id` 如实写 `''`（**不是**拿空串冒充某个会话），
+       *      `gate='degraded_unavailable'`（本步确实未能判定注入）、`degraded=1`、`jev_prob=null`。
+       *   ⇒ 「无会话身份而没注入」从此在库上**可数**，与"候选池空"（`skip_no_candidate`）可分辨。
+       *   ⚠ 仍**不建分区 / 不注入**（那是串档的来源），也不改变 G9 义务（照常交出控制权）。
+       */
+      /**
+       * ⚠ **本批（f2 收尾补齐 · F-2）修掉的形态**：这里原是一个 try 包住**两条**记账、catch 体为空
+       *   ⇒ `mana_trace` 写坏时 `injectRows=0` **且没有任何点名真因的归因**，而下面的旁路事件只报
+       *   `ERR_NO_SESSION_ID`（那是**本分支为何走到这里**，不是**记账为何失败**）。两件事被混成一件。
+       *   ⇒ 现口径：**两条各自 try + 各自归因**（与 `finish` 的两段同一口径；R-2 已把原"三段"改成"两段"），且失败点名的真因
+       *     通过同一个旁路通道发出（`safeEmitDeferred`：出同步栈 + 兜异常）。
+       */
+      const reportNoSidFailure = (what: string, error: unknown): void => {
+        safeEmitDeferred('mana/plugin/inactive', {
+          id: name,
+          missing: [`${what}: ${String((error as Error)?.message ?? error)}`],
+          at: new Date().toISOString(),
+        })
+      }
+      try {
+        core.writeTrace({
+          eventType: stageLabel(0),
+          sessionId: '',
+          turnId: 0,
+          payload: { reason: TRACE_REASON_NO_SESSION_ID, detail: ERR_NO_SESSION_ID },
+          at,
+        })
+      } catch (error) {
+        reportNoSidFailure('mana_trace 写入失败(无会话身份)', error)
+      }
+      try {
+        core.writeInjectLog({
+          sessionId: '',
+          turnId: 0,
+          requestId: 'pre-step:no-session-id',
+          gate: 'degraded_unavailable',
+          memoryId: null,
+          blockId: null,
+          reset: false,
+          jevProb: null,
+        })
+      } catch (error) {
+        reportNoSidFailure('inject_log 写入失败(无会话身份)', error)
+      }
+      safeEmitDeferred('mana/plugin/inactive', { id: name, missing: [ERR_NO_SESSION_ID], at })
+      /**
+       * ── D3′：本分支**也要**过同一条 D2 守卫（f2 席修）────────────────────────────
+       * ⚠ 修前这里直接 `return await next()` ⇒ 上游吞掉 `next()` 返回值时**原样透传 `undefined`**：
+       *   宿主拿到 `undefined` 决策（本步的消息被吃掉）而**这个分支不抛**，对照分支（有 sid）
+       *   却抛具名错 ⇒ 同一种病因在同一文件里**两副面孔**：一副响亮、一副静默。
+       *   ⇒ 两条分支共用 `isUsableEnterDecision` 与 `ERR_UPSTREAM_SWALLOWED`（唯一判据、唯一错误）。
+       * ⚠ 仍然**不注入**（无会话身份就没有该会话的候选池），也不在这里落任何 inject_log：
+       *   本分支的留痕已经在上面的 try 里写过了，重复写会让"无身份"在一次 pre-step 里记成两行。
+       */
+      const noSidNext: unknown = await next()
+      // ⚠ 与主分支**同一条判据**：`assertUsableDecision` 内部用 `isUsableEnterDecision` 与
+      //   `ERR_UPSTREAM_SWALLOWED`（唯一真源）。写成独立函数是为了让"两副面孔"在源码层面
+      //   只有**一个**抛点 —— 变异器锚点也因此仍然唯一（若两处各写一遍，负控会因"锚点命中 2 次"
+      //   直接失效：本席实测踩到过，见 .impl-attention-f2-readings.txt §写错并改判）。
+      assertUsableDecision(noSidNext)
+      // ⚠ 同样**原样交回**（不改写）：缺 `kind` 的读点语义见 isUsableEnterDecision 的注释。
+      return noSidNext as { kind: 'enter'; messages: UserMessage[] } | { kind: 'reject' }
+    }
+    /** D1：本次分发所用的**会话分区**（四处状态全在这里，pre-step 内以局部名绑定）。 */
+    const state = sessionStateFor(sid)
+    lastActiveSession = sid
+    const pending = state.pending
+    const injectedRequests = state.injectedRequests
+    const injectedBlocks = state.injectedBlocks
     const turn = Number((payload as { turn?: unknown })?.turn ?? 0)
     /** 落库/落 trace 统一用这一个 turnId（两处各写一次 Number.isFinite 会漂）。 */
     const turnId = Number.isFinite(turn) ? turn : 0
     /** 每次 pre-step 重置：上一轮的判定概率**不得**泄漏到本轮（否则 jev_prob 是假账）。 */
-    lastJudgeProbability = null
+    state.lastJudgeProbability = null
     /**
      * 落痕 + 返回决策：把"留痕"做成**不可绕过**的一步（不依赖调用方记得写）。
      *
@@ -267,11 +939,44 @@ export function apply(ctx: Context, config: Config): void {
       extra: { memoryId?: string | null; blockId?: string | null; reset?: boolean } = {},
     ) => {
       lastGate = gate
+      const reqId = pending[0]?.requestId ?? `pre-step:${turn}`
+      /**
+       * ⚠ **本批（f2 收尾 ②）收窄的两处归因**：原先一个 try 把 `writeInjectLog` / `writeTrace` /
+       *   `ctx.emit` **三件事**都包住，异常一律记成「**inject_log 写入失败**」。而实测（risk 席）
+       *   该行**已经写成功 1 行** ⇒ **原因被记错了 —— 比没记更坏**（本仓首位缺陷类：让失败不可观察，
+       *   而且指向错误的位置）。
+       *   ⇒ 现口径：**两段各自 try/catch，各写各的归因**（**R-2：与实现逐行对齐** —— 本段原写"三段"，
+       *     但第 ③ 段（广播）已在 R-1 中删掉死 catch，广播失败改由 `emitSyncGuarded` 自己计数）：
+       *     ① `inject_log` 写失败 ⇒ `inject_log 写入失败: …`
+       *     ② `mana_trace` 写失败 ⇒ `mana_trace 写入失败: …`（与上一条**可分辨**）
+       *     ③ 广播（`emitSyncGuarded`）失败 ⇒ **计进 `emitFailureCounts().sync`**（不冒泡、不自称落库失败）
+       *   ①②走**旁路**记账（`safeEmitDeferred`：出同步栈 + 兜异常），③走同步计数；**三者都不吞下游**（G9）。
+       */
+      const reportBypass = (what: string, error: unknown): void => {
+        safeEmitDeferred('mana/plugin/inactive', {
+          id: name,
+          missing: [`${what}: ${String((error as Error)?.message ?? error)}`],
+          at: new Date().toISOString(),
+        })
+      }
+
+      // ② 五、injection：注入审计段（每次 pre-step 必发，含五种「没注入」）
+      const inj: ManaInjection = {
+        sessionId: sid,
+        turnId,
+        requestId: reqId,
+        at: new Date().toISOString(),
+        gate,
+        blockId: extra.blockId ?? null,
+        memoryId: extra.memoryId ?? null,
+        degraded: gate === 'degraded_unavailable',
+      }
+      // ① inject_log（本步的**主审计行**）
       try {
         core.writeInjectLog({
           sessionId: sid,
           turnId,
-          requestId: pending[0]?.requestId ?? `pre-step:${turn}`,
+          requestId: reqId,
           gate,
           memoryId: extra.memoryId ?? null,
           blockId: extra.blockId ?? null,
@@ -281,26 +986,13 @@ export function apply(ctx: Context, config: Config): void {
           //   core 侧另有一处与 `degraded` **同形**的防呆（gate='reset' 蕴含本列），两层都真才算对。
           reset: extra.reset === true,
           // ⚠ 概率取**本轮判定链**的真读数：判过就记，没判/降级留 null（不得用 0 冒充）。
-          //   此前恒传 null ⇒ inject_log.jev_prob 这一列在库上**永远为空**，
-          //   而 A1-12/A2-2 的读数面包含它 ⇒ 「有列无值」是让失败不可观测的形态。
-          jevProb: lastJudgeProbability,
+          jevProb: state.lastJudgeProbability,
         })
+      } catch (error) {
+        reportBypass('inject_log 写入失败', error)
+      }
 
-        // ── 五、injection：注入审计 —— A1-1 五类中另一个**零生产者**的类 ──
-        //
-        // ⚠ 为什么每次 pre-step 都发（含五种「没注入」）：fail-closed 门控的正常态与故障态
-        //   表面完全同形（都表现为「没注入」）⇒ 审计事件若不发，二者在 mana_trace 里不可分辨。
-        //   与本函数开头「留痕是**不可绕过**的一步」同一口径：留痕失败不吞下游（见 catch）。
-        const inj: ManaInjection = {
-          sessionId: sid,
-          turnId,
-          requestId: pending[0]?.requestId ?? `pre-step:${turn}`,
-          at: new Date().toISOString(),
-          gate,
-          blockId: extra.blockId ?? null,
-          memoryId: extra.memoryId ?? null,
-          degraded: gate === 'degraded_unavailable',
-        }
+      try {
         core.writeTrace({
           eventType: stageLabel(4),
           sessionId: sid,
@@ -308,18 +1000,71 @@ export function apply(ctx: Context, config: Config): void {
           payload: inj,
           at: inj.at,
         })
-        ctx.emit('mana/injection', inj)
       } catch (error) {
-        // 留痕失败**不得**吞掉下游：宿主循环优先，错误走 ctx.emit 旁路记录（G8 显式记账）。
-        ctx.emit('mana/plugin/inactive', {
-          id: name,
-          missing: [`inject_log 写入失败: ${String((error as Error)?.message ?? error)}`],
-          at: new Date().toISOString(),
-        })
+        reportBypass('mana_trace 写入失败', error)
       }
+
+      /**
+       * ③ 广播（**主广播**：保持同步可见，但异常不冒泡、不自称落库失败）。
+       *
+       * ⚠ **本批（f2 最后一批 · R-1）删掉了这里原有的 `try/catch`**，理由与「为什么没有覆盖损失」：
+       *   · `emitSyncGuarded` 的契约就是**从不抛**（它内部 try/catch 并把失败记进 `syncEmitFailures`）；
+       *   · 因此 `catch (error) { reportBypass('注入审计广播失败', error) }` 是**不可达死路径**
+       *     —— 全仓无任何测试能触发它（risk 席第 5 次普查实测）；
+       *   · **无覆盖损失**：广播失败**已经有唯一入口** `emitFailureCounts().sync` / `deferredEmitFailures()`，
+       *     由 X-③（必抛监听器 ⇒ 不回溢 + 计数）与 Z-⑤（摘掉兜底 ⇒ 必红）两条判据覆盖；
+       *     删掉的这一支即使可达，也只是**给同一个事实写第二个归因**（两处记同一件事，必然漂开）。
+       *   ⇒ 与「不可达不等于无害」同一口径：死路径是下一次改动的现成绕过件，故**真删**。
+       */
+      emitSyncGuarded('mana/injection', inj)
     }
 
-    const downstream = await next()
+    const nextResult: unknown = await next()
+    /**
+     * ⚠ 编译期收窄（**不是**运行时兜底）：`next()` 的返回类型在宿主类型面是
+     *   `Promise<PreStepDecision>`，但**运行时**上游可能把返回值吞掉（D2 的真身是运行时事实）。
+     *   故先按 `unknown` 接住，由 isUsableEnterDecision 做**唯一**的运行时判定；
+     *   类型面再收窄成 `{ kind: 'enter'; messages: unknown[] } | { kind: 'reject' }`。
+     *   ⇒ 不引入 `as any`：收窄的形状与宿主契约逐条对应（enter 只有这两件事要用）。
+     */
+    let downstream = nextResult as { kind: 'enter'; messages: UserMessage[] } | { kind: 'reject' }
+
+    /**
+     * ── D2 守卫（**合并成一条**，本席第二版）──────────────────────────────────────
+     * ⚠ **抛点必须在任何审计写入之前**：抛在 writeInjectLog 之后，会在 `inject_log` 里留下一行
+     *   `injected` 而宿主本步被吃掉 ⇒ 审计说成功、事实是失败（假账）。
+     * ⚠ 为什么只留**一条**判据（本席第一版写错的地方，如实记下）：先前写成"先判 undefined、
+     *   再判 `kind === 'enter'` 的 messages"，而后半段**裸访问** `downstream.kind`
+     *   ⇒ 负控摘掉前一条守卫时崩的是 TypeError —— 报红的原因是"崩了"，不是"宿主输入被吃掉"，
+     *   那是**循环论证**：判据证明的是自己没崩，不是被保护的事实。
+     *   合并后只有一条通路能让后续代码跑下去（`enter` 且 messages 是数组）；摘掉它，
+     *   后续读数就回到修前形态（宿主消息被吃掉 + 审计仍写 injected）。
+     * ⚠ `reject` 是**合法**决策（宿主 reject 分支没有 messages）⇒ 由 isUsableEnterDecision 放行，
+     *   调用方按 `kind` 分派。
+     * ⚠ 两个**纯函数**调用（块组装与预算计算）故意放在守卫之前：它们不写任何状态，
+     *   放在这里是为了让"摘掉守卫"的负控仍然露出**真读数**而不是 TypeError。
+     */
+    /**
+     * ⚠ **本处原有两个死变量**（`blockPre` / `overBudgetPre`：算出来从未被读），本批真删。
+     *   它们是"为了给负控留靶"留下的——但**靶子不需要体现在死变量上**：Z-② 负控用的是
+     *   "摘掉守卫调用 ⇒ 读点按空表兜底 ⇒ 宿主消息被吃"这条**真路径**，与这两个变量无关。
+     *   ⇒ 不可达/未被读的代码 = 下一次改动的现成绕过件（与上批删掉的 `swallowedUpstream` 同一理由）。
+     */
+    assertUsableDecision(downstream)
+    /**
+     * ⚠ **不得"归一化" `downstream`**（本席第一版在这里补 `kind:'enter'`，被 core 的 G9/R0 前置
+     *   当场判红：「直通链不得改写 next 的返回值」）。本包**不注入时**必须把上游的决策**原样**交回，
+     *   连补一个字段都算改写。⇒ 缺 `kind` 的语义差异只在**读点**处理（见下：只判 `reject`）。
+     */
+    /**
+     * ⚠ **本处原先有一段"常量归一"残码，f2 收尾批已真删**（不是注释掉）：
+     *   `const swallowedUpstream = nextResult === undefined || nextResult === null` +
+     *   `if (swallowedUpstream) downstream = { kind: 'enter', messages: [] }`。
+     *   它留在守卫**之后** ⇒ 守卫在位时**不可达**（恒 false）；而一旦有人摘掉守卫，
+     *   它就会把"上游吞掉了决策"悄悄归一成"空消息决策"——**可绕的路**。
+     *   ⇒ 删掉；负控（Z-②）改为复现**更真实**的形态：守卫缺席 ⇒ 读点按空表处理 ⇒ 宿主消息被吃。
+     *   「不可达」不等于「无害」：不可达的死代码是下一次改动的**现成绕过件**。
+     */
 
     // ── `reset` 检测（5 类枚举中此前**唯一无生产侧写入**的一类）──────────────
     // 语义：「该块**已离开上下文**」（`docs/contract/degradation.md` §4）。
@@ -340,8 +1085,19 @@ export function apply(ctx: Context, config: Config): void {
     // ⚠ `PreStepDecision` 是**联合类型**：`reject` 分支没有 `messages` 字段
     //   ⇒ 必须先按 `kind` 收窄，否则连 `messages` 都取不到（编译期报 TS2339 —— 这是**正确报错**，
     //     不要用 `as any` 压掉，那会把"拒绝分支没有消息"这个事实变成不可见）。
-    if (injectedBlocks.length > 0 && downstream?.kind === 'enter') {
-      const msgs = Array.isArray(downstream.messages) ? downstream.messages : []
+    // ⚠ 宿主语义（`dsh-agent-loop/lib/index.js:920`）：**只判 `reject`**，其余一律"进入这一步"。
+    //   ⇒ 这里用 `!== 'reject'` 而不是 `=== 'enter'`：缺 `kind` 的合法决策（宿主自己也这么发）
+    //   也必须走 reset 检测，否则该形态下 reset 会**静默漏报**（把宽松读成"不需要检测"）。
+    /**
+     * ⚠ 这里的 `downstream?` 可选链**不是兜底**（守卫在位时 `downstream` 必是对象，由
+     *   `assertUsableDecision` 保证）。它存在的唯一理由：让 `Z-②` 那条**单变量负控**
+     *   （只摘掉守卫调用）能跑到这里、从而露出**真读数**（宿主消息被整批吃掉 + 审计写 injected）。
+     *   若改成严格访问，摘守卫会先崩成 `TypeError` ⇒ 负控报红的原因变成"崩了"而不是被保护的事实
+     *   （f2 席实测踩到：单变量负控直接失效，见 .impl-attention-f2-readings.txt）。
+     */
+    if (injectedBlocks.length > 0 && downstream?.kind !== 'reject') {
+      // ⚠ 同上：宿主语义里除 `reject` 外都是"进入这一步"；messages 缺失时按空表处理**只为让负控可读**。
+      const msgs = Array.isArray(downstream?.messages) ? downstream.messages : []
       /** 这一块还在上下文里吗（身份 = 消息 id；再核一次 wrapper：id 撞车或内容被换都不算「还在」）。 */
       const stillInContext = (messageId: string): boolean =>
         msgs.some((m) => {
@@ -373,7 +1129,7 @@ export function apply(ctx: Context, config: Config): void {
       return downstream
     }
 
-    const block = buildBlock()
+    const block = buildBlock(sid)
     if (!config.injectionEnabled) {
       // 门控关闭：**仍留痕**（否则「关掉了」与「静默失效」同形）。memoryId=null（无记忆被注入）。
       finish('skip_no_candidate')
@@ -444,16 +1200,17 @@ export function apply(ctx: Context, config: Config): void {
       degraded: decisionDegraded,
       reason: judge?.reason ?? null,
     }
-    core.writeTrace({
+    // ⚠ 同上：本段在宿主 loop 的 dispatch 栈内，写失败冒泡 = 炸掉这一步（同类病因）。
+    writeTraceGuarded('mana_trace 写入失败(decision)', {
       eventType: stageLabel(2),
       sessionId: sid,
       turnId,
       payload: decision,
       at: decision.at,
     })
-    ctx.emit('mana/decision', decision)
+    emitSyncGuarded('mana/decision', decision)
     // 仅当**本轮**确实判过（非降级）才记概率：降级时保持 null，不得用 0 冒充。
-    lastJudgeProbability = decisionDegraded ? null : decisionProbability
+    state.lastJudgeProbability = decisionDegraded ? null : decisionProbability
 
     if (!judge || judge.degraded === true) {
       // fail-closed：不注入，但留痕（A1-14 两条都要真）。
@@ -479,6 +1236,9 @@ export function apply(ctx: Context, config: Config): void {
     //   `id`（稳定身份）与 `source`（生产者标记）都是**必填**。
     //   手搓的 `{role:'user', content:'...'}` 会被编译期拒掉（本仓实测 TS2345）；
     //   若用 `as any` 压掉，就是把不合格消息塞进宿主循环 ⇒ 运行期才炸。
+    // ⚠ D2：`enter` 决策**必须**带 messages 数组（宿主契约）。缺它不是"空消息"，是契约破坏 ⇒ 大声抛。
+    // ⚠ messages 由上方守卫保证是数组（类型收窄在守卫处）；此处的 `Array.isArray` 与可选链
+    //   同样**只为让 Z-② 单变量负控露出真读数**（守卫缺席 ⇒ `undefined` ⇒ 按空表处理 ⇒ 宿主消息被吃）。
     const messages = Array.isArray(downstream?.messages) ? downstream.messages : []
     const injected = createUserMessage({
       content: [{ type: 'text', text: block }],
@@ -512,6 +1272,16 @@ export function apply(ctx: Context, config: Config): void {
       kind: 'enter',
       messages: [...messages, injected],
     }
+  })
+
+  /**
+   * 会话结束 ⇒ 释放该会话的门控状态（D1）。
+   * ⚠ 不做这件事的后果不是"内存涨"这么轻：分区表会变成**永不清理的全局表**，而它的键是会话 id
+   *   ⇒ 宿主重启前一直涨，且**没有任何读数能看出该清没清**（本仓首位缺陷类）。
+   */
+  ctx.on('agent/disposed', (payload: { agent?: unknown }) => {
+    const ended = resolvePreStepSessionId(payload?.agent)
+    if (ended !== undefined) dropSessionState(ended)
   })
 
   ctx.effect(() => {
