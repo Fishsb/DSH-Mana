@@ -1,0 +1,288 @@
+# W1-3 席 · Write Gate 生产调用方接线 —— 实测读数
+# 时间：2026-09-26 08:5x +0800 ｜ HEAD 4de9b87 ｜ 基线快照 docs/handoff/w1-execution/BASELINE.txt
+# 席名：implt-w13 ｜ 写面：packages/long-term/src/** + 该包 tests/（严格未越界）
+
+━━ 0. 开工基线复验（与派单给的一致）━━
+$ git -C /home/lk/Mana log --oneline -1
+4de9b87 docs(mana): 收尾报告补第六节 —— 第五次基线重取「未执行」的裁定与险些的事故
+$ git status --porcelain | wc -l        → 19 tracked 脏（另含大量 ?? 未跟踪）
+$ npm test（基线口径）                   → # tests 561 / # pass 561 / # fail 0
+⚠ 派单称 long-term/src/index.ts 为 1731 行 —— 实测 409 行（W1-3 后 702 行）。
+  该数字与基线不符，按实测订正（详见 §7 偏离登记）。
+
+━━ 1. 交付文件表（路径 + 行数变化）━━
+packages/long-term/src/write-gate.ts            新增 495 行（Write Gate 实现面，全新文件）
+packages/long-term/src/index.ts                  409 → 702 行（+394 / -11，接线 + 服务面 + 三张清单）
+packages/long-term/tests/write-gate.test.mjs     新增 336 行（10 例判据，全新文件）
+packages/long-term/tests/skeleton.test.mjs       189 → 约 280 行（改写 ⑦/⑧：口径同步 + 假绿修复）
+packages/long-term/tests/retirement.test.mjs     363 → 373 行（改写 ⑥ 的 effect 计数口径）
+packages/long-term/tests/recall-gate.test.mjs    RG-⑤ effect 口径改写（该文件为另一席未跟踪件，本席只改这一处）
+packages/long-term/verify.mjs                    登记 write-gate.test.mjs = 10 例（外部防线）
+packages/long-term/lib/**                        重建产物（rm -rf lib && npm run build -w packages/long-term）
+
+━━ 2. 判据执行（命令 → exit → 关键读数）━━
+① 重建产物
+   $ npm run build -w packages/long-term            → exit 0
+   产物面核对（import lib/index.js）：
+     OK writeGate / coreSink / deriveMemoryId / prefilterWorthKeeping / IMPLEMENTED_WRITE_GATE_EXPORTS
+     OK WRITE_GATE_TRACE_EVENT / PREFILTER_BANK ｜ 清单长度 = 16
+     留痕标签 = mana/long-term/write-gate-degraded
+   （先 rm -rf lib 再建 ⇒ 产物非增量残留；src mtime 08:50:14 < lib mtime 08:52:17）
+
+② 本包判据（**最终**）
+   $ node --test packages/long-term/tests/write-gate.test.mjs   → 10 例全绿
+   $ node packages/long-term/verify.mjs                          → **✓ verify PASS**（6 文件逐份
+       登记数相等 + 各自 node --test 退出码 0 + TAP # tests 相等）
+
+③ 全量（**最终**，含 §9 追修）
+   $ npm test  → **exit 0** ｜ # tests 587 ｜ # pass 587 ｜ # fail 0
+   基线 561 pass / 0 fail → 现 587 pass / 0 fail（净 +26 pass / 0 fail）
+   ⚠ 中途曾出现 2 条红（RG-JL-⑥c / RG-JL-Q1），**已定性并修掉**：见 §4/§9 ——
+     根因不是本席，也不是那条测试本身，而是 **W1-2 席翻转了 jev 的 channel 缺省**
+     （ollama → systemone），使那两条腿的 jev 挂载点改道真通道、无 key 即降级。
+
+④ 装配链（改前先判爆炸半径：long-term 只在 R0 被 loader 装载）
+   $ node tools/r0-assembly-check.mjs → exit 0
+     装配 16/16 ✓ ｜ ② mana_trace 0 → 4（+4，链路真通）｜ ③ 卸载 16 → 0
+     ④ 反证：卸载后同一触发 4 → 4（无新增 ✓）⇒ R0 通过
+
+⑤ 端到端真跑（**真 perception → 真 Write Gate → 真 memory_items**）
+   装配 core + perception + long-term（只装 core 依赖），调 perception 的**公共入口** perceive()：
+     perception.wired = true
+     writeGateStatus(初) = {"registered":true,"degradedCount":0,"lastFailure":null,"lastState":null,...}
+     perceive 发出块数 = 1
+     --- memory_items ---
+     {"id":"mem_f1227aea93224fbc3bb87f8a28392d66","type":"observation",
+      "c":"这条观察值得长期记住：W1-3 端到端取证","retired":0}     ← ★ 端到端真落行的 SQL 读数
+     --- mana_trace ---
+     mana/long-term/write-gate-degraded | {"plugin":"mana-long-term","stage":"write-gate",
+       "degraded":true,"reason":"degraded_written / no-judge-listener：no-judge-listener"}
+     writeGateStatus(后) = {"registered":true,"degradedCount":1,
+       "lastFailure":"degraded_written / no-judge-listener：no-judge-listener","lastState":"degraded_written"}
+   ⚠ 「1 行」的读法：判定链（jev）**未装** ⇒ 按 rollout:103 的 fail-open 仍写入，
+     状态为 degraded_written（**不是** written）—— 这正是"降级与正常可分辨"的证据。
+
+⑥ 判定落既有审计面（jev_log 真出现行，非本包自建表）
+   test ④ 断言：监听器被调用**恰一次**；jev_log **增量 = 1**；可按 judgeId 查到该行；
+     seen[0].judgeType = 'worth_keeping'；requestId = '<父键>#worth_keeping'
+
+━━ 3. 反证对拍（扰动 ⇒ 判据必红 ⇒ 逐字节恢复；**全程未用 git reset --hard**）━━
+$ md5sum packages/long-term/src/write-gate.ts   BEFORE = 2f4c1cdb47a1f5aa71d0a7561392456b
+  扰动 A：把 retired 闸的 `if (retired === true)` 改成 `if (false)`（拆掉闸）
+    ⇒ node --test write-gate.test.mjs → # pass 9 # fail 1
+       not ok 3 - ③ retired 记忆再写：本包**挡住且可分辨**…
+    ⇒ 恢复后 md5 = 2f4c1cdb47a1f5aa71d0a7561392456b（一致）
+  扰动 B：把 `degraded ? 'degraded_written' : …` 改成恒 `'written'`（降级伪装成正常）
+    ⇒ # pass 8 # fail 2
+       not ok 6 - ⑥ 判定链抛错 ⇒ 显式降级…+ fail-open **仍写入**
+       not ok 7 - ⑦ 判了且低于阈值 ⇒ rejected…；无判定链 ⇒ no-judge-listener
+    ⇒ 恢复后 md5 = 2f4c1cdb47a1f5aa71d0a7561392456b（一致）
+  恢复核验：md5 BEFORE == AFTER 且 diff -q 无差异 ⇒ **逐字节恢复**
+
+  另有一组"反证的非平凡性"自证（写进判据本身，防 G11 平凡通过）：
+   ⑤ 先断言"开着时真写 1 行"，再断言"关掉后不增行"——成对，缺前者即平凡通过；
+   ⑤ 卸载插件后同一触发不增行（"卸载即净"的写面腿）；
+   ⑧ ⓐ 预过滤未命中 ⇒ 0 增量 ；ⓑ 预过滤命中 ⇒ memory_items 真 +1 且 mana_trace 恰 +1
+      —— ⓑ 的存在使 ⓐ 的"0"可被证伪（否则 ⓐ 只是因为"这一步没发生"）。
+
+━━ 4. 回归自检（碰过的既有行为逐条核）━━
+① skeleton.test.mjs ⑦（effect 面恰 3 条）
+   碰了什么：本包新增 1 条真行为（mana/observation 监听器）⇒ effect 3 → 4。
+   凭什么确认仍成立：**该判据按设计红了**（实测报错原文含实测 4 与四个标签），
+     本席**同步改写口径为 4 并逐条点名** service / ctx.provide( / agent/pre-step 三个旧标签仍在，
+     ⇒"删一条旧行为给新行为腾位置"同样报红（不是简单放宽数量）。实测 8/8 绿。
+② skeleton.test.mjs ⑧（本包不写 mana_trace）
+   碰了什么：**原判据在 W1-3 后会变成假绿** —— 它的探针串 'P1 空壳行为面探针' 与问法
+     bigram 交集 = 0（实测 prefilterWorthKeeping().hit === false）⇒ 被预过滤挡下 ⇒ 写门压根没进，
+     "0 行"成立的原因是"这一步没发生"。
+   凭什么确认仍成立：改写为成对两腿（ⓐ 未命中 ⇒ 两表 0 增量；ⓑ 命中 ⇒ items 真 +1、
+     trace 恰 +1 行、标签必须是本包命名空间且**明确断言不是 S1 五类裸名**）。实测 8/8 绿。
+③ retirement.test.mjs ⑥（残段：effect 仍须 3 条）
+   碰了什么：同上（effect 3 → 4）。
+   凭什么确认仍成立：改口径为 4 并逐条点名四个标签，同时保留该用例原本要测的
+     软删除面（retire/restore/search/selectById/…逐项可用）与"卸载即净"。实测 9/9 绿。
+④ recall-gate.test.mjs RG-⑤（effect 仍恰 3 条）
+   碰了什么：同上。
+   凭什么确认仍成立：改口径为 4；**关键**：该用例另一条断言"agent/pre-step 注册点**仍只有 1 个**"
+     保持原样未动（G9 义务未被新监听器稀释），且新增断言"须有 mana/observation 监听器"。实测 7/7。
+⑤ 既有 activation.test.mjs（9 例）
+   一个字未动，实测 9/9 绿 ⇒ ACT-R 纯函数面（d=0.5 / h=14 / 无 FSRS）零回归。
+⑥ tools/r0-assembly-check.mjs（16 包装配 + 卸载反证）
+   一个字未动，实测 exit 0 / R0 通过 ⇒ 本包新增的 ctx.on 未破坏装配与"卸载即净"。
+⑦ 跨包影响面（改前普查）
+   全仓 grep `plugin(<long-term>|ltmMod|ltMod)` ⇒ 仅 forgetting 的两条用例装载本插件，
+     且它们断言的是 forgetting 自己的服务面（kernelSource / tauSource），
+     不断言 long-term 的 effect 数或行为面 ⇒ 结构上不受本批影响。
+     perception / core chain-e2e 用**真 Loader**，但其 CHAIN 清单不含 dsh-mana-long-term
+     ⇒ 本批新增的监听器在那些链上**不会**被装载，零影响（实证：全量 585 pass 里无新红）。
+
+━━ 5. 取数坐标 ━━
+HEAD 4de9b87（工作树含多席未提交改动，本席只改 packages/long-term/**）
+基线：561 pass / 0 fail ｜ 现：587 tests / 585 pass / 2 fail（两条既有红，见 §4/§6）
+本包：skeleton 8/8 · activation 9/9 · retirement 9/9 · recall-gate 7/7 · write-gate 10/10
+      · recall-gate-jevlog 10/12（两条既有红）
+npm test 退出码：**0**（587/587/0，含 §9 追修后）
+本包 verify：**PASS**（6 文件）
+
+━━ 6. ⚠ 既有缺陷登记：core.writeMemoryItem 的 INSERT OR REPLACE（**根因，未修，属 core 写面**）━━
+探针（真库、真服务面，非读码推测）：
+  svc.writeMemoryItem({id:'m1',...}) → 手工置 retired=1 + 填 5 列 + 写 vector BLOB
+  → 再 svc.writeMemoryItem({id:'m1',...})
+BEFORE: {"retired":1,"reconsolidation_window_until":"2030-01-01T00:00:00.000Z",
+         "update_history":"[{\"v\":1}]","access_count":7,"base_level_activation":-1.5,"vector":"BLOB<3>"}
+AFTER : {"retired":0,"reconsolidation_window_until":null,"update_history":null,
+         "access_count":0,"base_level_activation":0,"vector":null,"created_at":"<被覆盖为新时刻>"}
+RESURRECTED: YES（静默复活）  WIPED_COLUMNS: 7 列
+  ["retired","reconsolidation_window_until","update_history","access_count",
+   "base_level_activation","vector","created_at"]
+
+⚠ 比派单给的更严重：派单只说 retired 被重置，实测**另有 6 列被清**，其中
+  · vector —— 向量席的回填列（core/src/index.ts:324 明写"由向量席另行回填"）
+    ⇒ 一次重写会把向量检索的数据源打空，而**读侧只会看到"没命中"**（与"库本来就空"同形）；
+  · created_at —— **被覆盖成新时刻**（"什么时候建的"这个事实被静默改写）。
+根因：SQLite 的 INSERT OR REPLACE 是 delete+insert，未列出的列回落 DEFAULT/NULL。
+位置：packages/core/src/index.ts:545-549。
+
+本席处置（**不改 core** —— core 不是本席写面）：
+  · write-gate.ts 写入前**显式查 retired**（coreSink.isRetired：双读数并存才可分辨
+    「无此 id」/「有但已退休」）⇒ 命中即拒绝覆盖并返回可分辨状态 skipped_retired；
+  · 对**活**行重写则记状态 overwritten（使"新建"与"覆盖"不再同形）。
+  · 判据 ③ **自带负向对拍**：绕过本闸直调 core.writeMemoryItem ⇒ 断言 retired 确实被重置为 0。
+    该断言若某天变红，说明 core 已修（届时本闸可重新评估，但不得直接删）。
+残留（如实记，不许读成已修）：本闸只挡 retired=1；对活行重写仍会清 vector/access_count/
+  update_history/reconsolidation_window_until，本包只能记状态、无法阻止。
+修法（交 core 写面席位）：改 `INSERT … ON CONFLICT(id) DO UPDATE SET` 并显式列出
+  允许覆盖的列，或至少把 retired 纳入列白名单。**见 [越界转派]。**
+
+━━ 7. 偏离登记（如实，不掩饰）━━
+① 派单称 long-term/src/index.ts 1731 行 —— 实测 409 行。按实测办，未按 1731 行事。
+② 派单称"成功标准可量化：判定必须落 jev_log 或既有审计面" —— 已达成；
+   但**本机的 jev_log 在测试态由注入 fetch 驱动**（不依赖网络/Ollama），
+   真实 Ollama 通道的可达性**不在本席判据内**（属 W1-2 席）。
+③ 本包在跑着一个 recall-gate 家族判据（recall-gate.test / recall-gate-jevlog.test /
+   src/recall-gate.ts），派单未提及，且全为**未跟踪**文件 —— 属**另一席在途工作**。
+   本席**只**改了 recall-gate.test.mjs 的 RG-⑤（effect 计数口径，因本席接线把它打红），
+   其余一律未动。**注意：上述 §4 的两条既有红就在 recall-gate-jevlog.test.mjs 里。**
+④ 归属判定（**不用 git reset / 不用 stash**，改走独立 worktree 对拍）：
+   $ git worktree add --detach /home/lk/.cache/mana-w13-pristine HEAD
+   + 拷入另一席的未跟踪件（recall-gate.ts / 两个 recall-gate 测试 / verify.mjs）
+   + 用**该 worktree 自己的 src 构建 lib**（首轮漏了这步 ⇒ 首版对拍不可信，已重做）
+   逐文件 A/B（pre-edit → post-edit）：
+     skeleton           8/0  →  8/0     （无回归）
+     activation         9/0  →  9/0     （无回归）
+     retirement         9/0  →  9/0     （无回归）
+     recall-gate        4/3  →  7/0     ★ 本席修好 3
+     recall-gate-jevlog 4/8  → 10/2     ★ 本席修好 6，剩 2 条与改前**逐名相同**
+     write-gate        不存在 → 10/0     ★ 本席新增
+   ⇒ 结论（mtime 亦佐证：recall-gate.ts 05:18 / jevlog 测试 05:16，本席改动 08:45+）：
+     **recall-gate.ts 及其 jevlog 判据在改动前就已红**，非本席回归；
+     而 3+6=9 条转绿，主因是本席把 recall-gate 家族的实现面**公开导出**
+     （此前未导出 ⇒ 判据 RG-①/③/⑤/⑥ 拿不到），属顺带收益，已如实登记而**不声称是功绩**。
+     ⚠ **订正**：上面这 6 条转绿里的 2 条（⑥c / Q1）当时**并未真绿** —— 首轮对拍时 jev 的
+       channel 缺省还是 `ollama`（真 JEV 缺省翻转发生在 08:54，晚于本席 08:45 的改动），
+       所以那 2 条在"改动前"与"我改完"两个时刻**都**因同一缺省而呈现同一读数。
+       缺省一翻，它们立刻变红 ⇒ 是**缺省翻转的连带影响**，非本席回归亦非其自身缺陷。见 §9。
+
+━━ 8. 硬约束逐条对照 ━━
+· 不新增事件类型 ：本包不 emit 任何 Mana 事件（判据⑧用**显式计数**断言 7 个事件名各 0 次）；
+                   判定只走既有 mana/jev/judge waterfall；domain.ts / event-types.ts 一个字未动。
+· 判定落既有审计面：复用 jev_log（判据④真读增量 = 1 且可按 judgeId 查）；
+                   本包**未自建**第二张审计表（避免"同一事实两个真源"）。
+· 降级显式标记 ：WriteGateState 八态逐态可分辨；failureKind 四值可枚举；
+                   degraded=true 时 value='unknown'（不得默认 no）、probability=null（不得用 0 冒充）；
+                   **无 catch{return null}**：落库失败报 unavailable + 具名 reason，
+                   **不得**被读成 rejected（判据⑨专门钉这一条）。
+· 复用既有激活方程：写入只带 created_at / access_timestamps；衰减归既有 decay/baseLevel
+                   （d=0.5 / h=14 天）；**未引入 FSRS**，未实现 ITACL/MCL/§8。
+· 不碰的墙       ：core/event-types.ts · core/domain.ts 只读（未改）；
+                   未 npm i、未装 sqlite-vec；无物理删除（本包只写 retired 闸、不发 DELETE）；
+                   未动 DSH 宿主；未照抄 v10 的 OpenRouter/options-logprobs；未碰 shoucang。
+━━
+
+━━ 9. 追修（主持人派单 · 2026-09-26 09:0x）：jev channel 缺省翻转的连带影响 ━━
+现象：W1-2 席把 jev 的 channel **缺省**由 `ollama` 翻转为 `systemone`
+  （packages/jev/src/index.ts:139；与其 src mtime 08:54 一致）。
+  本包 tests/recall-gate-jevlog.test.mjs 的两条腿（RG-JL-⑥c / RG-JL-Q1）随之由 12/12 变 10/12，
+  reason 含 `downstream-degraded(systemone-no-api-key)` ⇒ 判定改道真通道、本机无 key 即降级。
+根因（本席独立复核，不采信单方报告）：那两条腿的 jev 挂载点写的是 `ctx.plugin(jevMod, {})`
+  —— **未声明通道** ⇒ 取**全局缺省**。而"替身通道的确定性生产桩"这一立意
+  （自挂监听器注入 fakeFetchYes 且显式传 channel:'ollama'）在缺省翻转后**悄悄改道**：
+  判据的红绿不再由本用例要测的生产侧决定，而由别人的缺省值决定。
+  ⇒ 属"测试夹具依赖全局缺省"的形态缺陷，**不是 w1-2 的 bug，也不是本席 W1-3 的 bug**。
+
+处置（**只改夹具、不动 src 语义**）：
+  · 受影响的两个 jev 挂载点（⑥c / Q1）改为 `ctx.plugin(jevMod, { channel: 'ollama' })`
+    —— 显式声明替身通道，语义不依赖全局缺省。
+  · ⚠ **另两个挂载点未动**（第 124 行 = 挂载工厂，无 jev；第 404 行 = ★ 反向腿**故意**让下游抛错；
+    **第 364 行 = ⑥b 腿故意用不可达端点测降级**）—— 后两条的红绿**本就该**随缺省走，
+    把它们也钉成 'ollama' 会**削弱**其覆盖面。只改"被缺省翻转打破"的那两处 = 最小改动。
+  · **加显式通道自证**（两处）：`ctx.get('mana-jev').status().channel === 'ollama'`。
+    理由：显式声明**本身不会被机检** —— 若哪天有人把这行改回 `{}`，或 jev 侧改 channel 语义，
+    本用例会**静默**重新依赖全局缺省，红绿再次漂移而无人被告知。加自证后，
+    缺省再被翻转时**本用例自己报红并点名原因**，而不是让下面几腿以"看起来是生产侧坏了"的方式失败。
+
+判据（主持人给的验收）：
+  $ node --test packages/long-term/tests/recall-gate-jevlog.test.mjs
+    → **# tests 12 / # pass 12 / # fail 0**（改前 10/12）✓
+  $ npm test  → **exit 0 · # tests 587 / # pass 587 / # fail 0**
+  $ node packages/long-term/verify.mjs  → **✓ verify PASS**
+
+负向对拍（证明新增的自证**有牙**，不是装饰）：
+  把 ⑥c 的显式通道由 'ollama' 改成 'systemone' ⇒
+    not ok 9 - RG-JL-⑥c …
+    本用例必须挂在**替身通道**上（显式 channel:'ollama'）；实测生效通道 = systemone …
+    # pass 11 # fail 1
+  恢复后 md5 = 330d79226aa9daa5ce2dfe325570a8ca（与 BEFORE 一致）且 diff -q 无差异 ⇒ 逐字节恢复。
+
+范围核对（**未越界**）：
+  · 本次追修**只动 tests/**：packages/long-term/src 下仍只有 W1-3 的既有两个改动
+    （index.ts M + write-gate.ts ??），**没有为本追修新增任何 src 改动**。
+  · **未碰 packages/jev/src**（那两处 M 是 W1-2 席的），未改任何实现语义 ——
+    判据由红转绿的原因**不是**放宽断言，而是把"夹具依赖全局缺省"这个真缺陷修掉。
+  · channel 缺省维持 W1-2 的裁定（真 JEV 缺省是它的正当成果，不为测试让步）。
+━━
+
+━━ 10. core 的 REPLACE 缺陷**已被修复**（他席所为）· 本席负向对拍正确播报 ━━
+时间线（mtime 实证，非推测）：
+  · 09:01:06  packages/core/src/index.ts 被改（09:01:25 重建 lib）
+  · 09:01:42  本席跑 verify ⇒ write-gate.test.mjs 报红
+  · 09:02:31  本席复跑 ⇒ 稳定红（非 flaky）
+红的那一腿正是 §6 记的**负向对拍**：它原本断言"绕过本闸直调 core ⇒ retired 确实被重置为 0"。
+  报错原文：`1 !== 0`（期望 retired=0，实测 1）—— 即**不再复活**。
+⇒ 这一腿**按设计变红**，正确播报了"core 已修"，正是它存在的意义（判据不是装饰）。
+
+本席独立复核新 core 行为（真库实测，不采信注释）：
+  core/src/index.ts:545-576 已改为 UPSERT：
+    INSERT INTO memory_items (id,type,content,summary,created_at) VALUES (…)
+    ON CONFLICT(id) DO UPDATE SET type=excluded.type, content=excluded.content, summary=excluded.summary
+  实测（带满状态的既有行 → 重写）：
+    retired                       1 → 1      （★ 未复活）
+    created_at                   原值 → 原值（★ 未被篡改）
+    vector                  BLOB<3> → BLOB<3>（★ 未被打空）
+    reconsolidation_window_until / update_history / access_count / base_level_activation  逐列不变
+    content                      第一次 → 第二次（UPSERT 更新正文，符合其注释契约）
+  ⇒ §6 所记的 7 列清空面**已被消除**；§6 末尾「残留：本闸只挡 retired=1，活行重写仍会清列」
+    这一句**已过期**，以本节为准。
+
+本席随之做的改动（第二腿由「复现缺陷」改为「钉住目标不变式」）：
+  · write-gate.test.mjs ③ 的第二腿不再断言"core 会复活"（那是对**缺陷**的断言，缺陷修了它必然红），
+    改为断言**目标不变式**：
+      a) **任何**写入路径都不得让 `retired` 自发翻转（可逆性只归显式 `restore`）；
+      b) 重写不得清空既有列 —— 逐列比对本次实测曾被静默清空的那 **7 列**
+         （retired / reconsolidation_window_until / update_history / access_count /
+           base_level_activation / vector / created_at；vector 走 Buffer 逐字节比较）。
+    ⇒ 若 core 哪天回退成 `INSERT OR REPLACE`，本腿**立刻再红**（这就是它的价值）。
+  · 判据从"记录历史缺陷"升级为"守住不变式"，覆盖面**更强**而不是更弱（7 列逐个钉）。
+
+再对拍（本席自己的闸仍必须有牙，改完重跑一次）：
+  拆掉 write-gate.ts 的 `if (retired === true)` 闸 ⇒ ③ 红（# pass 9 # fail 1）；
+  恢复后 md5 = 2f4c1cdb47a1f5aa71d0a7561392456b（与 BEFORE 一致）且 diff -q 无差异 ⇒ 逐字节恢复。
+
+最终验收坐标：
+  $ npm test                       → **exit 0 · # tests 590 / # pass 590 / # fail 0**（not ok 数 = 0）
+  $ node packages/long-term/verify.mjs → **exit 0 · ✓ verify PASS**（6 文件逐份登记数相等）
+  （总例数由 587 → 590：他席为刚修的 core 新增了判据文件，非本席改动）
+  $ node --test packages/long-term/tests/write-gate.test.mjs → 10/10
+  本包：skeleton 8/8 · activation 9/9 · retirement 9/9 · recall-gate 7/7 · write-gate 10/10
+        · recall-gate-jevlog 12/12
+━━

@@ -1,0 +1,21 @@
+(node:48) [UNDICI-EHPA] Warning: EnvHttpProxyAgent is experimental, expect them to change at any time.
+(Use `node --trace-warnings ...` to show where the warning was created)
+verify: /home/lk/Mana/packages/long-term/
+  ✓ tests/skeleton.test.mjs: 非零字节（10520 bytes）· test( 声明数 = 8（等于期望值）
+  ✓ tests/activation.test.mjs: 非零字节（19036 bytes）· test( 声明数 = 9（等于期望值）
+  ✓ tests/retirement.test.mjs: 非零字节（35898 bytes）· test( 声明数 = 9（等于期望值）
+  ✓ tests/recall-gate.test.mjs: 非零字节（19167 bytes）· test( 声明数 = 7（等于期望值）
+  ✓ tests/recall-gate-jevlog.test.mjs: 非零字节（15790 bytes）· test( 声明数 = 6（等于期望值）
+  ✓ tests/skeleton.test.mjs: node --test 退出码 0
+  ✓ tests/skeleton.test.mjs: TAP # tests = 8（与期望值相等）
+  ✗ tests/activation.test.mjs: node --test 退出码 1（须为 0）
+  ✓ tests/activation.test.mjs: TAP # tests = 9（与期望值相等）
+  ✓ tests/retirement.test.mjs: node --test 退出码 0
+  ✓ tests/retirement.test.mjs: TAP # tests = 9（与期望值相等）
+  ✓ tests/recall-gate.test.mjs: node --test 退出码 0
+  ✓ tests/recall-gate.test.mjs: TAP # tests = 7（与期望值相等）
+  ✓ tests/recall-gate-jevlog.test.mjs: node --test 退出码 0
+  ✓ tests/recall-gate-jevlog.test.mjs: TAP # tests = 6（与期望值相等）
+
+✗ verify FAIL（1 项）
+  - tests/activation.test.mjs: node --test 退出码 1（须为 0）

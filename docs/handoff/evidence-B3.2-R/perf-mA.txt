@@ -1,0 +1,109 @@
+(node:14) [UNDICI-EHPA] Warning: EnvHttpProxyAgent is experimental, expect them to change at any time.
+(Use `node --trace-warnings ...` to show where the warning was created)
+TAP version 13
+# (node:21) [UNDICI-EHPA] Warning: EnvHttpProxyAgent is experimental, expect them to change at any time.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# (node:21) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# Subtest: RG-JL-① 判定键派生：同批唯一、跨批不复用、拼接式单射（反解唯一）
+ok 1 - RG-JL-① 判定键派生：同批唯一、跨批不复用、拼接式单射（反解唯一）
+  ---
+  duration_ms: 2.193722
+  type: 'test'
+  ...
+# Subtest: RG-JL-② 路径①重复候选键：去重后声明集 == 落库行集，且 duplicateKeys 显式报出
+ok 2 - RG-JL-② 路径①重复候选键：去重后声明集 == 落库行集，且 duplicateKeys 显式报出
+  ---
+  duration_ms: 660.382052
+  type: 'test'
+  ...
+# [路径①重复键] probed=2 judged=2 duplicateKeys=["m-a"] 声明=["r-dup\#rel_m-a","r-dup\#rel_m-b"] 落库增量=2
+# Subtest: RG-JL-③ 路径②候选抛错：抛错项进 threwKeys **不进 judgeIds**，声明集 == 落库行集
+ok 3 - RG-JL-③ 路径②候选抛错：抛错项进 threwKeys **不进 judgeIds**，声明集 == 落库行集
+  ---
+  duration_ms: 625.349698
+  type: 'test'
+  ...
+# [路径②抛错] probed=3 judgeIds=2 threwKeys=["m-b"] 落库增量=2
+# Subtest: RG-JL-④ 反证：把去重变异掉 ⇒ 路径①（重复键）的集合对账必红
+ok 4 - RG-JL-④ 反证：把去重变异掉 ⇒ 路径①（重复键）的集合对账必红
+  ---
+  duration_ms: 659.085534
+  type: 'test'
+  ...
+# Subtest: RG-JL-⑤ 既有结论不回退：三态可分辨、降级不标 jev_prob、rankBy 回落
+ok 5 - RG-JL-⑤ 既有结论不回退：三态可分辨、降级不标 jev_prob、rankBy 回落
+  ---
+  duration_ms: 502.389983
+  type: 'test'
+  ...
+# [不回退自证] pass=judged/jev_prob · 无监听器=degraded/local_score · 真件=degraded
+# Subtest: RG-JL-⑥ 前置条件：同一 requestId 被两批复用 ⇒ 第二批撞主键、家族失效（本腿即"可检出"的证据）
+ok 6 - RG-JL-⑥ 前置条件：同一 requestId 被两批复用 ⇒ 第二批撞主键、家族失效（本腿即"可检出"的证据）
+  ---
+  duration_ms: 745.585766
+  type: 'test'
+  ...
+# [前置条件] 第一批声明 3 新增=3；第二批声明 3 新增=0 ⇒ 复用 requestId 会让家族失效（调用方前置条件，已在 judgeIds 文档写明）
+# Subtest: RG-JL-★ 反向：真 jev ★ 下游抛错 ⇒ 声明必须**仍等于**新增行数（不得声明少于行）
+ok 7 - RG-JL-★ 反向：真 jev ★ 下游抛错 ⇒ 声明必须**仍等于**新增行数（不得声明少于行）
+  ---
+  duration_ms: 861.685282
+  type: 'test'
+  ...
+# [★ 反向] gate=degraded failureKind=downstream-threw 声明=3 新增行=3 threwKeys=["m-a","m-b","m-c"]
+# Subtest: RG-JL-⑥b 正常出口 + **落痕失败**（DROP jev_log）⇒ 不得声明多于行
+ok 8 - RG-JL-⑥b 正常出口 + **落痕失败**（DROP jev_log）⇒ 不得声明多于行
+  ---
+  duration_ms: 901.480388
+  type: 'test'
+  ...
+# [落痕失败] gate=degraded failureKind=trace-failed 声明=0 新增行=0 untracedKeys=["m-a","m-b","m-c"] reason=判定链给出读数但 **jev_log 落痕失败**（3 条确定未写成行；m-a: trace-failed(判定返回了但 jev_log 未写成：无 traceError 读数);
+# Subtest: RG-JL-⑥c 部分落痕失败 ⇒ 走**正常出口**，该出口也必须带 failureKind/untracedKeys
+ok 9 - RG-JL-⑥c 部分落痕失败 ⇒ 走**正常出口**，该出口也必须带 failureKind/untracedKeys
+  ---
+  duration_ms: 894.053833
+  type: 'test'
+  ...
+# [部分落痕失败] gate=below_threshold failureKind=trace-failed judgeIds=2 untracedKeys=["m-b"] 新增行=2
+# [部分落痕失败·读数] gate=below_threshold probed=3 judged=2 items=[["m-a",0.43508732791528626],["m-b",null],["m-c",0.43508732791528626]]
+# Subtest: RG-JL-Q2 早退三条 ⇒ failureKind === not-attempted（与「送了没成」可分辨）
+ok 10 - RG-JL-Q2 早退三条 ⇒ failureKind === not-attempted（与「送了没成」可分辨）
+  ---
+  duration_ms: 6.105724
+  type: 'test'
+  ...
+# [Q2 早退归因] a=not-attempted b=not-attempted c=not-attempted · 变异后=null（必红已证）
+# Subtest: RG-JL-Q1 judged 出口：部分落痕失败时 reason **必须非 null**（此前恒 null = 文档强于代码）
+not ok 11 - RG-JL-Q1 judged 出口：部分落痕失败时 reason **必须非 null**（此前恒 null = 文档强于代码）
+  ---
+  duration_ms: 888.312661
+  type: 'test'
+  location: '/home/lk/Mana/packages/long-term/tests/recall-gate-jevlog.test.mjs:550:1'
+  failureType: 'testCodeFailure'
+  error: '★ judged 出口的 reason **不得为 null**（此前恒 null ⇒ 只读 reason 的消费方看不到落痕失败）'
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: ~
+  actual: ~
+  operator: 'notStrictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///home/lk/Mana/packages/long-term/tests/recall-gate-jevlog.test.mjs:592:10)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# [Q1 judged] gate=judged failureKind=trace-failed reason=null
+# Subtest: RG-JL-⑦ 用例计数自检
+ok 12 - RG-JL-⑦ 用例计数自检
+  ---
+  duration_ms: 0.80883
+  type: 'test'
+  ...
+1..12
+# tests 12
+# suites 0
+# pass 11
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 6866.865505

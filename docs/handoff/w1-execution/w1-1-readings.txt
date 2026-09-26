@@ -1,0 +1,102 @@
+# W1-1 七链条驱动者 · 取数坐标与实测记录
+
+生成时间：2026-09-26（本席唯一一次写入；后续未改）
+会议席名：W1-1 七链条驱动者
+
+## 0. 基线坐标（由派单固定，本席未改）
+```
+HEAD          = 4de9b87
+node          = v22.22.1
+BASELINE.txt  = docs/handoff/w1-execution/BASELINE.txt（只读，未改）
+```
+
+## 1. 受验文件与 sha256（扰动还原的对照基准）
+```
+3a60f358525232ba8bfabd7a5ea429f3fa943f0378857d1c7d3a27f516c371cc  packages/scheduler/src/index.ts
+05749728838d764bea9c3ed42f36cab2183191f48569e79dc67b079b9254932a  packages/scheduler/src/chains.ts
+e90ebb1cc924ecd34e66db1ccfee3e45a51afb8f8bc35c2c85a53c9ee836f47c  packages/scheduler/tests/chains-e2e.test.mjs
+78601021b101bf17cefd3632af4885d90171e0b39b3188a394c729fe5c2bf113  packages/scheduler/verify.mjs
+6b2c77200ee7b31ccbd41aa6ae307c0da5c16d596864dfeea0d6a81089741369  packages/scheduler/lib/index.js
+998d7aedb09c355e0ebfd2d14e4f432d4925cbbc572bc6cc4de1f0696c53eec3  packages/scheduler/lib/chains.js
+```
+
+## 2. 写面边界（严格核对）
+```
+本席**实际改动**的 tracked 文件恰好 2 个：
+  M packages/scheduler/src/index.ts      （156 → 295 行，+139）
+  M packages/scheduler/verify.mjs        （73 → 114 行，+41）
+新增（untracked）3 项：
+  ?? packages/scheduler/src/chains.ts               （0 → 884 行，新文件）
+  ?? packages/scheduler/tests/chains-e2e.test.mjs   （0 → 568 行，新文件）
+  ?? docs/handoff/w1-execution/                     （本档 + 扰动脚本 + 其 JSON 产物）
+
+⚠ 全仓 tracked-modified 计数在本次会话中由 19 涨到 29 —— **那 27 个不是本席**：
+  本席的写面是 packages/scheduler/**；其余为 W1 同批其他席并行在改（本席全程未碰）。
+  核对命令：git status --porcelain packages/scheduler docs/handoff/w1-execution
+```
+
+## 3. 判据执行（命令 → 退出码 → 关键读数）
+```
+① 包内端到端判据（本次核心验收面）
+   $ node --test packages/scheduler/tests/chains-e2e.test.mjs
+   退出码 0；TAP # tests 13 / # pass 13 / # fail 0
+   T1 编码链 / T2 检索链 / T3 巩固链 / T4 再巩固链 / T5 遗忘链 / T6 学习链
+   T7 未装配留痕 / T8 反证 / T9 真旋钮 / T10 §18.2 表对齐 / T11 运行期判定 / T12 形态面
+   Z9 自我核验（用例数 == EXPECTED_CASES）
+
+② 包内外部防线（R2b，四道闸 × 两个文件）
+   $ node packages/scheduler/verify.mjs
+   退出码 0；scheduler.test.mjs 声明 14/计数 14/TAP 14；chains-e2e.test.mjs 声明 13/计数 12/TAP 13
+
+③ 全仓测试
+   $ npm test            （node --test "packages/*/tests/*.test.mjs"）
+   退出码 0；# tests 603 / # pass 603 / # fail 0（基线 561 pass ⇒ 本席净增 42 例）
+
+④ 装配面三源互证（R0）
+   $ node tools/r0-assembly-check.mjs
+   退出码 0；装配 16/16 可读；卸载 16 entry → 装配计数 0；卸载后同触发 mana_trace 4 → 4（无新增）
+
+⑤ A1 判据门（含 C16 守卫 / P5-UI / W2-5）
+   $ node tools/a1-check.mjs
+   退出码 0；判据腿无 FAIL；项集腿 期望 17 == 实测 17，差集 []
+```
+
+## 4. 反证对拍（负向扰动 ⇒ 判据必须变红 ⇒ 逐字节还原）
+```
+脚本：docs/handoff/w1-execution/w1-1-mutation.mjs  产物：w1-1-mutation.json
+  基线（未扰动）          ：全绿
+  M1 未装配静默跳过       ⇒ 红 T7   ✓ 判据捕获
+  M2 driverEnabled 假旋钮 ⇒ 红 T9   ✓ 判据捕获
+  M3 coverage 行被吞      ⇒ 红 T10  ✓ 判据捕获
+  还原：index.ts / chains.ts sha256 与扰动前**逐字节相同**；还原后复跑全绿
+  ⚠ 还原全程**未用** git reset --hard（会把同批其他席的在途改动一起抹掉）
+```
+
+## 5. 约束逐条自检
+```
+  ① 不 import 其他包      ：chains.ts 的跨包 import 只有 type ManaCoreService from 'dsh-mana-core'（1 条，type-only）
+                            四链全部走 ctx.get('<svc>') 运行期解析 + 本地结构接口
+  ② 无定时器              ：grep setInterval|setTimeout packages/scheduler/src/*.ts ⇒ 仅注释提到，代码零命中
+  ③ 未装配必须留痕        ：T7 断言 assembled=false + status='unassembled' + reason 点名缺哪个服务（5 条链逐条查）
+  ④ 每链可查行            ：T1–T6 各自断言真库上的可查证据（observation / recall / production_rules / window+落库 / 候选 / related_ids）
+  ⑤ 反证（卸载⇒零新行）   ：T8 + T12，带**正向前置控制**（装上时必须真写行）与**对照腿**（卸载后链服务仍在）
+  ⑥ 8 事件契约未改         ：未新增事件名、未改 payload；event-types.ts/domain.ts 未碰（_freeze 清单腿 R0 通过）
+  ⑦ 不移植 FSRS/ITACL/MCL  ：§18.2「检索命中」行记 not-ported（C16），学习链走 Hebbian 共激活
+  ⑧ 未写 retired 列        ：T5 反向断言 retired=0 且驱动者行显式声明 retiredWritten=0
+  ⑨ 未碰 DSH host / 其他席 ：只改 packages/scheduler/** 与 docs/handoff/w1-execution/**
+  ⑩ lib 与 src 一致        ：重建后 lib 两个 .js 的 sha256 与重建前**完全相同**（= lib 确为当前 src 的产物）
+```
+
+## 6. 已知残留（如实记，不粉饰）
+```
+  · **§18.2 第 2 行「工具返回」与第 5 行「用户强调」无宿主事件面可接** —— 表内记 not-driven
+    并给出逐条理由（dsh-tools 只暴露执行前事件；UserMessage 无强调字段）。这不是遗漏，是实测结论。
+  · **「定时任务」一行由回合边界替代**（本仓禁定时器）—— 替代事实写进每行 trace 的 substitution 字段，
+    不靠注释交代；该行的 v10 原语义（周期性）在无定时器仓库里**不可能等价**，只做到「有事可做时必触发」。
+  · **遗忘链没有自有落点**：forgetting 按设计是纯计算（不写 trace、不落库），故其可查证据只能是
+    驱动者行带回的真读数。已在测试文件表下写明该例外，并加反向断言（retired 一格未写）防假绿。
+  · **测试用 embedEnabled:false**：走词法分支 ⇒ 零网络、零 Ollama 依赖。向量嵌入通道的端到端
+    由 W1-4 席的判据覆盖，本席不重复测（也不假装测过）。
+  · 本席**未**在真实 GUI profile 里装配（~/.dsh/profiles/* 无 mana 条目），故「生产面」指本仓
+    真 cordis Loader 链（与 core/tests/chain-e2e.test.mjs 同口径），非运行中的 GUI 进程。
+```

@@ -1,0 +1,13 @@
+# W1 开工基线（2026-09-26T08:26:30+08:00）
+HEAD=4de9b87
+## 测试总数
+# tests 561
+# pass 561
+# fail 0
+## 脏文件数（tracked）
+19
+## 各包 lib 是否新鲜
+  scheduler: fresh
+  jev: STALE (src newer)
+  long-term: fresh
+  vector: STALE (src newer)

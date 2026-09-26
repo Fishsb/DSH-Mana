@@ -1,0 +1,63 @@
+(node:249) [UNDICI-EHPA] Warning: EnvHttpProxyAgent is experimental, expect them to change at any time.
+(Use `node --trace-warnings ...` to show where the warning was created)
+TAP version 13
+# (node:256) [UNDICI-EHPA] Warning: EnvHttpProxyAgent is experimental, expect them to change at any time.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# (node:256) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# Subtest: ① behavior 由运行时服务面机检（填了实现在忘改 ⇒ 必红）+ 反方向补牙
+ok 1 - ① behavior 由运行时服务面机检（填了实现在忘改 ⇒ 必红）+ 反方向补牙
+  ---
+  duration_ms: 562.59146
+  type: 'test'
+  ...
+# Subtest: ② 本包真在 agent/pre-step 链上：effect 面出现监听器 + 卸载后消失
+ok 2 - ② 本包真在 agent/pre-step 链上：effect 面出现监听器 + 卸载后消失
+  ---
+  duration_ms: 804.170782
+  type: 'test'
+  ...
+# Subtest: ③ 链完整性：哨兵与最内层各走一次（漏调 next() ⇒ 哨兵 0）
+ok 3 - ③ 链完整性：哨兵与最内层各走一次（漏调 next() ⇒ 哨兵 0）
+  ---
+  duration_ms: 504.136943
+  type: 'test'
+  ...
+# Subtest: ④ 传 {enabled:false} 不得关掉 G9 义务（本包无 Config，该键必须被无视）
+ok 4 - ④ 传 {enabled:false} 不得关掉 G9 义务（本包无 Config，该键必须被无视）
+  ---
+  duration_ms: 501.807321
+  type: 'test'
+  ...
+# Subtest: ⑤ 不得导出 Config（假旋钮不得回流）
+ok 5 - ⑤ 不得导出 Config（假旋钮不得回流）
+  ---
+  duration_ms: 502.989437
+  type: 'test'
+  ...
+# Subtest: ⑦ effect 面精确计数：本包仍是空壳（多一条行为即红 ⇒ 强制交代）
+ok 6 - ⑦ effect 面精确计数：本包仍是空壳（多一条行为即红 ⇒ 强制交代）
+  ---
+  duration_ms: 502.658422
+  type: 'test'
+  ...
+# Subtest: ⑧ 行为面缺席：本包不写任何 mana_trace 行（与 ⑦ 互补）
+ok 7 - ⑧ 行为面缺席：本包不写任何 mana_trace 行（与 ⑦ 互补）
+  ---
+  duration_ms: 700.747231
+  type: 'test'
+  ...
+# Subtest: ⑥ 用例计数自检（防本文件被截断/删用例 —— 空文件会报 tests 1 / pass 1 的假绿）
+ok 8 - ⑥ 用例计数自检（防本文件被截断/删用例 —— 空文件会报 tests 1 / pass 1 的假绿）
+  ---
+  duration_ms: 0.299826
+  type: 'test'
+  ...
+1..8
+# tests 8
+# suites 0
+# pass 8
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 4155.391006

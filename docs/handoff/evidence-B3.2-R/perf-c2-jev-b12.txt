@@ -1,0 +1,87 @@
+(node:91) [UNDICI-EHPA] Warning: EnvHttpProxyAgent is experimental, expect them to change at any time.
+(Use `node --trace-warnings ...` to show where the warning was created)
+TAP version 13
+# (node:98) [UNDICI-EHPA] Warning: EnvHttpProxyAgent is experimental, expect them to change at any time.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# (node:98) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# Subtest: B1.2-1 真调 Ollama：pos0 取到候选，且 yes/no 归一对得上原始 top_logprobs
+ok 1 - B1.2-1 真调 Ollama：pos0 取到候选，且 yes/no 归一对得上原始 top_logprobs
+  ---
+  duration_ms: 4586.208035
+  type: 'test'
+  ...
+# [测量条件说明 · B 档，非阈值] latency_ms=4526 model=qwen3.5:0.8b
+# [真返回 pos0] yes:-0.0795 no:-3.2935 Yes:-3.6280 true:-5.1099 No:-6.0941 → pYes=0.9502
+# Subtest: B1.2-2 大小写变体不得被静默漏掉（真返回上的直接断言）
+ok 2 - B1.2-2 大小写变体不得被静默漏掉（真返回上的直接断言）
+  ---
+  duration_ms: 7385.004541
+  type: 'test'
+  ...
+# [真返回] 大写 Yes=1 小写 yes=1 | 大写 No=1 小写 no=1
+# Subtest: B1.2-3 真故障（不可达端点）：degraded=true + reason 非空 + **仍写一行 jev_log**
+ok 3 - B1.2-3 真故障（不可达端点）：degraded=true + reason 非空 + **仍写一行 jev_log**
+  ---
+  duration_ms: 37.729689
+  type: 'test'
+  ...
+# Subtest: B1.2-4 骨架测试同款口径的 fetch stub（500）也走同一降级+留痕路径
+ok 4 - B1.2-4 骨架测试同款口径的 fetch stub（500）也走同一降级+留痕路径
+  ---
+  duration_ms: 11.094433
+  type: 'test'
+  ...
+# Subtest: B1.2-5 正常反例：degraded=false 且 reason===null，并落一行 degraded=0 的痕
+ok 5 - B1.2-5 正常反例：degraded=false 且 reason===null，并落一行 degraded=0 的痕
+  ---
+  duration_ms: 7477.890597
+  type: 'test'
+  ...
+# [测量条件说明 · B 档] latency_ms=7428
+# Subtest: B1.2-6 无 yes/no 族候选 ⇒ unknown + 降级留痕（不得默认成 no）
+ok 6 - B1.2-6 无 yes/no 族候选 ⇒ unknown + 降级留痕（不得默认成 no）
+  ---
+  duration_ms: 6.352362
+  type: 'test'
+  ...
+# Subtest: B1.2-7 stateHash 是 A 档确定性值；chatUrl 幂等拼接
+ok 7 - B1.2-7 stateHash 是 A 档确定性值；chatUrl 幂等拼接
+  ---
+  duration_ms: 0.358345
+  type: 'test'
+  ...
+# Subtest: B1.2-8 pos0 提取对异常形态返回空数组（不抛，交给调用方转显式降级）
+ok 8 - B1.2-8 pos0 提取对异常形态返回空数组（不抛，交给调用方转显式降级）
+  ---
+  duration_ms: 0.251137
+  type: 'test'
+  ...
+# Subtest: B1.2-9 负向补例：手写大小写混合候选的归一（补充，不替代真返回断言）
+ok 9 - B1.2-9 负向补例：手写大小写混合候选的归一（补充，不替代真返回断言）
+  ---
+  duration_ms: 0.347885
+  type: 'test'
+  ...
+# Subtest: B1.2-10 服务面 judge 真写进 core 的库（装配态证据，非机制自证）
+ok 10 - B1.2-10 服务面 judge 真写进 core 的库（装配态证据，非机制自证）
+  ---
+  duration_ms: 7705.874852
+  type: 'test'
+  ...
+# [服务面] pYes=0.8994 value=yes rows 0→1
+# Subtest: B1.2-11 反证：卸载 jev 后同一触发不再产生新行（附**正向对照**防平凡通过）
+ok 11 - B1.2-11 反证：卸载 jev 后同一触发不再产生新行（附**正向对照**防平凡通过）
+  ---
+  duration_ms: 654.412313
+  type: 'test'
+  ...
+# [反证 · 进程内装配] 装载态 +1 行（0→1）；卸载后 0 新行（1→1）
+1..11
+# tests 11
+# suites 0
+# pass 11
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 28008.964038

@@ -1,0 +1,3424 @@
+(node:202) [UNDICI-EHPA] Warning: EnvHttpProxyAgent is experimental, expect them to change at any time.
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+> mana@0.1.0 test
+> node --test "packages/*/tests/*.test.mjs"
+
+(node:215) [UNDICI-EHPA] Warning: EnvHttpProxyAgent is experimental, expect them to change at any time.
+(Use `node --trace-warnings ...` to show where the warning was created)
+TAP version 13
+# (node:222) [UNDICI-EHPA] Warning: EnvHttpProxyAgent is experimental, expect them to change at any time.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# (node:222) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# Subtest: G4-① buildBlock 服务面：形态正确，且与真注入进消息里的块逐字一致
+ok 1 - G4-① buildBlock 服务面：形态正确，且与真注入进消息里的块逐字一致
+  ---
+  duration_ms: 530.46098
+  type: 'test'
+  ...
+# Subtest: G4-② A1-6：候选内容里的 < > 被转义，内层 < 计数恒为 0，且 wrapper 计数恒为 2
+ok 2 - G4-② A1-6：候选内容里的 < > 被转义，内层 < 计数恒为 0，且 wrapper 计数恒为 2
+  ---
+  duration_ms: 488.788651
+  type: 'test'
+  ...
+# Subtest: G4-③ 预算闸：超限时截断而非静默丢弃（gate 与内容必须一致）
+ok 3 - G4-③ 预算闸：超限时截断而非静默丢弃（gate 与内容必须一致）
+  ---
+  duration_ms: 490.249471
+  type: 'test'
+  ...
+# Subtest: G4-④ 产出块经宿主 createUserMessage 构造：id/role/content/source 四件齐且形态合规
+ok 4 - G4-④ 产出块经宿主 createUserMessage 构造：id/role/content/source 四件齐且形态合规
+  ---
+  duration_ms: 489.419227
+  type: 'test'
+  ...
+# Subtest: G4-⑤ A1-7 前缀逐字节不变；且既有消息里含 wrapper 时不得误记 reset
+ok 5 - G4-⑤ A1-7 前缀逐字节不变；且既有消息里含 wrapper 时不得误记 reset
+  ---
+  duration_ms: 490.764672
+  type: 'test'
+  ...
+# Subtest: G5-① mana_trace 事件标签全在 S1 裸名五类内（不冒充、不用第三套手写字面量）
+ok 6 - G5-① mana_trace 事件标签全在 S1 裸名五类内（不冒充、不用第三套手写字面量）
+  ---
+  duration_ms: 490.570914
+  type: 'test'
+  ...
+# Subtest: G5-② 降级路径同样在自有命名空间内（且 degraded 事实可读）
+ok 7 - G5-② 降级路径同样在自有命名空间内（且 degraded 事实可读）
+  ---
+  duration_ms: 488.642244
+  type: 'test'
+  ...
+# Subtest: G5-③ 形态面：本包在 agent/pre-step 上恰好注册 1 条监听器；卸载后该条消失（卸载即净）
+ok 8 - G5-③ 形态面：本包在 agent/pre-step 上恰好注册 1 条监听器；卸载后该条消失（卸载即净）
+  ---
+  duration_ms: 746.769277
+  type: 'test'
+  ...
+# (node:223) [UNDICI-EHPA] Warning: EnvHttpProxyAgent is experimental, expect them to change at any time.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# (node:223) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# Subtest: D1 逐块核对：两块里只丢最老那块 ⇒ 必须记 1 行 reset 并点名那一块（退回 some(...) 即漏报）
+ok 9 - D1 逐块核对：两块里只丢最老那块 ⇒ 必须记 1 行 reset 并点名那一块（退回 some(...) 即漏报）
+  ---
+  duration_ms: 2011.753461
+  type: 'test'
+  ...
+# Subtest: D2 inject_log.reset 列：gate=reset 的行 reset=1（生产侧显式位 + core 同形防呆，负控在同档内）
+ok 10 - D2 inject_log.reset 列：gate=reset 的行 reset=1（生产侧显式位 + core 同形防呆，负控在同档内）
+  ---
+  duration_ms: 1471.424268
+  type: 'test'
+  ...
+# Subtest: D3【已知缺口·自述·未修】injected 行的 request_id 落成 pre-step:N（变红即表示**已修**）
+ok 11 - D3【已知缺口·自述·未修】injected 行的 request_id 落成 pre-step:N（变红即表示**已修**）
+  ---
+  duration_ms: 490.802635
+  type: 'test'
+  ...
+# Subtest: D4 五类枚举可达性兜底对账（与门①同源独立驱动一次；本用例是**正向**判据，红=真回归）
+ok 12 - D4 五类枚举可达性兜底对账（与门①同源独立驱动一次；本用例是**正向**判据，红=真回归）
+  ---
+  duration_ms: 493.022777
+  type: 'test'
+  ...
+# (node:226) [UNDICI-EHPA] Warning: EnvHttpProxyAgent is experimental, expect them to change at any time.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# (node:226) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# Subtest: V-①a 上界逐出先挑"无损"候选：只是过了几步的会话被逐出，热会话的 I2 账目一个字不动
+ok 13 - V-①a 上界逐出先挑"无损"候选：只是过了几步的会话被逐出，热会话的 I2 账目一个字不动
+  ---
+  duration_ms: 580.16893
+  type: 'test'
+  ...
+# Subtest: V-①b 无可避免的让路：热分区被 FIFO 逐出 ⇒ **留痕 + I2 让路同时可观测**
+ok 14 - V-①b 无可避免的让路：热分区被 FIFO 逐出 ⇒ **留痕 + I2 让路同时可观测**
+  ---
+  duration_ms: 615.149618
+  type: 'test'
+  ...
+# Subtest: V-② 逐出与 injectedBlocks：无损优先不丢块；让路时**必须报出丢了几块**
+ok 15 - V-② 逐出与 injectedBlocks：无损优先不丢块；让路时**必须报出丢了几块**
+  ---
+  duration_ms: 1110.235517
+  type: 'test'
+  ...
+# Subtest: V-③ 无 session 身份：不得静默（trace + inject_log 各一行），且下游仍必须被进入
+ok 16 - V-③ 无 session 身份：不得静默（trace + inject_log 各一行），且下游仍必须被进入
+  ---
+  duration_ms: 489.34438
+  type: 'test'
+  ...
+# Subtest: V-④ 空 sessionId 的 observation：不得抛（源头不炸），且不建分区 + 留痕可查
+ok 17 - V-④ 空 sessionId 的 observation：不得抛（源头不炸），且不建分区 + 留痕可查
+  ---
+  duration_ms: 488.122491
+  type: 'test'
+  ...
+# Subtest: V-⑤ 不回退（D1）：双会话交错下 B 会话拿自己的候选，且同一 requestId 各注入一次
+ok 18 - V-⑤ 不回退（D1）：双会话交错下 B 会话拿自己的候选，且同一 requestId 各注入一次
+  ---
+  duration_ms: 488.756085
+  type: 'test'
+  ...
+# Subtest: V-⑥ 不回退（D2）：下游吞掉 next() 返回值 ⇒ 抛具名错 + inject_log 零新增行
+ok 19 - V-⑥ 不回退（D2）：下游吞掉 next() 返回值 ⇒ 抛具名错 + inject_log 零新增行
+  ---
+  duration_ms: 489.312182
+  type: 'test'
+  ...
+# Subtest: Z-③ 负控：摘掉逐出留痕调用 ⇒ V-①b 的"库里有行"读数必红（修前的静默逐出）
+ok 20 - Z-③ 负控：摘掉逐出留痕调用 ⇒ V-①b 的"库里有行"读数必红（修前的静默逐出）
+  ---
+  duration_ms: 551.912018
+  type: 'test'
+  ...
+# (node:240) [UNDICI-EHPA] Warning: EnvHttpProxyAgent is experimental, expect them to change at any time.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# (node:240) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# Subtest: G2-① 故障态 fail-closed：判定链降级 ⇒ 注入块 == 0，但**必须**新增留痕行
+ok 21 - G2-① 故障态 fail-closed：判定链降级 ⇒ 注入块 == 0，但**必须**新增留痕行
+  ---
+  duration_ms: 533.70422
+  type: 'test'
+  ...
+# Subtest: G2-② 正常态必须注入（反向腿）：不注入的实现无法通过本条
+ok 22 - G2-② 正常态必须注入（反向腿）：不注入的实现无法通过本条
+  ---
+  duration_ms: 492.108419
+  type: 'test'
+  ...
+# Subtest: G2-③ 故障态与正常态必须可分辨：二者的 inject_log 读数不得同形
+ok 23 - G2-③ 故障态与正常态必须可分辨：二者的 inject_log 读数不得同形
+  ---
+  duration_ms: 978.743975
+  type: 'test'
+  ...
+# Subtest: G2-④ 每次降级同时给 degraded 与非空 reason（且 reason 真落在 trace 里）
+ok 24 - G2-④ 每次降级同时给 degraded 与非空 reason（且 reason 真落在 trace 里）
+  ---
+  duration_ms: 488.87313
+  type: 'test'
+  ...
+# Subtest: G2-⑤ 判定链抛错：仍不注入、仍留痕，且**不得**把异常抛穿 pre-step
+ok 25 - G2-⑤ 判定链抛错：仍不注入、仍留痕，且**不得**把异常抛穿 pre-step
+  ---
+  duration_ms: 489.278596
+  type: 'test'
+  ...
+# Subtest: G2-⑥ 写 inject_log 失败：下游仍必须被调到，且失败走 mana/plugin/inactive 显式记账
+ok 26 - G2-⑥ 写 inject_log 失败：下游仍必须被调到，且失败走 mana/plugin/inactive 显式记账
+  ---
+  duration_ms: 496.768732
+  type: 'test'
+  ...
+# (node:241) [UNDICI-EHPA] Warning: EnvHttpProxyAgent is experimental, expect them to change at any time.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# (node:241) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# Subtest: G1-① injected：真注入时既有审计行、又有消息块，且「注入了哪条」写得出来
+ok 27 - G1-① injected：真注入时既有审计行、又有消息块，且「注入了哪条」写得出来
+  ---
+  duration_ms: 542.216011
+  type: 'test'
+  ...
+# Subtest: G1-② skip_below_threshold：判定链**真判过**且未过阈（与「没候选」必须可分辨）
+ok 28 - G1-② skip_below_threshold：判定链**真判过**且未过阈（与「没候选」必须可分辨）
+  ---
+  duration_ms: 488.161072
+  type: 'test'
+  ...
+# Subtest: G1-③ degraded_unavailable：判定链**真返回 degraded**（非「没监听器」兜底），fail-closed 且留痕
+ok 29 - G1-③ degraded_unavailable：判定链**真返回 degraded**（非「没监听器」兜底），fail-closed 且留痕
+  ---
+  duration_ms: 977.084394
+  type: 'test'
+  ...
+# Subtest: G1-④ skip_no_candidate：候选池空 / 门控关闭 / 宿主 reject 三条事由各自真到达
+ok 30 - G1-④ skip_no_candidate：候选池空 / 门控关闭 / 宿主 reject 三条事由各自真到达
+  ---
+  duration_ms: 1466.697127
+  type: 'test'
+  ...
+# Subtest: G1-⑤ reset：块从上下文消失才记 reset；块仍在时**不得**记（否则 reset 恒真）
+ok 31 - G1-⑤ reset：块从上下文消失才记 reset；块仍在时**不得**记（否则 reset 恒真）
+  ---
+  duration_ms: 492.962542
+  type: 'test'
+  ...
+# Subtest: G1-⑥ 五类枚举**全部可达**，且单轮举证全覆盖、无第六类
+ok 32 - G1-⑥ 五类枚举**全部可达**，且单轮举证全覆盖、无第六类
+  ---
+  duration_ms: 497.982233
+  type: 'test'
+  ...
+# (node:242) [UNDICI-EHPA] Warning: EnvHttpProxyAgent is experimental, expect them to change at any time.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# (node:242) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# Subtest: N1 摘掉 reset 写入点 ⇒ 该类不可达（G1-⑤/G1-⑥ 必红）
+ok 33 - N1 摘掉 reset 写入点 ⇒ 该类不可达（G1-⑤/G1-⑥ 必红）
+  ---
+  duration_ms: 538.961749
+  type: 'test'
+  ...
+# Subtest: N2 把 fail-closed 两闸改成恒假 ⇒ 降级时照常注入（G2-①/G2-③ 必红）
+ok 34 - N2 把 fail-closed 两闸改成恒假 ⇒ 降级时照常注入（G2-①/G2-③ 必红）
+  ---
+  duration_ms: 493.445314
+  type: 'test'
+  ...
+# Subtest: N3 摘掉 next() ⇒ 下游收不到（G3-④ 必红；G9 核心）· 症状改判见下
+ok 35 - N3 摘掉 next() ⇒ 下游收不到（G3-④ 必红；G9 核心）· 症状改判见下
+  ---
+  duration_ms: 492.89286
+  type: 'test'
+  ...
+# Subtest: N4 把 injection 段写成 recall 类 ⇒ 标签集合等式必红（而「只查是否在五类内」的弱判据会漏）
+ok 36 - N4 把 injection 段写成 recall 类 ⇒ 标签集合等式必红（而「只查是否在五类内」的弱判据会漏）
+  ---
+  duration_ms: 492.938206
+  type: 'test'
+  ...
+# Subtest: N5 摘掉预算闸 ⇒ 超限不再截断（G4-③ 必红）
+ok 37 - N5 摘掉预算闸 ⇒ 超限不再截断（G4-③ 必红）
+  ---
+  duration_ms: 491.174322
+  type: 'test'
+  ...
+# (node:245) [UNDICI-EHPA] Warning: EnvHttpProxyAgent is experimental, expect them to change at any time.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# (node:245) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# Subtest: G3-① 五类 gate 路径下，下游监听器**每一次**都被调到（各 1 次，共 5 次）
+ok 38 - G3-① 五类 gate 路径下，下游监听器**每一次**都被调到（各 1 次，共 5 次）
+  ---
+  duration_ms: 534.018474
+  type: 'test'
+  ...
+# Subtest: G3-② 两条互相独立的下游链（模拟 shoucang 773 与 372）**各自**都被调到
+ok 39 - G3-② 两条互相独立的下游链（模拟 shoucang 773 与 372）**各自**都被调到
+  ---
+  duration_ms: 489.24113
+  type: 'test'
+  ...
+# Subtest: G3-③ 判定链抛错路径：下游**仍**必须被调到（异常不得吃掉 next()）
+ok 40 - G3-③ 判定链抛错路径：下游**仍**必须被调到（异常不得吃掉 next()）
+  ---
+  duration_ms: 489.312829
+  type: 'test'
+  ...
+# Subtest: G3-③′ 留痕失败路径：下游**仍**必须被调到（catch 之后不得吞掉控制权）
+ok 41 - G3-③′ 留痕失败路径：下游**仍**必须被调到（catch 之后不得吞掉控制权）
+  ---
+  duration_ms: 497.789768
+  type: 'test'
+  ...
+# Subtest: G3-④ 变异腿：摘掉 next() ⇒ 下游收不到、**不报错**、且宿主本步的消息被静默丢弃
+ok 42 - G3-④ 变异腿：摘掉 next() ⇒ 下游收不到、**不报错**、且宿主本步的消息被静默丢弃
+  ---
+  duration_ms: 982.443769
+  type: 'test'
+  ...
+# Subtest: G3-⑤ next() 恰好 1 次/步：下游不得被重复调用（重复 = 下游行为跑两遍）
+ok 43 - G3-⑤ next() 恰好 1 次/步：下游不得被重复调用（重复 = 下游行为跑两遍）
+  ---
+  duration_ms: 487.766402
+  type: 'test'
+  ...
+# (node:255) [UNDICI-EHPA] Warning: EnvHttpProxyAgent is experimental, expect them to change at any time.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# (node:255) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# Subtest: X-① 双会话交错：B 会话注入的是**自己的**候选，A 会话的候选不得串进 B
+ok 44 - X-① 双会话交错：B 会话注入的是**自己的**候选，A 会话的候选不得串进 B
+  ---
+  duration_ms: 530.173541
+  type: 'test'
+  ...
+# Subtest: X-② I2 不得退化为跨会话全局去重：同一 requestId 在两个会话里**各自**可注入一次
+ok 45 - X-② I2 不得退化为跨会话全局去重：同一 requestId 在两个会话里**各自**可注入一次
+  ---
+  duration_ms: 489.481242
+  type: 'test'
+  ...
+# Subtest: X-③ reset 逐块检测必须按会话：s1 的块不在 s2 的上下文里，不得记成 reset
+ok 46 - X-③ reset 逐块检测必须按会话：s1 的块不在 s2 的上下文里，不得记成 reset
+  ---
+  duration_ms: 491.446033
+  type: 'test'
+  ...
+# Subtest: X-④ 会话分区可释放且有上界读数（"该清没清"必须可观测）
+ok 47 - X-④ 会话分区可释放且有上界读数（"该清没清"必须可观测）
+  ---
+  duration_ms: 487.157542
+  type: 'test'
+  ...
+# Subtest: Y-① 下游吞掉 next() 返回值：本包必须**响亮失败**且 inject_log 不得新增行
+ok 48 - Y-① 下游吞掉 next() 返回值：本包必须**响亮失败**且 inject_log 不得新增行
+  ---
+  duration_ms: 490.784372
+  type: 'test'
+  ...
+# Subtest: Z-① 负控：门控状态改回实例级（全局去重）⇒ 跨会话注入被掐掉（X-② 必红）
+ok 49 - Z-① 负控：门控状态改回实例级（全局去重）⇒ 跨会话注入被掐掉（X-② 必红）
+  ---
+  duration_ms: 502.92595
+  type: 'test'
+  ...
+# Subtest: Z-② 负控：摘掉 D2 守卫 ⇒ 宿主本步消息被静默吃掉，且审计仍写 injected（假账）
+ok 50 - Z-② 负控：摘掉 D2 守卫 ⇒ 宿主本步消息被静默吃掉，且审计仍写 injected（假账）
+  ---
+  duration_ms: 493.096971
+  type: 'test'
+  ...
+# (node:258) [UNDICI-EHPA] Warning: EnvHttpProxyAgent is experimental, expect them to change at any time.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# (node:258) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# Subtest: ① 余弦口径**复用** vector：解析到同一份实现文件（本包不另写第二份）
+ok 51 - ① 余弦口径**复用** vector：解析到同一份实现文件（本包不另写第二份）
+  ---
+  duration_ms: 5.151917
+  type: 'test'
+  ...
+# Subtest: ② 解析失败必须**显式**（不回落自写余弦、原因非空且带 source）
+ok 52 - ② 解析失败必须**显式**（不回落自写余弦、原因非空且带 source）
+  ---
+  duration_ms: 0.535033
+  type: 'test'
+  ...
+# Subtest: ③ 阈值来自 params（只读快照），且 0.7/7/2 与判据原文同值
+ok 53 - ③ 阈值来自 params（只读快照），且 0.7/7/2 与判据原文同值
+  ---
+  duration_ms: 515.843066
+  type: 'test'
+  ...
+# Subtest: ④ 列清单**以 schema 为准**：与 core 的 DDL 原文逐列对拍（不得臆造列名）
+ok 54 - ④ 列清单**以 schema 为准**：与 core 的 DDL 原文逐列对拍（不得臆造列名）
+  ---
+  duration_ms: 1.234865
+  type: 'test'
+  ...
+# Subtest: ⑤ 真装配：behavior=active、余弦通道可用、plan 无降级；卸载后服务消失
+ok 55 - ⑤ 真装配：behavior=active、余弦通道可用、plan 无降级；卸载后服务消失
+  ---
+  duration_ms: 805.063298
+  type: 'test'
+  ...
+# (node:330) [UNDICI-EHPA] Warning: EnvHttpProxyAgent is experimental, expect them to change at any time.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# (node:330) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# Subtest: ⑥ 真库写入 + **读回校验**：四列未测走 DDL 缺省，重复写不膨胀
+ok 56 - ⑥ 真库写入 + **读回校验**：四列未测走 DDL 缺省，重复写不膨胀
+  ---
+  duration_ms: 502.809546
+  type: 'test'
+  ...
+# Subtest: ⑦ 降级腿（shadow 装配）：解析不到 vector ⇒ ripple=null + 原因非空 + 直调抛错
+ok 57 - ⑦ 降级腿（shadow 装配）：解析不到 vector ⇒ ripple=null + 原因非空 + 直调抛错
+  ---
+  duration_ms: 684.600035
+  type: 'test'
+  ...
+# Subtest: ⑧ 实现面清单：9 个导出逐个是函数 + 不导出 Config（假旋钮不得回流）
+ok 58 - ⑧ 实现面清单：9 个导出逐个是函数 + 不导出 Config（假旋钮不得回流）
+  ---
+  duration_ms: 0.460884
+  type: 'test'
+  ...
+# Subtest: ⑨ 用例计数自检（防本文件被截断/删用例 —— 空文件会报 tests 1 / pass 1 的假绿）
+ok 59 - ⑨ 用例计数自检（防本文件被截断/删用例 —— 空文件会报 tests 1 / pass 1 的假绿）
+  ---
+  duration_ms: 0.598853
+  type: 'test'
+  ...
+# (node:267) [UNDICI-EHPA] Warning: EnvHttpProxyAgent is experimental, expect them to change at any time.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# (node:267) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# Subtest: ① Spindle：按激活值降序取 Top-N，同值按 id 全序，落选项带原因
+ok 60 - ① Spindle：按激活值降序取 Top-N，同值按 id 全序，落选项带原因
+  ---
+  duration_ms: 1.489321
+  type: 'test'
+  ...
+# Subtest: ② Spindle：N 可被覆盖（default 来自 params.SPINDLE_TOP_N），N=0 是不重放而非无限制
+ok 61 - ② Spindle：N 可被覆盖（default 来自 params.SPINDLE_TOP_N），N=0 是不重放而非无限制
+  ---
+  duration_ms: 0.814605
+  type: 'test'
+  ...
+# Subtest: ③ Ripple：默认阈值 0.7 的**功能腿** —— √2/2 合并、3/5 新颖
+ok 62 - ③ Ripple：默认阈值 0.7 的**功能腿** —— √2/2 合并、3/5 新颖
+  ---
+  duration_ms: 0.753881
+  type: 'test'
+  ...
+# Subtest: ④ Ripple 边界：阈值取 **≥**（相似度恰等于阈值 ⇒ 必须合并）
+ok 63 - ④ Ripple 边界：阈值取 **≥**（相似度恰等于阈值 ⇒ 必须合并）
+  ---
+  duration_ms: 0.340456
+  type: 'test'
+  ...
+# Subtest: ⑤ Ripple：**新颖的两条路可分辨** —— 无靶（null）与低分（数值）不得同形
+ok 64 - ⑤ Ripple：**新颖的两条路可分辨** —— 无靶（null）与低分（数值）不得同形
+  ---
+  duration_ms: 0.377996
+  type: 'test'
+  ...
+# Subtest: ⑥ Ripple：缺向量不得静默当成「与所有靶都正交」
+ok 65 - ⑥ Ripple：缺向量不得静默当成「与所有靶都正交」
+  ---
+  duration_ms: 0.319706
+  type: 'test'
+  ...
+# Subtest: ⑦ chunking 重复阈值：恰好 2 次成规则、1 次不成（默认路径，改 2→3 即红）
+ok 66 - ⑦ chunking 重复阈值：恰好 2 次成规则、1 次不成（默认路径，改 2→3 即红）
+  ---
+  duration_ms: 0.778971
+  type: 'test'
+  ...
+# Subtest: ⑧ chunking 长度上限：7 步成规则、8 步被丢（默认路径，改 7→8 即红）
+ok 67 - ⑧ chunking 长度上限：7 步成规则、8 步被丢（默认路径，改 7→8 即红）
+  ---
+  duration_ms: 0.846469
+  type: 'test'
+  ...
+# Subtest: ⑨ 用例计数自检（防本文件被截断/删用例 —— 空文件会报 tests 1 / pass 1 的假绿）
+ok 68 - ⑨ 用例计数自检（防本文件被截断/删用例 —— 空文件会报 tests 1 / pass 1 的假绿）
+  ---
+  duration_ms: 0.371656
+  type: 'test'
+  ...
+# (node:271) [UNDICI-EHPA] Warning: EnvHttpProxyAgent is experimental, expect them to change at any time.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# (node:271) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# Subtest: ① behavior 由运行时服务面机检（B4.1 起期望值 = active，见改值理由）+ 反方向补牙
+ok 69 - ① behavior 由运行时服务面机检（B4.1 起期望值 = active，见改值理由）+ 反方向补牙
+  ---
+  duration_ms: 599.401285
+  type: 'test'
+  ...
+# Subtest: ② 本包真在 agent/pre-step 链上：effect 面出现监听器 + 卸载后消失
+ok 70 - ② 本包真在 agent/pre-step 链上：effect 面出现监听器 + 卸载后消失
+  ---
+  duration_ms: 804.6403
+  type: 'test'
+  ...
+# Subtest: ③ 链完整性：哨兵与最内层各走一次（漏调 next() ⇒ 哨兵 0）
+ok 71 - ③ 链完整性：哨兵与最内层各走一次（漏调 next() ⇒ 哨兵 0）
+  ---
+  duration_ms: 502.820046
+  type: 'test'
+  ...
+# Subtest: ④ 传 {enabled:false} 不得关掉 G9 义务（本包无 Config，该键必须被无视）
+ok 72 - ④ 传 {enabled:false} 不得关掉 G9 义务（本包无 Config，该键必须被无视）
+  ---
+  duration_ms: 502.42418
+  type: 'test'
+  ...
+# Subtest: ⑤ 不得导出 Config（假旋钮不得回流）
+ok 73 - ⑤ 不得导出 Config（假旋钮不得回流）
+  ---
+  duration_ms: 502.832354
+  type: 'test'
+  ...
+# Subtest: ⑦ effect 面精确计数：本包仍是空壳（多一条行为即红 ⇒ 强制交代）
+ok 74 - ⑦ effect 面精确计数：本包仍是空壳（多一条行为即红 ⇒ 强制交代）
+  ---
+  duration_ms: 501.932181
+  type: 'test'
+  ...
+# Subtest: ⑧ 行为面缺席：本包不写任何 mana_trace 行（与 ⑦ 互补）+ S16 补：唯一写入面恰为 production_rules
+ok 75 - ⑧ 行为面缺席：本包不写任何 mana_trace 行（与 ⑦ 互补）+ S16 补：唯一写入面恰为 production_rules
+  ---
+  duration_ms: 705.11823
+  type: 'test'
+  ...
+# Subtest: ⑥ 用例计数自检（防本文件被截断/删用例 —— 空文件会报 tests 1 / pass 1 的假绿）
+ok 76 - ⑥ 用例计数自检（防本文件被截断/删用例 —— 空文件会报 tests 1 / pass 1 的假绿）
+  ---
+  duration_ms: 0.228037
+  type: 'test'
+  ...
+# (node:310) [UNDICI-EHPA] Warning: EnvHttpProxyAgent is experimental, expect them to change at any time.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# (node:310) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# Subtest: B1.0-① openManaDb 一律带 allowExtension 窗口（G4 不可后补）
+ok 77 - B1.0-① openManaDb 一律带 allowExtension 窗口（G4 不可后补）
+  ---
+  duration_ms: 59.478117
+  type: 'test'
+  ...
+# Subtest: B1.0-① 备份件也走同一开库口径（还原后仍可上扩展）
+ok 78 - B1.0-① 备份件也走同一开库口径（还原后仍可上扩展）
+  ---
+  duration_ms: 15.232007
+  type: 'test'
+  ...
+# Subtest: B1.0-② WAL 生效且读回走 prepare().get()（exec 返回 undefined ⇒ 不能用 exec 判）
+ok 79 - B1.0-② WAL 生效且读回走 prepare().get()（exec 返回 undefined ⇒ 不能用 exec 判）
+  ---
+  duration_ms: 5.278709
+  type: 'test'
+  ...
+# Subtest: B1.0-③ busy_timeout 已设且可读回（默认 0 会立即 database is locked）
+ok 80 - B1.0-③ busy_timeout 已设且可读回（默认 0 会立即 database is locked）
+  ---
+  duration_ms: 2.854515
+  type: 'test'
+  ...
+# Subtest: B1.0-④ backup 返回 Promise<页数>，且备份件可读、行数对得上
+ok 81 - B1.0-④ backup 返回 Promise<页数>，且备份件可读、行数对得上
+  ---
+  duration_ms: 7.740854
+  type: 'test'
+  ...
+# Subtest: B1.0-④ WAL 未 checkpoint 的数据也进备份（不必先 checkpoint）
+ok 82 - B1.0-④ WAL 未 checkpoint 的数据也进备份（不必先 checkpoint）
+  ---
+  duration_ms: 25.380532
+  type: 'test'
+  ...
+# Subtest: B1.0-④ 目标目录不存在时自动自建（否则是「静默的备份缺失」）
+ok 83 - B1.0-④ 目标目录不存在时自动自建（否则是「静默的备份缺失」）
+  ---
+  duration_ms: 4.8482
+  type: 'test'
+  ...
+# Subtest: B1.0-④ 备份后源库继续写，已完成的备份不受影响（快照语义）
+ok 84 - B1.0-④ 备份后源库继续写，已完成的备份不受影响（快照语义）
+  ---
+  duration_ms: 4.831351
+  type: 'test'
+  ...
+# Subtest: B1.0-④ 轮转保留最近 keep 个，删的是最旧（字典序即时间序）
+ok 85 - B1.0-④ 轮转保留最近 keep 个，删的是最旧（字典序即时间序）
+  ---
+  duration_ms: 36.094625
+  type: 'test'
+  ...
+# Subtest: B1.0-④ 半截备份不留残骸：.partial 不会被当成一次备份
+ok 86 - B1.0-④ 半截备份不留残骸：.partial 不会被当成一次备份
+  ---
+  duration_ms: 5.991896
+  type: 'test'
+  ...
+# Subtest: B1.0-④ 还原前把现有库另存（避免还原失败且原库已毁）
+ok 87 - B1.0-④ 还原前把现有库另存（避免还原失败且原库已毁）
+  ---
+  duration_ms: 11.30052
+  type: 'test'
+  ...
+# Subtest: B1.0-④ 空备份文件必须被拒（不得静默还原出一个空库）
+ok 88 - B1.0-④ 空备份文件必须被拒（不得静默还原出一个空库）
+  ---
+  duration_ms: 1.143056
+  type: 'test'
+  ...
+# Subtest: B1.0-④ 定期备份：未启用时不起定时器；启用后真落盘
+ok 89 - B1.0-④ 定期备份：未启用时不起定时器；启用后真落盘
+  ---
+  duration_ms: 254.383607
+  type: 'test'
+  ...
+# Subtest: B1.0-④ 备份失败必须显式上报，不得静默（G8）
+ok 90 - B1.0-④ 备份失败必须显式上报，不得静默（G8）
+  ---
+  duration_ms: 304.191878
+  type: 'test'
+  ...
+# (node:322) [UNDICI-EHPA] Warning: EnvHttpProxyAgent is experimental, expect them to change at any time.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# (node:322) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# Subtest: C1 A1-1 端到端：五类 stage 各 ≥1（标签从 MANA_STAGES 派生）且 seq 连续无洞
+ok 91 - C1 A1-1 端到端：五类 stage 各 ≥1（标签从 MANA_STAGES 派生）且 seq 连续无洞
+  ---
+  duration_ms: 1948.497131
+  type: 'test'
+  ...
+# Subtest: C2 分块：超限逐块发观察（块数可断言），未超限则单块
+ok 92 - C2 分块：超限逐块发观察（块数可断言），未超限则单块
+  ---
+  duration_ms: 1380.029017
+  type: 'test'
+  ...
+# Subtest: C3 工作记忆容量：超容淘汰最旧且 evicted 显式记账
+ok 93 - C3 工作记忆容量：超容淘汰最旧且 evicted 显式记账
+  ---
+  duration_ms: 1417.429756
+  type: 'test'
+  ...
+# Subtest: C4 反证：卸载 perception 后同一触发不再产生新行
+ok 94 - C4 反证：卸载 perception 后同一触发不再产生新行
+  ---
+  duration_ms: 1617.125863
+  type: 'test'
+  ...
+# (node:338) [UNDICI-EHPA] Warning: EnvHttpProxyAgent is experimental, expect them to change at any time.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# (node:338) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# Subtest: A0-2 负向：默认 ctor 后 enableLoadExtension(true) 必须抛错
+ok 95 - A0-2 负向：默认 ctor 后 enableLoadExtension(true) 必须抛错
+  ---
+  duration_ms: 2.279482
+  type: 'test'
+  ...
+# Subtest: A0-2 正向：{allowExtension:true} 后 enableLoadExtension(true) 不抛错
+ok 96 - A0-2 正向：{allowExtension:true} 后 enableLoadExtension(true) 不抛错
+  ---
+  duration_ms: 58.020249
+  type: 'test'
+  ...
+# Subtest: WAL 与 busy_timeout 实测读回正确（exec 返回 undefined ⇒ 不能用 exec 判）
+ok 97 - WAL 与 busy_timeout 实测读回正确（exec 返回 undefined ⇒ 不能用 exec 判）
+  ---
+  duration_ms: 6.136632
+  type: 'test'
+  ...
+# Subtest: 全新库 busy_timeout 默认是 0（G7 的成因，非"应该是"）
+ok 98 - 全新库 busy_timeout 默认是 0（G7 的成因，非"应该是"）
+  ---
+  duration_ms: 0.441484
+  type: 'test'
+  ...
+# Subtest: G7：withImmediateTransaction 出错后必须回滚（计数归零）
+ok 99 - G7：withImmediateTransaction 出错后必须回滚（计数归零）
+  ---
+  duration_ms: 4.631603
+  type: 'test'
+  ...
+# Subtest: A0-3 trigram 4 字命中 ≥1 且默认分词器 0 命中（英文 test 证明非库空）
+ok 100 - A0-3 trigram 4 字命中 ≥1 且默认分词器 0 命中（英文 test 证明非库空）
+  ---
+  duration_ms: 6.045455
+  type: 'test'
+  ...
+# Subtest: A0-3 checkQuery：短于 3 字的查询必须显式拒绝而不是返回空集
+ok 101 - A0-3 checkQuery：短于 3 字的查询必须显式拒绝而不是返回空集
+  ---
+  duration_ms: 1.203505
+  type: 'test'
+  ...
+# Subtest: A0-8 inject_log 表存在且列齐、gate 受 5 类枚举约束
+ok 102 - A0-8 inject_log 表存在且列齐、gate 受 5 类枚举约束
+  ---
+  duration_ms: 4.597373
+  type: 'test'
+  ...
+# Subtest: A0-8 各表 session_id/turn_id 列已补（G3）
+ok 103 - A0-8 各表 session_id/turn_id 列已补（G3）
+  ---
+  duration_ms: 4.342162
+  type: 'test'
+  ...
+# Subtest: FTS5 虚表与 WAL 语句确实在库里（方案 DDL 此处全为 0 命中）
+ok 104 - FTS5 虚表与 WAL 语句确实在库里（方案 DDL 此处全为 0 命中）
+  ---
+  duration_ms: 4.640533
+  type: 'test'
+  ...
+# Subtest: 插件形状静态可证：name/inject/Config/apply 齐备（A0-5）
+ok 105 - 插件形状静态可证：name/inject/Config/apply 齐备（A0-5）
+  ---
+  duration_ms: 13.142092
+  type: 'test'
+  ...
+# Subtest: G9：注册 agent/pre-step 直通监听器且必须调用 next()（不调即掐死下游）
+ok 106 - G9：注册 agent/pre-step 直通监听器且必须调用 next()（不调即掐死下游）
+  ---
+  duration_ms: 2.993293
+  type: 'test'
+  ...
+# Subtest: 服务 mana-core 已 provide，且卸载时库被关闭（卸载即净）
+ok 107 - 服务 mana-core 已 provide，且卸载时库被关闭（卸载即净）
+  ---
+  duration_ms: 2.996748
+  type: 'test'
+  ...
+# Subtest: PACKAGE_MAP 覆盖 P0 六插件且包 id 与插件 name 不同名（B0.2 ③）
+ok 108 - PACKAGE_MAP 覆盖 P0 六插件且包 id 与插件 name 不同名（B0.2 ③）
+  ---
+  duration_ms: 0.380516
+  type: 'test'
+  ...
+# Subtest: walApplied：内存库期望 memory、文件库期望 wal（防假红的机检）
+ok 109 - walApplied：内存库期望 memory、文件库期望 wal（防假红的机检）
+  ---
+  duration_ms: 4.406336
+  type: 'test'
+  ...
+# (node:346) [UNDICI-EHPA] Warning: EnvHttpProxyAgent is experimental, expect them to change at any time.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# (node:346) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# Subtest: J1 写一条 injected 可读回，字段与 DDL 列一一对应
+ok 110 - J1 写一条 injected 可读回，字段与 DDL 列一一对应
+  ---
+  duration_ms: 10.769132
+  type: 'test'
+  ...
+# Subtest: J2 非法 gate 抛错且不落库（A1-13 的假绿防线）
+ok 111 - J2 非法 gate 抛错且不落库（A1-13 的假绿防线）
+  ---
+  duration_ms: 7.654037
+  type: 'test'
+  ...
+# Subtest: J3 五类枚举逐一可写，且数量与 INJECTION_GATES 相等
+ok 112 - J3 五类枚举逐一可写，且数量与 INJECTION_GATES 相等
+  ---
+  duration_ms: 6.002676
+  type: 'test'
+  ...
+# Subtest: J4 gate=degraded_unavailable 时 degraded 自动置 1（A1-8 字段要求）
+ok 113 - J4 gate=degraded_unavailable 时 degraded 自动置 1（A1-8 字段要求）
+  ---
+  duration_ms: 6.537779
+  type: 'test'
+  ...
+# Subtest: J5 概率不可用落 null，不得用 0 冒充
+ok 114 - J5 概率不可用落 null，不得用 0 冒充
+  ---
+  duration_ms: 5.108407
+  type: 'test'
+  ...
+# Subtest: J6 fail-closed：不注入但**必须留痕**（A1-14）
+ok 115 - J6 fail-closed：不注入但**必须留痕**（A1-14）
+  ---
+  duration_ms: 3.982051
+  type: 'test'
+  ...
+# Subtest: J7 按会话过滤：不串会话
+ok 116 - J7 按会话过滤：不串会话
+  ---
+  duration_ms: 4.83127
+  type: 'test'
+  ...
+# Subtest: J8 limit 生效且按 id 倒序（最新在前）
+ok 117 - J8 limit 生效且按 id 倒序（最新在前）
+  ---
+  duration_ms: 6.164633
+  type: 'test'
+  ...
+# Subtest: J9 isInjectionGate 与枚举真源一致
+ok 118 - J9 isInjectionGate 与枚举真源一致
+  ---
+  duration_ms: 0.443815
+  type: 'test'
+  ...
+# (node:354) [UNDICI-EHPA] Warning: EnvHttpProxyAgent is experimental, expect them to change at any time.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# (node:354) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# Subtest: P1 A1-13①：每次 pre-step 结束都落一行，gate 恒为 5 类枚举之一
+ok 119 - P1 A1-13①：每次 pre-step 结束都落一行，gate 恒为 5 类枚举之一
+  ---
+  duration_ms: 894.430478
+  type: 'test'
+  ...
+# Subtest: P2 A1-13②：有候选时 gate=injected 至少出现 1 次（否则门控静默失效）
+ok 120 - P2 A1-13②：有候选时 gate=injected 至少出现 1 次（否则门控静默失效）
+  ---
+  duration_ms: 1118.030494
+  type: 'test'
+  ...
+# Subtest: P3 A1-6：注入块整块仅 2 个 wrapper 标签，内层 < 计数 == 0
+ok 121 - P3 A1-6：注入块整块仅 2 个 wrapper 标签，内层 < 计数 == 0
+  ---
+  duration_ms: 910.066141
+  type: 'test'
+  ...
+# Subtest: P4 A1-7：注入是尾部追加，既有消息逐字节不变
+ok 122 - P4 A1-7：注入是尾部追加，既有消息逐字节不变
+  ---
+  duration_ms: 910.816832
+  type: 'test'
+  ...
+# Subtest: P5 A1-14：无候选时注入块 == 0 且仍新增 skip_no_candidate 行
+ok 123 - P5 A1-14：无候选时注入块 == 0 且仍新增 skip_no_candidate 行
+  ---
+  duration_ms: 862.459576
+  type: 'test'
+  ...
+# Subtest: P6 A1-14：降级时注入块 == 0 且新增 degraded_unavailable 行（两条都要真）
+ok 124 - P6 A1-14：降级时注入块 == 0 且新增 degraded_unavailable 行（两条都要真）
+  ---
+  duration_ms: 865.470789
+  type: 'test'
+  ...
+# Subtest: P7 门控关闭时仍留痕（否则「关掉了」与「静默失效」同形）
+ok 125 - P7 门控关闭时仍留痕（否则「关掉了」与「静默失效」同形）
+  ---
+  duration_ms: 913.319326
+  type: 'test'
+  ...
+# Subtest: P8 G9：下游哨兵必须被调到（漏调 next() 会静默吞掉全部下游行为）
+ok 126 - P8 G9：下游哨兵必须被调到（漏调 next() 会静默吞掉全部下游行为）
+  ---
+  duration_ms: 813.102737
+  type: 'test'
+  ...
+# Subtest: P9 A1-2 I1：同一 turn 多次 pre-step，injected 至多 1 行
+ok 127 - P9 A1-2 I1：同一 turn 多次 pre-step，injected 至多 1 行
+  ---
+  duration_ms: 1113.53712
+  type: 'test'
+  ...
+# Subtest: P10 A1-3 I2：每个 requestId 在同一 session 至多注入一次
+ok 128 - P10 A1-3 I2：每个 requestId 在同一 session 至多注入一次
+  ---
+  duration_ms: 1111.563766
+  type: 'test'
+  ...
+# Subtest: P11 reset：注入块从上下文消失后，必须记 gate=reset（不得永久标着 injected）
+ok 129 - P11 reset：注入块从上下文消失后，必须记 gate=reset（不得永久标着 injected）
+  ---
+  duration_ms: 1411.491288
+  type: 'test'
+  ...
+# Subtest: P12 判定链未过阈：gate=skip_below_threshold（与 skip_no_candidate 必须可分辨）
+ok 130 - P12 判定链未过阈：gate=skip_below_threshold（与 skip_no_candidate 必须可分辨）
+  ---
+  duration_ms: 1088.224683
+  type: 'test'
+  ...
+# Subtest: P13 判定链降级：gate=degraded_unavailable（不注入但留痕，A1-14）
+ok 131 - P13 判定链降级：gate=degraded_unavailable（不注入但留痕，A1-14）
+  ---
+  duration_ms: 1062.01458
+  type: 'test'
+  ...
+# Subtest: P14 A1-3 I2：injected 行的 memory_id 必须真被写上（否则该不变式无可数之处）
+ok 132 - P14 A1-3 I2：injected 行的 memory_id 必须真被写上（否则该不变式无可数之处）
+  ---
+  duration_ms: 2254.904336
+  type: 'test'
+  ...
+# (node:362) [UNDICI-EHPA] Warning: EnvHttpProxyAgent is experimental, expect them to change at any time.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# (node:362) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# Subtest: G1 A1-8：jev_log.gate 列存在，且 CHECK 限定 unavailable/budget
+ok 133 - G1 A1-8：jev_log.gate 列存在，且 CHECK 限定 unavailable/budget
+  ---
+  duration_ms: 9.512906
+  type: 'test'
+  ...
+# Subtest: G2 A1-8：Write Gate 失败时 fail-open 仍写行，且 gate 落在词表内
+ok 134 - G2 A1-8：Write Gate 失败时 fail-open 仍写行，且 gate 落在词表内
+  ---
+  duration_ms: 11.920199
+  type: 'test'
+  ...
+# Subtest: G3 A1-8：每行的 degraded 与 gate 至少一个非空（不得双双缺席）
+ok 135 - G3 A1-8：每行的 degraded 与 gate 至少一个非空（不得双双缺席）
+  ---
+  duration_ms: 5.249473
+  type: 'test'
+  ...
+# Subtest: G4 A1-8：存量库经 createSchema 后长出 gate 列（ADR-6 迁移机制承接）
+ok 136 - G4 A1-8：存量库经 createSchema 后长出 gate 列（ADR-6 迁移机制承接）
+  ---
+  duration_ms: 4.674662
+  type: 'test'
+  ...
+# Subtest: G5 A1-8：Recall 降级返回有序 items（degraded=1 且排序依据可枚举）
+ok 137 - G5 A1-8：Recall 降级返回有序 items（degraded=1 且排序依据可枚举）
+  ---
+  duration_ms: 4.583129
+  type: 'test'
+  ...
+# G5 未验证：vector/src/recall.ts 未导出排序纯函数（sortByLocalScore/rankByLocalScore/orderByLocalScore 皆无） ⇒ 本项只证明"该支路当前无独立可判对象"，不代表 Recall 降级有序性成立
+# Subtest: G6 A1-8（负向）：gate 从生产 INSERT 列清单里去掉 ⇒ 本判据必须判红
+ok 138 - G6 A1-8（负向）：gate 从生产 INSERT 列清单里去掉 ⇒ 本判据必须判红
+  ---
+  duration_ms: 10.88703
+  type: 'test'
+  ...
+# (node:370) [UNDICI-EHPA] Warning: EnvHttpProxyAgent is experimental, expect them to change at any time.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# (node:370) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# Subtest: J1 判定链：mana/jev/judge 有监听器并被真调到
+ok 139 - J1 判定链：mana/jev/judge 有监听器并被真调到
+  ---
+  duration_ms: 640.805325
+  type: 'test'
+  ...
+# Subtest: J2 降级必须显式：degraded=true + reason 非空 + probability=null（禁 0 冒充）
+ok 140 - J2 降级必须显式：degraded=true + reason 非空 + probability=null（禁 0 冒充）
+  ---
+  duration_ms: 619.381474
+  type: 'test'
+  ...
+# Subtest: J3 next() 义务：jev 降级时下游哨兵必须被调到（不吞掉下游）
+ok 141 - J3 next() 义务：jev 降级时下游哨兵必须被调到（不吞掉下游）
+  ---
+  duration_ms: 760.884297
+  type: 'test'
+  ...
+# Subtest: J4 负向：ctx.emit 分发 waterfall 型事件会因 next 不是函数而炸（G6）
+ok 142 - J4 负向：ctx.emit 分发 waterfall 型事件会因 next 不是函数而炸（G6）
+  ---
+  duration_ms: 1111.621342
+  type: 'test'
+  ...
+# Subtest: J5 关联键：结果的 requestId 必须等于请求的 requestId（不可错位）
+ok 143 - J5 关联键：结果的 requestId 必须等于请求的 requestId（不可错位）
+  ---
+  duration_ms: 611.243166
+  type: 'test'
+  ...
+# (node:378) [UNDICI-EHPA] Warning: EnvHttpProxyAgent is experimental, expect them to change at any time.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# (node:378) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# Subtest: F1 A1-10：库非空时中文串查询命中 ≥1（非静默归零）
+ok 144 - F1 A1-10：库非空时中文串查询命中 ≥1（非静默归零）
+  ---
+  duration_ms: 16.857623
+  type: 'test'
+  ...
+# Subtest: F2 A1-10：0 命中的原因可分辨（库空 / 查询过短 / 真查不到）
+ok 145 - F2 A1-10：0 命中的原因可分辨（库空 / 查询过短 / 真查不到）
+  ---
+  duration_ms: 10.091375
+  type: 'test'
+  ...
+# Subtest: F3 A1-10 机制：FTS 同步触发器真生效（插即可查、删即失效）
+ok 146 - F3 A1-10 机制：FTS 同步触发器真生效（插即可查、删即失效）
+  ---
+  duration_ms: 15.601643
+  type: 'test'
+  ...
+# Subtest: F4 A1-9：inject_log 不含记忆内容（≤32 字节 n-gram 命中 0）
+ok 147 - F4 A1-9：inject_log 不含记忆内容（≤32 字节 n-gram 命中 0）
+  ---
+  duration_ms: 11.017686
+  type: 'test'
+  ...
+# Subtest: F5 A1-9 判据有牙：审计写入内容时 n-gram 匹配必须命中
+ok 148 - F5 A1-9 判据有牙：审计写入内容时 n-gram 匹配必须命中
+  ---
+  duration_ms: 7.751429
+  type: 'test'
+  ...
+# Subtest: F6 A1-10：存量库迁移后，**存量行**也可召回（rebuild 承接）
+ok 149 - F6 A1-10：存量库迁移后，**存量行**也可召回（rebuild 承接）
+  ---
+  duration_ms: 18.136683
+  type: 'test'
+  ...
+# (node:379) [UNDICI-EHPA] Warning: EnvHttpProxyAgent is experimental, expect them to change at any time.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# (node:379) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# Subtest: F0 前置控制：库中唯一那条（retired=1）仍在 FTS 索引里可命中
+ok 150 - F0 前置控制：库中唯一那条（retired=1）仍在 FTS 索引里可命中
+  ---
+  duration_ms: 19.972974
+  type: 'test'
+  ...
+# Subtest: F1 主判据：库中有且仅有一条记忆且其 retired=1 ⇒ empty_library 且 librarySize === 0
+ok 151 - F1 主判据：库中有且仅有一条记忆且其 retired=1 ⇒ empty_library 且 librarySize === 0
+  ---
+  duration_ms: 15.780096
+  type: 'test'
+  ...
+# Subtest: F2 前置控制：同库同词把 retired 改回 0 ⇒ reason === null 且 hits.length === 1
+ok 152 - F2 前置控制：同库同词把 retired 改回 0 ⇒ reason === null 且 hits.length === 1
+  ---
+  duration_ms: 7.929341
+  type: 'test'
+  ...
+# Subtest: F3 防过度纠正：库里有活记忆而查询查不到 ⇒ reason='ok' 且 librarySize > 0
+ok 153 - F3 防过度纠正：库里有活记忆而查询查不到 ⇒ reason='ok' 且 librarySize > 0
+  ---
+  duration_ms: 9.657861
+  type: 'test'
+  ...
+# (node:394) [UNDICI-EHPA] Warning: EnvHttpProxyAgent is experimental, expect them to change at any time.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# (node:394) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# Subtest: F0 A2-7 前置控制：退休行仍在 FTS 索引里可命中（防平凡通过）
+ok 154 - F0 A2-7 前置控制：退休行仍在 FTS 索引里可命中（防平凡通过）
+  ---
+  duration_ms: 14.68449
+  type: 'test'
+  ...
+# Subtest: F1 A2-7：生产 recallLexical 结果里 retired=1 的 id 计数 == 0
+ok 155 - F1 A2-7：生产 recallLexical 结果里 retired=1 的 id 计数 == 0
+  ---
+  duration_ms: 12.74567
+  type: 'test'
+  ...
+# Subtest: F2 A2-7 判据有牙：同一夹具下"去掉 AND m.retired = 0"必须复现泄漏
+ok 156 - F2 A2-7 判据有牙：同一夹具下"去掉 AND m.retired = 0"必须复现泄漏
+  ---
+  duration_ms: 13.492825
+  type: 'test'
+  ...
+# Subtest: F3 A2-7 白盒腿：生产检索 SQL 里 AND m.retired = 0 在册
+ok 157 - F3 A2-7 白盒腿：生产检索 SQL 里 AND m.retired = 0 在册
+  ---
+  duration_ms: 1.309364
+  type: 'test'
+  ...
+# (node:402) [UNDICI-EHPA] Warning: EnvHttpProxyAgent is experimental, expect them to change at any time.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# (node:402) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# Subtest: M1 存量库补列真生效：迁移后旧库列集合 == 全新库列集合
+ok 158 - M1 存量库补列真生效：迁移后旧库列集合 == 全新库列集合
+  ---
+  duration_ms: 35.075412
+  type: 'test'
+  ...
+# Subtest: M2 幂等：对已迁移的库存再施加 createSchema 补 0 列
+ok 159 - M2 幂等：对已迁移的库存再施加 createSchema 补 0 列
+  ---
+  duration_ms: 17.146342
+  type: 'test'
+  ...
+# Subtest: M3 索引在补列之后建立：旧库迁移后索引数与 DDL 声明一致
+ok 160 - M3 索引在补列之后建立：旧库迁移后索引数与 DDL 声明一致
+  ---
+  duration_ms: 10.302173
+  type: 'test'
+  ...
+# Subtest: M4 补列不毁数据：迁移前插入的行在迁移后仍在
+ok 161 - M4 补列不毁数据：迁移前插入的行在迁移后仍在
+  ---
+  duration_ms: 9.123108
+  type: 'test'
+  ...
+# Subtest: M5 不可补列必须整体拒绝，且不留半迁移态
+ok 162 - M5 不可补列必须整体拒绝，且不留半迁移态
+  ---
+  duration_ms: 3.823292
+  type: 'test'
+  ...
+# Subtest: M6 autoMigrate=false 不建表；=true 建表（开关必须有可观测差异）
+ok 163 - M6 autoMigrate=false 不建表；=true 建表（开关必须有可观测差异）
+  ---
+  duration_ms: 10.56119
+  type: 'test'
+  ...
+# Subtest: S1 splitStatements 引号与注释感知
+ok 164 - S1 splitStatements 引号与注释感知
+  ---
+  duration_ms: 0.324096
+  type: 'test'
+  ...
+# Subtest: S2 parseSchema 跳过表级约束、表数从 DDL 派生
+ok 165 - S2 parseSchema 跳过表级约束、表数从 DDL 派生
+  ---
+  duration_ms: 1.974816
+  type: 'test'
+  ...
+# Subtest: M8 存量库补 memory_items 两列：旧行仍在且逐字不变，列集合 == 全新库
+ok 166 - M8 存量库补 memory_items 两列：旧行仍在且逐字不变，列集合 == 全新库
+  ---
+  duration_ms: 21.450765
+  type: 'test'
+  ...
+# Subtest: N⑤ 负向：**把两列从表定义里注释掉** ⇒ 补列腿必须报红（且真源逐字节未变）
+ok 167 - N⑤ 负向：**把两列从表定义里注释掉** ⇒ 补列腿必须报红（且真源逐字节未变）
+  ---
+  duration_ms: 12.977965
+  type: 'test'
+  ...
+# Subtest: N⑥ 负向：**补列实现成重建表**（DROP + CREATE）⇒ "旧数据行仍在"腿必须报红
+ok 168 - N⑥ 负向：**补列实现成重建表**（DROP + CREATE）⇒ "旧数据行仍在"腿必须报红
+  ---
+  duration_ms: 33.037097
+  type: 'test'
+  ...
+# Subtest: N⑦ 负向：某列定义成 **NOT NULL 且无 DEFAULT** ⇒ 迁移必须**显式拒绝**（不许静默跳过）
+ok 169 - N⑦ 负向：某列定义成 **NOT NULL 且无 DEFAULT** ⇒ 迁移必须**显式拒绝**（不许静默跳过）
+  ---
+  duration_ms: 12.361189
+  type: 'test'
+  ...
+# (node:408) [UNDICI-EHPA] Warning: EnvHttpProxyAgent is experimental, expect them to change at any time.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# (node:408) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# Subtest: A0-5 六插件形状齐备且 patch 文件存在
+ok 170 - A0-5 六插件形状齐备且 patch 文件存在
+  ---
+  duration_ms: 161.018237
+  type: 'test'
+  ...
+# Subtest: 六插件在真 Context 中全部装载并 provide 各自服务
+ok 171 - 六插件在真 Context 中全部装载并 provide 各自服务
+  ---
+  duration_ms: 458.994109
+  type: 'test'
+  ...
+# Subtest: G9/R0 前置：六插件各自独立注册 agent/pre-step 且都调用 next()
+ok 172 - G9/R0 前置：六插件各自独立注册 agent/pre-step 且都调用 next()
+  ---
+  duration_ms: 456.337223
+  type: 'test'
+  ...
+# Subtest: R0 反证判据：卸载 attention 后同一触发不再产生新行
+ok 173 - R0 反证判据：卸载 attention 后同一触发不再产生新行
+  ---
+  duration_ms: 1156.416689
+  type: 'test'
+  ...
+# Subtest: R0 前置：hex 骨架不写行的反证 —— 卸载前后都无新行即为"平凡通过"（留作对照）
+ok 174 - R0 前置：hex 骨架不写行的反证 —— 卸载前后都无新行即为"平凡通过"（留作对照）
+  ---
+  duration_ms: 302.583607
+  type: 'test'
+  ...
+# (node:415) [UNDICI-EHPA] Warning: EnvHttpProxyAgent is experimental, expect them to change at any time.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# (node:415) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# Subtest: M1 user_model_history 表存在且列齐
+ok 175 - M1 user_model_history 表存在且列齐
+  ---
+  duration_ms: 17.83921
+  type: 'test'
+  ...
+# Subtest: M2 偏好更新后历史表新增一行（证明是追加而非 UPDATE 覆盖）
+ok 176 - M2 偏好更新后历史表新增一行（证明是追加而非 UPDATE 覆盖）
+  ---
+  duration_ms: 10.271273
+  type: 'test'
+  ...
+# Subtest: M3 主表保持覆盖语义：同 key 只留最新值
+ok 177 - M3 主表保持覆盖语义：同 key 只留最新值
+  ---
+  duration_ms: 9.497367
+  type: 'test'
+  ...
+# Subtest: M4 值未变仍记一行且 changed=false（可分辨"没改过"）
+ok 178 - M4 值未变仍记一行且 changed=false（可分辨"没改过"）
+  ---
+  duration_ms: 7.488954
+  type: 'test'
+  ...
+# Subtest: M5 按 key 数历史行 = 漂移次数可数（A4-4 的下游用途）
+ok 179 - M5 按 key 数历史行 = 漂移次数可数（A4-4 的下游用途）
+  ---
+  duration_ms: 28.519334
+  type: 'test'
+  ...
+# Subtest: M6 (key, at) 索引存在
+ok 180 - M6 (key, at) 索引存在
+  ---
+  duration_ms: 6.544594
+  type: 'test'
+  ...
+# Subtest: M7 存量库经 createSchema 后长出 user_model_history（迁移机制承接）
+ok 181 - M7 存量库经 createSchema 后长出 user_model_history（迁移机制承接）
+  ---
+  duration_ms: 9.264776
+  type: 'test'
+  ...
+# (node:426) [UNDICI-EHPA] Warning: EnvHttpProxyAgent is experimental, expect them to change at any time.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# (node:426) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# Subtest: ① A1-5 三锚点经真核（long-term/src/decay.ts）逐字复现，绝对差 ≤1e-6
+ok 182 - ① A1-5 三锚点经真核（long-term/src/decay.ts）逐字复现，绝对差 ≤1e-6
+  ---
+  duration_ms: 1.95393
+  type: 'test'
+  ...
+# Subtest: ② 负向对拍：真核半衰期 14 → 7 ⇒ 同一份读数腿必红（真源全程只读，逐字节恢复）
+ok 183 - ② 负向对拍：真核半衰期 14 → 7 ⇒ 同一份读数腿必红（真源全程只读，逐字节恢复）
+  ---
+  duration_ms: 3.421427
+  type: 'test'
+  ...
+# Subtest: ③ 判据边界：只在 t<0 错的核仍能全过三锚点 —— 如实暴露，并用真核的 fail-closed 分辨
+ok 184 - ③ 判据边界：只在 t<0 错的核仍能全过三锚点 —— 如实暴露，并用真核的 fail-closed 分辨
+  ---
+  duration_ms: 1.027627
+  type: 'test'
+  ...
+# Subtest: ④ 核未接上 ⇒ 读数面必须抛（不得返回空读数、不得回落本包闭式自证）
+ok 185 - ④ 核未接上 ⇒ 读数面必须抛（不得返回空读数、不得回落本包闭式自证）
+  ---
+  duration_ms: 0.315526
+  type: 'test'
+  ...
+# Subtest: ⑤ 装配面：装上 long-term ⇒ 服务读数与直连真核逐位一致；未装 ⇒ 抛错不回退
+ok 186 - ⑤ 装配面：装上 long-term ⇒ 服务读数与直连真核逐位一致；未装 ⇒ 抛错不回退
+  ---
+  duration_ms: 1660.168767
+  type: 'test'
+  ...
+# Subtest: ⑥ 带牙腿：死旋钮核（忽略 h）⇒ decayKernelTeeth 必红「consumes-half-life」；真核必过
+ok 187 - ⑥ 带牙腿：死旋钮核（忽略 h）⇒ decayKernelTeeth 必红「consumes-half-life」；真核必过
+  ---
+  duration_ms: 1.039368
+  type: 'test'
+  ...
+# Subtest: ⑦ 带牙腿：无 t<0 guard 的核 ⇒ decayKernelTeeth 必红「rejects-negative-time」；真核必抛
+ok 188 - ⑦ 带牙腿：无 t<0 guard 的核 ⇒ decayKernelTeeth 必红「rejects-negative-time」；真核必抛
+  ---
+  duration_ms: 0.385575
+  type: 'test'
+  ...
+# Subtest: ⑧ 带牙腿的负向对拍：把齿改瞎（恒回 ok:true）⇒ 同一份断言必红，且真源逐字节未变
+ok 189 - ⑧ 带牙腿的负向对拍：把齿改瞎（恒回 ok:true）⇒ 同一份断言必红，且真源逐字节未变
+  ---
+  duration_ms: 4.865209
+  type: 'test'
+  ...
+# Subtest: ⑨ 用例计数自检 + A1-5 判据面单列（不得混进被骨架判据钉死的清单）
+ok 190 - ⑨ 用例计数自检 + A1-5 判据面单列（不得混进被骨架判据钉死的清单）
+  ---
+  duration_ms: 1.050147
+  type: 'test'
+  ...
+# (node:433) [UNDICI-EHPA] Warning: EnvHttpProxyAgent is experimental, expect them to change at any time.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# (node:433) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# Subtest: ① A3-4 ②．Pavlik–Anderson 闭式锚点 5.059273 + 参数扰动腿
+ok 191 - ① A3-4 ②．Pavlik–Anderson 闭式锚点 5.059273 + 参数扰动腿
+  ---
+  duration_ms: 2.295802
+  type: 'test'
+  ...
+# Subtest: ② A3-4．retention(S=7) 两锚点 + 与 long-term 的 decay 同核（逐点等价）
+ok 192 - ② A3-4．retention(S=7) 两锚点 + 与 long-term 的 decay 同核（逐点等价）
+  ---
+  duration_ms: 4.373708
+  type: 'test'
+  ...
+# Subtest: ③ 四区间边界逐字（A>τ+1 / τ<A≤τ+1 / τ−0.5<A≤τ / A≤τ−0.5）+ 铺满且不交
+ok 193 - ③ 四区间边界逐字（A>τ+1 / τ<A≤τ+1 / τ−0.5<A≤τ / A≤τ−0.5）+ 铺满且不交
+  ---
+  duration_ms: 5.013818
+  type: 'test'
+  ...
+# Subtest: ④ 包内阈值注册表：条目齐全 + 值真被消费 + 未校准项可枚举
+ok 194 - ④ 包内阈值注册表：条目齐全 + 值真被消费 + 未校准项可枚举
+  ---
+  duration_ms: 1.536926
+  type: 'test'
+  ...
+# Subtest: ⑤ 修剪视图只读：不写库 + 无写手势 + 冻结 + 无时钟/RNG + 与归档同源
+ok 195 - ⑤ 修剪视图只读：不写库 + 无写手势 + 冻结 + 无时钟/RNG + 与归档同源
+  ---
+  duration_ms: 3.223615
+  type: 'test'
+  ...
+# Subtest: ⑥ 留存上限三态（ok / over / uncalibrated）+ 未校准不得读成通过
+ok 196 - ⑥ 留存上限三态（ok / over / uncalibrated）+ 未校准不得读成通过
+  ---
+  duration_ms: 1.294586
+  type: 'test'
+  ...
+# Subtest: ⑦ 依赖方向订正：inject 只声明 mana-core；τ 降级缺省与 long-term 真源同值
+ok 197 - ⑦ 依赖方向订正：inject 只声明 mana-core；τ 降级缺省与 long-term 真源同值
+  ---
+  duration_ms: 13.905751
+  type: 'test'
+  ...
+# Subtest: ⑧ 真装配：服务面可复算 A3-4 锚点 + behavior=active + 卸载后服务消失
+ok 198 - ⑧ 真装配：服务面可复算 A3-4 锚点 + behavior=active + 卸载后服务消失
+  ---
+  duration_ms: 863.903966
+  type: 'test'
+  ...
+# Subtest: ⑨ 可选依赖生效：装上 long-term 后走它的 decay 且读数翻面（不是注释承诺）
+ok 199 - ⑨ 可选依赖生效：装上 long-term 后走它的 decay 且读数翻面（不是注释承诺）
+  ---
+  duration_ms: 991.154992
+  type: 'test'
+  ...
+# Subtest: ⑩ 实现面机检：IMPLEMENTED_EXPORTS 逐个可读 + 真归档三步流程未做部分显式列出
+ok 200 - ⑩ 实现面机检：IMPLEMENTED_EXPORTS 逐个可读 + 真归档三步流程未做部分显式列出
+  ---
+  duration_ms: 0.7759
+  type: 'test'
+  ...
+# Subtest: ⑪ 用例计数自检（防本文件被截断/删用例 —— 空文件会报 tests 1 / pass 1 的假绿）
+ok 201 - ⑪ 用例计数自检（防本文件被截断/删用例 —— 空文件会报 tests 1 / pass 1 的假绿）
+  ---
+  duration_ms: 0.150768
+  type: 'test'
+  ...
+# (node:442) [UNDICI-EHPA] Warning: EnvHttpProxyAgent is experimental, expect them to change at any time.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# (node:442) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# Subtest: ① behavior 由运行时服务面机检（填了实现在忘改 ⇒ 必红）+ 反方向补牙
+ok 202 - ① behavior 由运行时服务面机检（填了实现在忘改 ⇒ 必红）+ 反方向补牙
+  ---
+  duration_ms: 595.402701
+  type: 'test'
+  ...
+# Subtest: ② 本包真在 agent/pre-step 链上：effect 面出现监听器 + 卸载后消失
+ok 203 - ② 本包真在 agent/pre-step 链上：effect 面出现监听器 + 卸载后消失
+  ---
+  duration_ms: 805.080207
+  type: 'test'
+  ...
+# Subtest: ③ 链完整性：哨兵与最内层各走一次（漏调 next() ⇒ 哨兵 0）
+ok 204 - ③ 链完整性：哨兵与最内层各走一次（漏调 next() ⇒ 哨兵 0）
+  ---
+  duration_ms: 504.421389
+  type: 'test'
+  ...
+# Subtest: ④ 传 {enabled:false} 不得关掉 G9 义务（本包无 Config，该键必须被无视）
+ok 205 - ④ 传 {enabled:false} 不得关掉 G9 义务（本包无 Config，该键必须被无视）
+  ---
+  duration_ms: 502.900832
+  type: 'test'
+  ...
+# Subtest: ⑤ 不得导出 Config（假旋钮不得回流）
+ok 206 - ⑤ 不得导出 Config（假旋钮不得回流）
+  ---
+  duration_ms: 503.599301
+  type: 'test'
+  ...
+# Subtest: ⑦ effect 面精确计数：本包仍是空壳（多一条行为即红 ⇒ 强制交代）
+ok 207 - ⑦ effect 面精确计数：本包仍是空壳（多一条行为即红 ⇒ 强制交代）
+  ---
+  duration_ms: 501.270579
+  type: 'test'
+  ...
+# Subtest: ⑧ 行为面缺席：本包不写任何 mana_trace 行（与 ⑦ 互补）
+ok 208 - ⑧ 行为面缺席：本包不写任何 mana_trace 行（与 ⑦ 互补）
+  ---
+  duration_ms: 703.143405
+  type: 'test'
+  ...
+# Subtest: ⑥ 用例计数自检（防本文件被截断/删用例 —— 空文件会报 tests 1 / pass 1 的假绿）
+ok 209 - ⑥ 用例计数自检（防本文件被截断/删用例 —— 空文件会报 tests 1 / pass 1 的假绿）
+  ---
+  duration_ms: 0.329266
+  type: 'test'
+  ...
+# (node:450) [UNDICI-EHPA] Warning: EnvHttpProxyAgent is experimental, expect them to change at any time.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# (node:450) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# Subtest: B1.2-1 真调 Ollama：pos0 取到候选，且 yes/no 归一对得上原始 top_logprobs
+ok 210 - B1.2-1 真调 Ollama：pos0 取到候选，且 yes/no 归一对得上原始 top_logprobs
+  ---
+  duration_ms: 4875.671598
+  type: 'test'
+  ...
+# [测量条件说明 · B 档，非阈值] latency_ms=4835 model=qwen3.5:0.8b
+# [真返回 pos0] yes:-0.0795 no:-3.2935 Yes:-3.6280 true:-5.1099 No:-6.0941 → pYes=0.9502
+# Subtest: B1.2-2 大小写变体不得被静默漏掉（真返回上的直接断言）
+ok 211 - B1.2-2 大小写变体不得被静默漏掉（真返回上的直接断言）
+  ---
+  duration_ms: 197.133916
+  type: 'test'
+  ...
+# [真返回] 大写 Yes=1 小写 yes=1 | 大写 No=1 小写 no=1
+# Subtest: B1.2-3 真故障（不可达端点）：degraded=true + reason 非空 + **仍写一行 jev_log**
+ok 212 - B1.2-3 真故障（不可达端点）：degraded=true + reason 非空 + **仍写一行 jev_log**
+  ---
+  duration_ms: 55.566522
+  type: 'test'
+  ...
+# Subtest: B1.2-4 骨架测试同款口径的 fetch stub（500）也走同一降级+留痕路径
+ok 213 - B1.2-4 骨架测试同款口径的 fetch stub（500）也走同一降级+留痕路径
+  ---
+  duration_ms: 7.892582
+  type: 'test'
+  ...
+# Subtest: B1.2-5 正常反例：degraded=false 且 reason===null，并落一行 degraded=0 的痕
+ok 214 - B1.2-5 正常反例：degraded=false 且 reason===null，并落一行 degraded=0 的痕
+  ---
+  duration_ms: 222.047509
+  type: 'test'
+  ...
+# [测量条件说明 · B 档] latency_ms=101
+# Subtest: B1.2-6 无 yes/no 族候选 ⇒ unknown + 降级留痕（不得默认成 no）
+ok 215 - B1.2-6 无 yes/no 族候选 ⇒ unknown + 降级留痕（不得默认成 no）
+  ---
+  duration_ms: 11.914367
+  type: 'test'
+  ...
+# Subtest: B1.2-7 stateHash 是 A 档确定性值；chatUrl 幂等拼接
+ok 216 - B1.2-7 stateHash 是 A 档确定性值；chatUrl 幂等拼接
+  ---
+  duration_ms: 0.476614
+  type: 'test'
+  ...
+# Subtest: B1.2-8 pos0 提取对异常形态返回空数组（不抛，交给调用方转显式降级）
+ok 217 - B1.2-8 pos0 提取对异常形态返回空数组（不抛，交给调用方转显式降级）
+  ---
+  duration_ms: 0.264487
+  type: 'test'
+  ...
+# Subtest: B1.2-9 负向补例：手写大小写混合候选的归一（补充，不替代真返回断言）
+ok 218 - B1.2-9 负向补例：手写大小写混合候选的归一（补充，不替代真返回断言）
+  ---
+  duration_ms: 0.350466
+  type: 'test'
+  ...
+# Subtest: B1.2-10 服务面 judge 真写进 core 的库（装配态证据，非机制自证）
+ok 219 - B1.2-10 服务面 judge 真写进 core 的库（装配态证据，非机制自证）
+  ---
+  duration_ms: 565.06621
+  type: 'test'
+  ...
+# [服务面] pYes=0.8994 value=yes rows 0→1
+# Subtest: B1.2-11 反证：卸载 jev 后同一触发不再产生新行（附**正向对照**防平凡通过）
+ok 220 - B1.2-11 反证：卸载 jev 后同一触发不再产生新行（附**正向对照**防平凡通过）
+  ---
+  duration_ms: 654.157342
+  type: 'test'
+  ...
+# [反证 · 进程内装配] 装载态 +1 行（0→1）；卸载后 0 新行（1→1）
+# (node:458) [UNDICI-EHPA] Warning: EnvHttpProxyAgent is experimental, expect them to change at any time.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# (node:458) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# Subtest: F1 缓存：同 state_hash+question 在 299s 内命中、301s 过期未命中；cached 列 0→1；命中同样留痕
+ok 221 - F1 缓存：同 state_hash+question 在 299s 内命中、301s 过期未命中；cached 列 0→1；命中同样留痕
+  ---
+  duration_ms: 73.447419
+  type: 'test'
+  ...
+# [F1] fetch 调用 2 次 / jev_log 3 行（cached=0,1,0）
+# Subtest: F2 缓存键含 question：同 state 不同 question 不得互相当作命中
+ok 222 - F2 缓存键含 question：同 state 不同 question 不得互相当作命中
+  ---
+  duration_ms: 1.465581
+  type: 'test'
+  ...
+# Subtest: F3 TTL=0 ⇒ 缓存结构性失效（同一毫秒的第二次调用也必须再问模型）
+ok 223 - F3 TTL=0 ⇒ 缓存结构性失效（同一毫秒的第二次调用也必须再问模型）
+  ---
+  duration_ms: 1.759528
+  type: 'test'
+  ...
+# Subtest: F4 熔断：连续 5 次失败才打开（第 4 次仍 closed）；打开后第 6 次直接拒绝且不打模型
+ok 224 - F4 熔断：连续 5 次失败才打开（第 4 次仍 closed）；打开后第 6 次直接拒绝且不打模型
+  ---
+  duration_ms: 17.499811
+  type: 'test'
+  ...
+# [F4] failures=5 state=open fetch=5 rows=6
+# Subtest: F5 熔断：中途成功一次即清零（4 次失败 + 1 次成功 + 4 次失败 ⇒ 仍 closed）
+ok 225 - F5 熔断：中途成功一次即清零（4 次失败 + 1 次成功 + 4 次失败 ⇒ 仍 closed）
+  ---
+  duration_ms: 2.276665
+  type: 'test'
+  ...
+# Subtest: F6 冷却/半开：59s 仍 open（且拒绝）、60s 转 half-open 放行一次试探、试探成功即 closed
+ok 226 - F6 冷却/半开：59s 仍 open（且拒绝）、60s 转 half-open 放行一次试探、试探成功即 closed
+  ---
+  duration_ms: 1.536691
+  type: 'test'
+  ...
+# [F6] 59s=open / 60s=half-open / 试探成功=yes → closed
+# Subtest: F7 冷却：半开试探**失败** ⇒ 重新打开，且冷却**重新计时**（不是停在旧时刻）
+ok 227 - F7 冷却：半开试探**失败** ⇒ 重新打开，且冷却**重新计时**（不是停在旧时刻）
+  ---
+  duration_ms: 0.939798
+  type: 'test'
+  ...
+# Subtest: F8 半开单探针闸：冷却到点后**只放行一个**试探，其余拒绝且不打模型（可枚举 reason）
+ok 228 - F8 半开单探针闸：冷却到点后**只放行一个**试探，其余拒绝且不打模型（可枚举 reason）
+  ---
+  duration_ms: 17.564702
+  type: 'test'
+  ...
+# Subtest: F9 并发：maxConcurrency=4 ⇒ 桩观测的在飞峰值**恰为 4**；结束后无槽位泄漏
+ok 229 - F9 并发：maxConcurrency=4 ⇒ 桩观测的在飞峰值**恰为 4**；结束后无槽位泄漏
+  ---
+  duration_ms: 71.010955
+  type: 'test'
+  ...
+# [F9] 峰值=4 上限=4 完成=10
+# Subtest: F10 并发：等槽超时 ⇒ 可枚举 reason + 仍留痕（不引入"无声挂起"这一新失败模式）
+ok 230 - F10 并发：等槽超时 ⇒ 可枚举 reason + 仍留痕（不引入"无声挂起"这一新失败模式）
+  ---
+  duration_ms: 67.254279
+  type: 'test'
+  ...
+# Subtest: F11 预算：session 上限 3 ⇒ 第 4 次拒绝；**按 session 分桶**；拒绝同样留痕
+ok 231 - F11 预算：session 上限 3 ⇒ 第 4 次拒绝；**按 session 分桶**；拒绝同样留痕
+  ---
+  duration_ms: 8.113025
+  type: 'test'
+  ...
+# [F11] A 桶 3/3 后拒绝；B 桶独立；rows=5
+# Subtest: F12 预算=0 ⇒ 每次都拒（配置项"关掉"的可观测差异）；resetSession 后可放行一次
+ok 232 - F12 预算=0 ⇒ 每次都拒（配置项"关掉"的可观测差异）；resetSession 后可放行一次
+  ---
+  duration_ms: 1.372018
+  type: 'test'
+  ...
+# Subtest: F13 熔断开时缓存仍可服务：命中路径不碰模型 ⇒ 断路器**未被绕过**（fetch 计数不变）
+ok 233 - F13 熔断开时缓存仍可服务：命中路径不碰模型 ⇒ 断路器**未被绕过**（fetch 计数不变）
+  ---
+  duration_ms: 1.487789
+  type: 'test'
+  ...
+# Subtest: F16 留痕计数守恒：N 次调用恰好 N 行 —— 无沉默分支、无重复落痕
+ok 234 - F16 留痕计数守恒：N 次调用恰好 N 行 —— 无沉默分支、无重复落痕
+  ---
+  duration_ms: 9.344044
+  type: 'test'
+  ...
+# [F16] 5 次调用 → 5 行（含 1 次熔断拒绝 + 1 次缓存命中）
+# Subtest: F14/F15 装配面：apply(config) 六项配置真被消费（guardState 逐项对账 + 并发上限端到端生效）
+ok 235 - F14/F15 装配面：apply(config) 六项配置真被消费（guardState 逐项对账 + 并发上限端到端生效）
+  ---
+  duration_ms: 536.365564
+  type: 'test'
+  ...
+# [F14/F15] config 逐项对账通过；并发峰值=2；jev_log=5 行
+# Subtest: F17 护栏不偷改模型面：正常判定的 value/probability 与纯原语逐字一致（缓存只复制、不重算）
+ok 236 - F17 护栏不偷改模型面：正常判定的 value/probability 与纯原语逐字一致（缓存只复制、不重算）
+  ---
+  duration_ms: 1.255595
+  type: 'test'
+  ...
+# Subtest: F18 结构性：src/index.ts 里无 `void config`，且每个 Config 键都被 config.<key> 引用（附闸自身负向控制）
+ok 237 - F18 结构性：src/index.ts 里无 `void config`，且每个 Config 键都被 config.<key> 引用（附闸自身负向控制）
+  ---
+  duration_ms: 1.252285
+  type: 'test'
+  ...
+# Subtest: F19 键 cacheTtlSeconds 真被消费：设为 0 ⇒ 同 state+question 连续两次都不命中（缺省 300 会命中）
+ok 238 - F19 键 cacheTtlSeconds 真被消费：设为 0 ⇒ 同 state+question 连续两次都不命中（缺省 300 会命中）
+  ---
+  duration_ms: 453.831676
+  type: 'test'
+  ...
+# Subtest: F20 键 circuitBreakerFailures 真被消费：设为 2 ⇒ 第 2 次失败即打开（缺省 5 时会是 closed）
+ok 239 - F20 键 circuitBreakerFailures 真被消费：设为 2 ⇒ 第 2 次失败即打开（缺省 5 时会是 closed）
+  ---
+  duration_ms: 454.07597
+  type: 'test'
+  ...
+# Subtest: F21 键 circuitBreakerCooldownSeconds 真被消费：设 1 ⇒ 冷却按配置走（不是写死 60）；设 0 ⇒ 打开即半开
+ok 240 - F21 键 circuitBreakerCooldownSeconds 真被消费：设 1 ⇒ 冷却按配置走（不是写死 60）；设 0 ⇒ 打开即半开
+  ---
+  duration_ms: 2007.458175
+  type: 'test'
+  ...
+# Subtest: F22 键 maxConcurrency 真被消费：设为 2 ⇒ 服务面桩观测峰值**恰为 2**（缺省 4 会是 4）
+ok 241 - F22 键 maxConcurrency 真被消费：设为 2 ⇒ 服务面桩观测峰值**恰为 2**（缺省 4 会是 4）
+  ---
+  duration_ms: 515.794429
+  type: 'test'
+  ...
+# Subtest: F23 键 sessionBudget 真被消费：设为 2 ⇒ 第 3 次拒绝（缺省 200 会放行）
+ok 242 - F23 键 sessionBudget 真被消费：设为 2 ⇒ 第 3 次拒绝（缺省 200 会放行）
+  ---
+  duration_ms: 454.361265
+  type: 'test'
+  ...
+# Subtest: F24 键 concurrencyWaitTimeoutMs 真被消费：设为 80ms ⇒ 满载时等候者被拒（缺省 30s 会一直等）
+ok 243 - F24 键 concurrencyWaitTimeoutMs 真被消费：设为 80ms ⇒ 满载时等候者被拒（缺省 30s 会一直等）
+  ---
+  duration_ms: 608.460979
+  type: 'test'
+  ...
+# (node:466) [UNDICI-EHPA] Warning: EnvHttpProxyAgent is experimental, expect them to change at any time.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# (node:466) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# Subtest: S1-1 noul 单问：桩收到的 body 三件齐（model/state/questions）、题数=1、type/instructions 逐字；映射为 yes + 概率
+ok 244 - S1-1 noul 单问：桩收到的 body 三件齐（model/state/questions）、题数=1、type/instructions 逐字；映射为 yes + 概率
+  ---
+  duration_ms: 4.159318
+  type: 'test'
+  ...
+# [S1-1] url=https://nano-gpt.com/api/v1/systemone value=yes p=0.97
+# Subtest: S1-2 反向：noul=0.06 ⇒ no（阈值语义与旧通道一致）
+ok 245 - S1-2 反向：noul=0.06 ⇒ no（阈值语义与旧通道一致）
+  ---
+  duration_ms: 0.511434
+  type: 'test'
+  ...
+# Subtest: S1-3 **多问不压扁**：桩收到的 body 恰有 3 题且逐题 type/instructions/criteria 对上；返回 answers 三键全在
+ok 246 - S1-3 **多问不压扁**：桩收到的 body 恰有 3 题且逐题 type/instructions/criteria 对上；返回 answers 三键全在
+  ---
+  duration_ms: 0.790541
+  type: 'test'
+  ...
+# [S1-3] 3 题同调 → answers=urgent|kind|weight；契约面取 primary=urgent
+# Subtest: S1-4 `question` 缺省合成：不给 questions 时用契约面的 question 合成一个 noul 问（映射：question → instructions）
+ok 247 - S1-4 `question` 缺省合成：不给 questions 时用契约面的 question 合成一个 noul 问（映射：question → instructions）
+  ---
+  duration_ms: 0.559593
+  type: 'test'
+  ...
+# Subtest: S1-5 choice：value=unknown + probability=null（不用 0 冒充）+ **degraded=false**（链路健康，不是降级）+ 取值在 answers
+ok 248 - S1-5 choice：value=unknown + probability=null（不用 0 冒充）+ **degraded=false**（链路健康，不是降级）+ 取值在 answers
+  ---
+  duration_ms: 34.917987
+  type: 'test'
+  ...
+# Subtest: S1-6 score：同上（unknown/null/非降级），且 legend + 索引 score 都在
+ok 249 - S1-6 score：同上（unknown/null/非降级），且 legend + 索引 score 都在
+  ---
+  duration_ms: 0.472354
+  type: 'test'
+  ...
+# Subtest: S1-7 主问题缺失 ⇒ **显式降级**并列出可用键（**不偷偷挑第一个键**）
+ok 250 - S1-7 主问题缺失 ⇒ **显式降级**并列出可用键（**不偷偷挑第一个键**）
+  ---
+  duration_ms: 1.088037
+  type: 'test'
+  ...
+# Subtest: S1-8 次要答案形状认不出 ⇒ 进 `unusableAnswers`（可枚举）+ 原样留 raw，不静默丢
+ok 251 - S1-8 次要答案形状认不出 ⇒ 进 `unusableAnswers`（可枚举）+ 原样留 raw，不静默丢
+  ---
+  duration_ms: 0.585522
+  type: 'test'
+  ...
+# Subtest: S1-9 `normalizeAnswers` 纯函数面：非对象 ⇒ 空；缺 type ⇒ 记 (missing)
+ok 252 - S1-9 `normalizeAnswers` 纯函数面：非对象 ⇒ 空；缺 type ⇒ 记 (missing)
+  ---
+  duration_ms: 0.600546
+  type: 'test'
+  ...
+# Subtest: S1-10 无凭据 ⇒ **一次请求都不发** + 显式降级 systemone-no-api-key（不许静默 skip、不许回落 Ollama）
+ok 253 - S1-10 无凭据 ⇒ **一次请求都不发** + 显式降级 systemone-no-api-key（不许静默 skip、不许回落 Ollama）
+  ---
+  duration_ms: 1.064735
+  type: 'test'
+  ...
+# Subtest: S1-11 401 ⇒ httpError + reason 带服务端正文（实测形态：missing_api_key）
+ok 254 - S1-11 401 ⇒ httpError + reason 带服务端正文（实测形态：missing_api_key）
+  ---
+  duration_ms: 1.083739
+  type: 'test'
+  ...
+# Subtest: S1-12 400 错模型 ⇒ reason 带**服务端自报白名单**，且与本地常量逐项对账
+ok 255 - S1-12 400 错模型 ⇒ reason 带**服务端自报白名单**，且与本地常量逐项对账
+  ---
+  duration_ms: 0.784669
+  type: 'test'
+  ...
+# Subtest: S1-13 非 JSON 响应 / 网络异常 ⇒ 各自可枚举 reason，且**本函数不抛**
+ok 256 - S1-13 非 JSON 响应 / 网络异常 ⇒ 各自可枚举 reason，且**本函数不抛**
+  ---
+  duration_ms: 0.697372
+  type: 'test'
+  ...
+# Subtest: S1-14 无 answers / noul 越界 ⇒ 各自显式降级（不得当成 0 或 no）
+ok 257 - S1-14 无 answers / noul 越界 ⇒ 各自显式降级（不得当成 0 或 no）
+  ---
+  duration_ms: 0.487513
+  type: 'test'
+  ...
+# Subtest: S1-15 落痕守恒：6 条路径各落一行、降级行 degraded=1、cost_usd 落真实成本（拿不到则 null）
+ok 258 - S1-15 落痕守恒：6 条路径各落一行、降级行 degraded=1、cost_usd 落真实成本（拿不到则 null）
+  ---
+  duration_ms: 9.206017
+  type: 'test'
+  ...
+# [S1-15] 6 行：degraded=0,0,1,1,1,1
+# Subtest: S1-16 缺省值钉死：Config 缺省 = **ollama 通道 + 本地端点 + 本地模型**；systemone 常量独立且正确
+ok 259 - S1-16 缺省值钉死：Config 缺省 = **ollama 通道 + 本地端点 + 本地模型**；systemone 常量独立且正确
+  ---
+  duration_ms: 15.523888
+  type: 'test'
+  ...
+# Subtest: S1-17 双通道**都能被选中**且各自端点/模型正确（经 apply 装配 + 桩；不静默只剩云端）
+ok 260 - S1-17 双通道**都能被选中**且各自端点/模型正确（经 apply 装配 + 桩；不静默只剩云端）
+  ---
+  duration_ms: 756.665957
+  type: 'test'
+  ...
+# [S1-17] ollama→http://127.0.0.1:11434/api/chat · systemone→https://nano-gpt.com/api/v1/systemone
+# Subtest: S1-18 真通道判据的**显式红**是结构性事实：live 文件必须含 assert.fail、且**不得**出现静默跳过
+ok 261 - S1-18 真通道判据的**显式红**是结构性事实：live 文件必须含 assert.fail、且**不得**出现静默跳过
+  ---
+  duration_ms: 0.410265
+  type: 'test'
+  ...
+# Subtest: S1-19 契约未越界：本通道只产出 `JevJudgeResult` 的**超集**，core 的三态取值一字未增
+ok 262 - S1-19 契约未越界：本通道只产出 `JevJudgeResult` 的**超集**，core 的三态取值一字未增
+  ---
+  duration_ms: 0.453514
+  type: 'test'
+  ...
+# Subtest: S1-20 凭据解析优先级：显式入参 > 环境变量 > env 文件；来源**可枚举**且不含 key 本身
+ok 263 - S1-20 凭据解析优先级：显式入参 > 环境变量 > env 文件；来源**可枚举**且不含 key 本身
+  ---
+  duration_ms: 0.429505
+  type: 'test'
+  ...
+# Subtest: S1-21 `parseEnvFile` 纯函数面：注释/空行/export 前缀/单双引号/非法行
+ok 264 - S1-21 `parseEnvFile` 纯函数面：注释/空行/export 前缀/单双引号/非法行
+  ---
+  duration_ms: 0.228768
+  type: 'test'
+  ...
+# Subtest: S1-22 同源硬件约束：判据面与探针面读凭据走**同一个函数**（结构上不可能再分叉）
+ok 265 - S1-22 同源硬件约束：判据面与探针面读凭据走**同一个函数**（结构上不可能再分叉）
+  ---
+  duration_ms: 0.388316
+  type: 'test'
+  ...
+# Subtest: S1-23 主问题形状**认不出**（服务端可能新增 type）⇒ 显式降级 + reason 可枚举（不得当正常路径放行）
+ok 266 - S1-23 主问题形状**认不出**（服务端可能新增 type）⇒ 显式降级 + reason 可枚举（不得当正常路径放行）
+  ---
+  duration_ms: 0.315046
+  type: 'test'
+  ...
+# [S1-23] 认不出的主问题 ⇒ systemone-primary-not-noul: type=quantum
+# (node:474) [UNDICI-EHPA] Warning: EnvHttpProxyAgent is experimental, expect them to change at any time.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# [mana-learning] 降级留痕无法落库（无 mana-core）：{"degraded":true,"reason":"memory_items.related_ids 列不存在（该库建于补列之前）","ids":[]}
+# (node:474) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# Subtest: ① 学习率 η=0.01：固定夹具增量逐字复现 + 运行时扰动腿（传 0.02 必须偏离）
+ok 267 - ① 学习率 η=0.01：固定夹具增量逐字复现 + 运行时扰动腿（传 0.02 必须偏离）
+  ---
+  duration_ms: 1.812178
+  type: 'test'
+  ...
+# Subtest: ② 窗口边界：gap≤窗口 算一次共激活；gap>窗口 一次不算（含 300000/300001 逐毫秒）
+ok 268 - ② 窗口边界：gap≤窗口 算一次共激活；gap>窗口 一次不算（含 300000/300001 逐毫秒）
+  ---
+  duration_ms: 1.123755
+  type: 'test'
+  ...
+# Subtest: ③ 可复算：N 次共激活 ⇒ 权重单调不减、落库可逐次复算、且给出与闭式的实测偏差
+ok 269 - ③ 可复算：N 次共激活 ⇒ 权重单调不减、落库可逐次复算、且给出与闭式的实测偏差
+  ---
+  duration_ms: 36.117629
+  type: 'test'
+  ...
+# Subtest: ④ related_ids 格式：编码规范唯一 + 解析四态（null/empty/ok/invalid 不得混同）
+ok 270 - ④ related_ids 格式：编码规范唯一 + 解析四态（null/empty/ok/invalid 不得混同）
+  ---
+  duration_ms: 0.612693
+  type: 'test'
+  ...
+# Subtest: ⑤ 三态降级（列不存在）：一格不写、degraded+reason+gate、并留痕到 mana_trace 自己的命名空间
+ok 271 - ⑤ 三态降级（列不存在）：一格不写、degraded+reason+gate、并留痕到 mana_trace 自己的命名空间
+  ---
+  duration_ms: 3.668425
+  type: 'test'
+  ...
+# Subtest: ⑥ 落库语义：四条显式拒绝 + 字节级可复算 + 不覆写读不懂的旧值
+ok 272 - ⑥ 落库语义：四条显式拒绝 + 字节级可复算 + 不覆写读不懂的旧值
+  ---
+  duration_ms: 13.511933
+  type: 'test'
+  ...
+# Subtest: ⑦ 参数单一出处：η=0.01 与窗口不得在 params.ts 之外重现（C14，含扫描器自证）
+ok 273 - ⑦ 参数单一出处：η=0.01 与窗口不得在 params.ts 之外重现（C14，含扫描器自证）
+  ---
+  duration_ms: 2.672372
+  type: 'test'
+  ...
+# Subtest: ⑧ 命名空间与导出面：trace 事件不落在 S1 五类内 + 实现面清单逐名可检 + 无 Config
+ok 274 - ⑧ 命名空间与导出面：trace 事件不落在 S1 五类内 + 实现面清单逐名可检 + 无 Config
+  ---
+  duration_ms: 813.701271
+  type: 'test'
+  ...
+# Subtest: ⑨ 边界腿：本包不得含时间衰减核、不得新增 DDL、不得改他包（含负向对拍）
+ok 275 - ⑨ 边界腿：本包不得含时间衰减核、不得新增 DDL、不得改他包（含负向对拍）
+  ---
+  duration_ms: 1.59961
+  type: 'test'
+  ...
+# Subtest: ⑩ 用例计数自检
+ok 276 - ⑩ 用例计数自检
+  ---
+  duration_ms: 0.433259
+  type: 'test'
+  ...
+# (node:482) [UNDICI-EHPA] Warning: EnvHttpProxyAgent is experimental, expect them to change at any time.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# (node:482) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# Subtest: ① 四要素齐 + patch id 与 name 一致（形状面，A0-5 同口径）
+ok 277 - ① 四要素齐 + patch id 与 name 一致（形状面，A0-5 同口径）
+  ---
+  duration_ms: 810.173686
+  type: 'test'
+  ...
+# Subtest: ② 装配后 ctx.get('mana-llm') 可读且 status() 报 wired:true + 路由真挂上
+ok 278 - ② 装配后 ctx.get('mana-llm') 可读且 status() 报 wired:true + 路由真挂上
+  ---
+  duration_ms: 752.783172
+  type: 'test'
+  ...
+# Subtest: ③ 负向：卸载本包后 'mana' 路由必须消失（卸载即净）
+ok 279 - ③ 负向：卸载本包后 'mana' 路由必须消失（卸载即净）
+  ---
+  duration_ms: 1055.709234
+  type: 'test'
+  ...
+# Subtest: ④ 卸载后 status() 的 routeRegistered 必须转 false（状态面与事实一致）
+ok 280 - ④ 卸载后 status() 的 routeRegistered 必须转 false（状态面与事实一致）
+  ---
+  duration_ms: 1054.774161
+  type: 'test'
+  ...
+# Subtest: ⑤ 负向对拍（打对靶）：泄漏变体必须能被"路由残留"抓到 —— 差分对拍
+ok 281 - ⑤ 负向对拍（打对靶）：泄漏变体必须能被"路由残留"抓到 —— 差分对拍
+  ---
+  duration_ms: 1609.193184
+  type: 'test'
+  ...
+# Subtest: ⑥ 手搓消息必须在通道边界显式失败（不许静默丢弃）
+ok 282 - ⑥ 手搓消息必须在通道边界显式失败（不许静默丢弃）
+  ---
+  duration_ms: 755.042027
+  type: 'test'
+  ...
+# Subtest: ⑦ 真转发：合法消息经 'mana' 路由必须抵达上游并原样透传 chunk
+ok 283 - ⑦ 真转发：合法消息经 'mana' 路由必须抵达上游并原样透传 chunk
+  ---
+  duration_ms: 758.684947
+  type: 'test'
+  ...
+# Subtest: ⑧ 未配置上游 + 自转发：都必须显式报错，不得静默
+ok 284 - ⑧ 未配置上游 + 自转发：都必须显式报错，不得静默
+  ---
+  duration_ms: 1816.803193
+  type: 'test'
+  ...
+# Subtest: ⑨ 用例计数自检（防本文件被截断/删用例 —— 空文件会报 tests 1 / pass 1 的假绿）
+ok 285 - ⑨ 用例计数自检（防本文件被截断/删用例 —— 空文件会报 tests 1 / pass 1 的假绿）
+  ---
+  duration_ms: 0.468064
+  type: 'test'
+  ...
+# (node:490) [UNDICI-EHPA] Warning: EnvHttpProxyAgent is experimental, expect them to change at any time.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# (node:490) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# Subtest: ① A1-5 时间衰减三锚点 + 负向对拍（h=14 → 7 必须偏离）
+ok 286 - ① A1-5 时间衰减三锚点 + 负向对拍（h=14 → 7 必须偏离）
+  ---
+  duration_ms: 1.035217
+  type: 'test'
+  ...
+# Subtest: ② A2-1 基础激活四锚点 + 幂律同形腿（不得被第二套衰减乘过）
+ok 287 - ② A2-1 基础激活四锚点 + 幂律同形腿（不得被第二套衰减乘过）
+  ---
+  duration_ms: 0.586383
+  type: 'test'
+  ...
+# Subtest: ③ A2-2 检索概率三锚点 + s 是由 σ 派生的尺度（s≠σ 反向对照）
+ok 288 - ③ A2-2 检索概率三锚点 + s 是由 σ 派生的尺度（s≠σ 反向对照）
+  ---
+  duration_ms: 0.345686
+  type: 'test'
+  ...
+# Subtest: ④ A2-2 延迟二锚点 + 钳位语义（A−3 与 A−2 逐位同值）+ 单调非严格
+ok 289 - ④ A2-2 延迟二锚点 + 钳位语义（A−3 与 A−2 逐位同值）+ 单调非严格
+  ---
+  duration_ms: 0.435735
+  type: 'test'
+  ...
+# Subtest: ⑤ 收敛口径：概率与噪声共用同一个 s，且噪声可复现（无隐式 RNG）
+ok 290 - ⑤ 收敛口径：概率与噪声共用同一个 s，且噪声可复现（无隐式 RNG）
+  ---
+  duration_ms: 0.958299
+  type: 'test'
+  ...
+# Subtest: ⑥ 导出面逐个断言（实现被搬走/改名 ⇒ 必红）
+ok 291 - ⑥ 导出面逐个断言（实现被搬走/改名 ⇒ 必红）
+  ---
+  duration_ms: 16.281348
+  type: 'test'
+  ...
+# Subtest: ⑦ 参数单一出处：冻结参数不得在 params.ts 之外以字面量重现（C14）
+ok 292 - ⑦ 参数单一出处：冻结参数不得在 params.ts 之外以字面量重现（C14）
+  ---
+  duration_ms: 1.192635
+  type: 'test'
+  ...
+# Subtest: ⑧ 真装配：服务面可复算锚点 + behavior=active + 卸载后服务消失
+ok 293 - ⑧ 真装配：服务面可复算锚点 + behavior=active + 卸载后服务消失
+  ---
+  duration_ms: 819.057716
+  type: 'test'
+  ...
+# Subtest: ⑨ 用例计数自检 + 锚点字面量在册（防本文件被截断/掏空）
+ok 294 - ⑨ 用例计数自检 + 锚点字面量在册（防本文件被截断/掏空）
+  ---
+  duration_ms: 1.028528
+  type: 'test'
+  ...
+# (node:498) [UNDICI-EHPA] Warning: EnvHttpProxyAgent is experimental, expect them to change at any time.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# (node:498) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# Subtest: RG-JL-① 判定键派生：同批次 N 条候选 ⇒ N 个互不相同的键；跨批次不复用
+ok 295 - RG-JL-① 判定键派生：同批次 N 条候选 ⇒ N 个互不相同的键；跨批次不复用
+  ---
+  duration_ms: 1.042377
+  type: 'test'
+  ...
+# Subtest: RG-JL-③ 真件对账：3 候选 ⇒ jev_log 恰新增 3 行，行 id 逐条等于 out.judgeIds
+ok 296 - RG-JL-③ 真件对账：3 候选 ⇒ jev_log 恰新增 3 行，行 id 逐条等于 out.judgeIds
+  ---
+  duration_ms: 3540.016636
+  type: 'test'
+  ...
+# [真件对账] gate=below_threshold probed=3 judged=3 jev_log 增量=3 · ids=["r-count\#rel_m-a","r-count\#rel_m-b","r-count\#rel_m-c"]
+# Subtest: RG-JL-③b 真生产者 judgeWithGuard（注入 fetch）⇒ 判过阈且落痕 id 逐条等于 judgeIds
+ok 297 - RG-JL-③b 真生产者 judgeWithGuard（注入 fetch）⇒ 判过阈且落痕 id 逐条等于 judgeIds
+  ---
+  duration_ms: 656.988954
+  type: 'test'
+  ...
+# [真生产者] gate=judged judged=3 rankBy=jev_prob 增量=3 ids=["r-prod\#rel_m-a","r-prod\#rel_m-b","r-prod\#rel_m-c"] · 透传给驱动的阈值=[null,null,null,null,null,null] · 严格阈值那次 gate=below_threshold
+# Subtest: RG-JL-④ 反证对拍：把唯一 requestId 变异回退成逐候选复用同一 requestId ⇒ 计数必红
+ok 298 - RG-JL-④ 反证对拍：把唯一 requestId 变异回退成逐候选复用同一 requestId ⇒ 计数必红
+  ---
+  duration_ms: 358.338762
+  type: 'test'
+  ...
+# Subtest: RG-JL-⑤ 既有结论不回退：三态可分辨仍成立、降级不标 jev_prob、rankBy 回落
+ok 299 - RG-JL-⑤ 既有结论不回退：三态可分辨仍成立、降级不标 jev_prob、rankBy 回落
+  ---
+  duration_ms: 503.480605
+  type: 'test'
+  ...
+# [不回退自证] pass=judged/jev_prob · 无监听器=degraded/local_score · 真件=degraded · jev 监听器不透传 threshold=✓（字面层断言）
+# Subtest: RG-JL-⑥ 用例计数自检
+ok 300 - RG-JL-⑥ 用例计数自检
+  ---
+  duration_ms: 0.469074
+  type: 'test'
+  ...
+# (node:506) [UNDICI-EHPA] Warning: EnvHttpProxyAgent is experimental, expect them to change at any time.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# (node:506) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# Subtest: RG-① 实现面清单逐个在册且是函数（反「实现被挖空」）
+ok 301 - RG-① 实现面清单逐个在册且是函数（反「实现被挖空」）
+  ---
+  duration_ms: 23.338944
+  type: 'test'
+  ...
+# Subtest: RG-② 态3 不可用：无监听器 / 抛错 / 未发起 / 空候选，四条入口都给 degraded + 非空 reason
+ok 302 - RG-② 态3 不可用：无监听器 / 抛错 / 未发起 / 空候选，四条入口都给 degraded + 非空 reason
+  ---
+  duration_ms: 11.100643
+  type: 'test'
+  ...
+# [态3-a 无监听器] gate=degraded channel=degraded rankBy=local_score probed=3 reason=判定链不可用：3 条候选全部未取得有限概率（m-a: downstream-degraded(no-judge-listener); m-b
+# Subtest: RG-③ 态1/态2 真判定链：过阈 ⇒ judged/jev_prob；未过阈 ⇒ below_threshold/local_score
+ok 303 - RG-③ 态1/态2 真判定链：过阈 ⇒ judged/jev_prob；未过阈 ⇒ below_threshold/local_score
+  ---
+  duration_ms: 5.905301
+  type: 'test'
+  ...
+# [态1 过阈] gate=judged rankBy=jev_prob judged=3 prob=0.91 judgeType=rel_m-a
+# [态2 未过阈] gate=below_threshold degraded=false rankBy=local_score reason=判定可用但未过阈值：3 条候选已判（最高概率 0.210000 < 阈值 0.7） ⇒ 回落本地分排序（**这不是降级**：判定链可用且给出
+# [三态对照] judged/jev_prob/deg=false | below_threshold/local_score/deg=false | degraded/local_score/deg=true
+# Subtest: RG-④ 反证对拍：把降级信封里的 degraded:true 去掉 ⇒ 本判据必须报红（纯内存克隆）
+ok 304 - RG-④ 反证对拍：把降级信封里的 degraded:true 去掉 ⇒ 本判据必须报红（纯内存克隆）
+  ---
+  duration_ms: 8.084455
+  type: 'test'
+  ...
+# Subtest: RG-⑤ 既有行为：本批不新挂 agent/pre-step，effect 面仍恰好 3 条
+ok 305 - RG-⑤ 既有行为：本批不新挂 agent/pre-step，effect 面仍恰好 3 条
+  ---
+  duration_ms: 639.460921
+  type: 'test'
+  ...
+# [边界自证] effect=3（pre-step×1）· 哨兵=1 · mana_trace 增量=0 · mana/recall emit=0
+# Subtest: RG-⑥ 与既有 jev 插件真件联跑：装上 mana-jev 后 recallGate 走到它的监听器
+ok 306 - RG-⑥ 与既有 jev 插件真件联跑：装上 mana-jev 后 recallGate 走到它的监听器
+  ---
+  duration_ms: 2439.857371
+  type: 'test'
+  ...
+# [真件联跑] gate=below_threshold channel=vector rankBy=local_score degraded=false probed=3 judged=3
+# Subtest: RG-⑦ 用例计数自检
+ok 307 - RG-⑦ 用例计数自检
+  ---
+  duration_ms: 0.85375
+  type: 'test'
+  ...
+# (node:514) [UNDICI-EHPA] Warning: EnvHttpProxyAgent is experimental, expect them to change at any time.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# (node:514) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# Subtest: ① 过滤腿在册：LIVE_SEARCH_SQL / LIVE_SELECT_SQL 必须带 AND retired=0（判据自检）
+ok 308 - ① 过滤腿在册：LIVE_SEARCH_SQL / LIVE_SELECT_SQL 必须带 AND retired=0（判据自检）
+  ---
+  duration_ms: 1.326593
+  type: 'test'
+  ...
+# Subtest: ② A2-6 软删除可逆（字节级）：行数不变 + retired=1 + 恢复后 sha256 相等
+ok 309 - ② A2-6 软删除可逆（字节级）：行数不变 + retired=1 + 恢复后 sha256 相等
+  ---
+  duration_ms: 290.772602
+  type: 'test'
+  ...
+# Subtest: ③ A2-7 退休行不泄漏：结果中 retired=1 计数 == 0；且退休行**确实还在 FTS 索引里**
+ok 310 - ③ A2-7 退休行不泄漏：结果中 retired=1 计数 == 0；且退休行**确实还在 FTS 索引里**
+  ---
+  duration_ms: 255.913178
+  type: 'test'
+  ...
+# Subtest: ④ 负向对拍A：去掉过滤腿 ⇒ A2-7 的「泄漏 == 0」断言必须报红（打真断言）
+ok 311 - ④ 负向对拍A：去掉过滤腿 ⇒ A2-7 的「泄漏 == 0」断言必须报红（打真断言）
+  ---
+  duration_ms: 254.193959
+  type: 'test'
+  ...
+# Subtest: ⑤ 负向对拍B/C：retire 改真 DELETE / 恢复动一字节 ⇒ A2-6 的断言必须报红
+ok 312 - ⑤ 负向对拍B/C：retire 改真 DELETE / 恢复动一字节 ⇒ A2-6 的断言必须报红
+  ---
+  duration_ms: 254.214931
+  type: 'test'
+  ...
+# Subtest: ⑥ 真装配：svc.retirement 逐项可用 + 经服务面复算 A2-6/A2-7
+ok 313 - ⑥ 真装配：svc.retirement 逐项可用 + 经服务面复算 A2-6/A2-7
+  ---
+  duration_ms: 873.60922
+  type: 'test'
+  ...
+# Subtest: ⑦ 库规模读数 ≠ 活记忆读数：4 条里 1 条退休 ⇒ totalSize=4 / liveSize=3，且 reason 的分母是 liveSize
+ok 314 - ⑦ 库规模读数 ≠ 活记忆读数：4 条里 1 条退休 ⇒ totalSize=4 / liveSize=3，且 reason 的分母是 liveSize
+  ---
+  duration_ms: 254.496017
+  type: 'test'
+  ...
+# Subtest: ⑧ 口径声明 ⇄ 实现一致：totalSize 的注释声明决定期望值，任一侧漂移即红
+ok 315 - ⑧ 口径声明 ⇄ 实现一致：totalSize 的注释声明决定期望值，任一侧漂移即红
+  ---
+  duration_ms: 255.170276
+  type: 'test'
+  ...
+# Subtest: ⑨ 用例计数自检 + 判据字面量在册
+ok 316 - ⑨ 用例计数自检 + 判据字面量在册
+  ---
+  duration_ms: 1.106257
+  type: 'test'
+  ...
+# (node:522) [UNDICI-EHPA] Warning: EnvHttpProxyAgent is experimental, expect them to change at any time.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# (node:522) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# Subtest: ① behavior 由运行时服务面机检（填了实现在忘改 ⇒ 必红）+ 反方向补牙
+ok 317 - ① behavior 由运行时服务面机检（填了实现在忘改 ⇒ 必红）+ 反方向补牙
+  ---
+  duration_ms: 585.016593
+  type: 'test'
+  ...
+# Subtest: ② 本包真在 agent/pre-step 链上：effect 面出现监听器 + 卸载后消失
+ok 318 - ② 本包真在 agent/pre-step 链上：effect 面出现监听器 + 卸载后消失
+  ---
+  duration_ms: 803.327794
+  type: 'test'
+  ...
+# Subtest: ③ 链完整性：哨兵与最内层各走一次（漏调 next() ⇒ 哨兵 0）
+ok 319 - ③ 链完整性：哨兵与最内层各走一次（漏调 next() ⇒ 哨兵 0）
+  ---
+  duration_ms: 504.483601
+  type: 'test'
+  ...
+# Subtest: ④ 传 {enabled:false} 不得关掉 G9 义务（本包无 Config，该键必须被无视）
+ok 320 - ④ 传 {enabled:false} 不得关掉 G9 义务（本包无 Config，该键必须被无视）
+  ---
+  duration_ms: 503.657142
+  type: 'test'
+  ...
+# Subtest: ⑤ 不得导出 Config（假旋钮不得回流）
+ok 321 - ⑤ 不得导出 Config（假旋钮不得回流）
+  ---
+  duration_ms: 504.647062
+  type: 'test'
+  ...
+# Subtest: ⑦ effect 面精确计数：本包仍是空壳（多一条行为即红 ⇒ 强制交代）
+ok 322 - ⑦ effect 面精确计数：本包仍是空壳（多一条行为即红 ⇒ 强制交代）
+  ---
+  duration_ms: 502.237103
+  type: 'test'
+  ...
+# Subtest: ⑧ 行为面缺席：本包不写任何 mana_trace 行（与 ⑦ 互补）
+ok 323 - ⑧ 行为面缺席：本包不写任何 mana_trace 行（与 ⑦ 互补）
+  ---
+  duration_ms: 703.293255
+  type: 'test'
+  ...
+# Subtest: ⑥ 用例计数自检（防本文件被截断/删用例 —— 空文件会报 tests 1 / pass 1 的假绿）
+ok 324 - ⑥ 用例计数自检（防本文件被截断/删用例 —— 空文件会报 tests 1 / pass 1 的假绿）
+  ---
+  duration_ms: 0.358686
+  type: 'test'
+  ...
+# (node:530) [UNDICI-EHPA] Warning: EnvHttpProxyAgent is experimental, expect them to change at any time.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# (node:530) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# Subtest: 宿主装配① 前置：metacognition **未装配**时服务必须不可读
+ok 325 - 宿主装配① 前置：metacognition **未装配**时服务必须不可读
+  ---
+  duration_ms: 524.14012
+  type: 'test'
+  ...
+# Subtest: 宿主装配② 按包名解析成功（装配计数 1 → 2）
+ok 326 - 宿主装配② 按包名解析成功（装配计数 1 → 2）
+  ---
+  duration_ms: 305.059024
+  type: 'test'
+  ...
+# Subtest: 宿主装配③ **宿主产物**上的判据读口 == 注册表真源（D2 的落点）
+ok 327 - 宿主装配③ **宿主产物**上的判据读口 == 注册表真源（D2 的落点）
+  ---
+  duration_ms: 2.044414
+  type: 'test'
+  ...
+# Subtest: 宿主装配④ 子路径导出 `./criteria` 在产物面可真解析
+ok 328 - 宿主装配④ 子路径导出 `./criteria` 在产物面可真解析
+  ---
+  duration_ms: 0.857679
+  type: 'test'
+  ...
+# Subtest: 宿主装配⑤ 反证（卸载即净）：remove entry 后装配计数归零、服务不可读
+ok 329 - 宿主装配⑤ 反证（卸载即净）：remove entry 后装配计数归零、服务不可读
+  ---
+  duration_ms: 402.526772
+  type: 'test'
+  ...
+# (node:538) [UNDICI-EHPA] Warning: EnvHttpProxyAgent is experimental, expect them to change at any time.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: B5.1-① 登记阈值经唯一读口读回 == 注册表登记值（逐字相等，差 0）
+ok 330 - B5.1-① 登记阈值经唯一读口读回 == 注册表登记值（逐字相等，差 0）
+  ---
+  duration_ms: 1.174235
+  type: 'test'
+  ...
+# Subtest: B5.1-① 对象型阈值取键读口 == 注册表对象逐键；缺键走 fallback
+ok 331 - B5.1-① 对象型阈值取键读口 == 注册表对象逐键；缺键走 fallback
+  ---
+  duration_ms: 0.565313
+  type: 'test'
+  ...
+# Subtest: B5.1-① 判据参数读口 == 注册表 params；版本号 == 注册表 version；L0 取值域同源
+ok 332 - B5.1-① 判据参数读口 == 注册表 params；版本号 == 注册表 version；L0 取值域同源
+  ---
+  duration_ms: 0.997538
+  type: 'test'
+  ...
+# Subtest: B5.1-① 确定性裁决：升格/降格/L0/成熟度/打分 A 档锚点
+ok 333 - B5.1-① 确定性裁决：升格/降格/L0/成熟度/打分 A 档锚点
+  ---
+  duration_ms: 0.556163
+  type: 'test'
+  ...
+# Subtest: B5.1-② 移植内核与源仓 lib/criteria.js 对拍（同一批输入逐字相等）
+ok 334 - B5.1-② 移植内核与源仓 lib/criteria.js 对拍（同一批输入逐字相等）
+  ---
+  duration_ms: 32.213866
+  type: 'test'
+  ...
+# Subtest: B5.1-③ 改注册表 → 重跑生成器 → 读口读到新值（改不动即假旋钮）
+ok 335 - B5.1-③ 改注册表 → 重跑生成器 → 读口读到新值（改不动即假旋钮）
+  ---
+  duration_ms: 933.433525
+  type: 'test'
+  ...
+# Subtest: B5.1-④ 本包投影与注册表一致（gen-criteria.mjs --check exit 0）
+ok 336 - B5.1-④ 本包投影与注册表一致（gen-criteria.mjs --check exit 0）
+  ---
+  duration_ms: 207.728993
+  type: 'test'
+  ...
+# Subtest: B5.1-⑤ 骨架 apply 注册 waterfall 直通监听器，core 侧真的调 next()（G9）
+ok 337 - B5.1-⑤ 骨架 apply 注册 waterfall 直通监听器，core 侧真的调 next()（G9）
+  ---
+  duration_ms: 0.567813
+  type: 'test'
+  ...
+# Subtest: B5.1-⑤ 反证：waterfall 监听器不调 next() ⇒ 下游收不到（跑出来的，不是断言的）
+ok 338 - B5.1-⑤ 反证：waterfall 监听器不调 next() ⇒ 下游收不到（跑出来的，不是断言的）
+  ---
+  duration_ms: 17.277362
+  type: 'test'
+  ...
+# Subtest: B5.1-⑥ 两骨架包形状齐备（A0-5 口径）+ 入口指 lib（宿主不带类型剥离）
+ok 339 - B5.1-⑥ 两骨架包形状齐备（A0-5 口径）+ 入口指 lib（宿主不带类型剥离）
+  ---
+  duration_ms: 1.277164
+  type: 'test'
+  ...
+# Subtest: B5.1-⑥ 写面边界（登记式，不判他席）：本席只写 metacognition/user-model 两目录
+ok 340 - B5.1-⑥ 写面边界（登记式，不判他席）：本席只写 metacognition/user-model 两目录
+  ---
+  duration_ms: 0.348106
+  type: 'test'
+  ...
+# (node:585) [UNDICI-EHPA] Warning: EnvHttpProxyAgent is experimental, expect them to change at any time.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# (node:585) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# Subtest: L-04-B① 【负向】把写入口改成**覆盖**语义（先清历史）⇒ 「追加非覆盖」判据必红
+ok 341 - L-04-B① 【负向】把写入口改成**覆盖**语义（先清历史）⇒ 「追加非覆盖」判据必红
+  ---
+  duration_ms: 399.469481
+  type: 'test'
+  ...
+# Subtest: L-04-B② 【负向】把退场改成**照常生效** ⇒ 「跌破阈值即不注入」判据必红
+ok 342 - L-04-B② 【负向】把退场改成**照常生效** ⇒ 「跌破阈值即不注入」判据必红
+  ---
+  duration_ms: 261.142558
+  type: 'test'
+  ...
+# Subtest: L-04-B②b 【负向】让**读侧**忽略退场（一律可注入）⇒ 「退场后不再注入」判据必红
+ok 343 - L-04-B②b 【负向】让**读侧**忽略退场（一律可注入）⇒ 「退场后不再注入」判据必红
+  ---
+  duration_ms: 261.228441
+  type: 'test'
+  ...
+# Subtest: L-04-B③ 【负向】让本包写一行 memory_items.content ⇒ 「本包不写 content」判据必红
+ok 344 - L-04-B③ 【负向】让本包写一行 memory_items.content ⇒ 「本包不写 content」判据必红
+  ---
+  duration_ms: 522.055411
+  type: 'test'
+  ...
+# Subtest: L-04-B③ 【负向】摘掉运行期守卫后，含 content 的输入**不再抛** ⇒ 守卫判据必红
+ok 345 - L-04-B③ 【负向】摘掉运行期守卫后，含 content 的输入**不再抛** ⇒ 守卫判据必红
+  ---
+  duration_ms: 260.580872
+  type: 'test'
+  ...
+# Subtest: L-04-B④ 【负向】把 undeterminable 也算作"生效" ⇒ 「未拍板不生效」判据必红
+ok 346 - L-04-B④ 【负向】把 undeterminable 也算作"生效" ⇒ 「未拍板不生效」判据必红
+  ---
+  duration_ms: 259.508178
+  type: 'test'
+  ...
+# Subtest: L-04-B⑤ 【负向】让深睡通道另走一个函数（绕过统一写入口）⇒ 单写入口判据必红
+ok 347 - L-04-B⑤ 【负向】让深睡通道另走一个函数（绕过统一写入口）⇒ 单写入口判据必红
+  ---
+  duration_ms: 1.791138
+  type: 'test'
+  ...
+# Subtest: L-04-B⑥ 变异隔离：全部对拍跑完后，仓内 src 指纹与开始时**逐字相同**
+ok 348 - L-04-B⑥ 变异隔离：全部对拍跑完后，仓内 src 指纹与开始时**逐字相同**
+  ---
+  duration_ms: 1.028577
+  type: 'test'
+  ...
+# (node:594) [UNDICI-EHPA] Warning: EnvHttpProxyAgent is experimental, expect them to change at any time.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# (node:594) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# Subtest: L-04-A① 双通道映射到**同一个** export（结构事实，不是注释承诺）
+ok 349 - L-04-A① 双通道映射到**同一个** export（结构事实，不是注释承诺）
+  ---
+  duration_ms: 309.424001
+  type: 'test'
+  ...
+# Subtest: L-04-A① 运行期同证：两通道写入后，落库行的 shape 逐字段同构（只有通道标注不同）
+ok 350 - L-04-A① 运行期同证：两通道写入后，落库行的 shape 逐字段同构（只有通道标注不同）
+  ---
+  duration_ms: 5.834557
+  type: 'test'
+  ...
+# Subtest: L-04-A② 同一键改两次 ⇒ 历史**新增两行**、主表只有一行（追加非覆盖）
+ok 351 - L-04-A② 同一键改两次 ⇒ 历史**新增两行**、主表只有一行（追加非覆盖）
+  ---
+  duration_ms: 1.064847
+  type: 'test'
+  ...
+# Subtest: L-04-A② 历史行首尾相接：old_value 取自上一条的 new_value（版本链可追）
+ok 352 - L-04-A② 历史行首尾相接：old_value 取自上一条的 new_value（版本链可追）
+  ---
+  duration_ms: 0.892819
+  type: 'test'
+  ...
+# Subtest: L-04-A② 键空间：画像键带 profile:<doc>: 前缀，非画像键不被读成画像行
+ok 353 - L-04-A② 键空间：画像键带 profile:<doc>: 前缀，非画像键不被读成画像行
+  ---
+  duration_ms: 0.625963
+  type: 'test'
+  ...
+# Subtest: L-04-A③ 未拍板（floor=null）⇒ undeterminable，**不得**读成 inject
+ok 354 - L-04-A③ 未拍板（floor=null）⇒ undeterminable，**不得**读成 inject
+  ---
+  duration_ms: 253.319741
+  type: 'test'
+  ...
+# Subtest: L-04-A③ 退场动作：置信度跌破阈值 ⇒ 该偏好**不再注入**（读侧同证）
+ok 355 - L-04-A③ 退场动作：置信度跌破阈值 ⇒ 该偏好**不再注入**（读侧同证）
+  ---
+  duration_ms: 254.079285
+  type: 'test'
+  ...
+# Subtest: L-04-A③ 退场**留痕**：拒写也新增一行历史 + 一条 trace（沉默地不写 ≠ 静默）
+ok 356 - L-04-A③ 退场**留痕**：拒写也新增一行历史 + 一条 trace（沉默地不写 ≠ 静默）
+  ---
+  duration_ms: 255.121211
+  type: 'test'
+  ...
+# Subtest: L-04-A③ 退场行与生效行在库里可分辨（writer / decision 两处都不同）
+ok 357 - L-04-A③ 退场行与生效行在库里可分辨（writer / decision 两处都不同）
+  ---
+  duration_ms: 254.374817
+  type: 'test'
+  ...
+# Subtest: L-04-A④ 本包全部写面跑一遍 ⇒ memory_items 行数**零变化**（A4-3）
+ok 358 - L-04-A④ 本包全部写面跑一遍 ⇒ memory_items 行数**零变化**（A4-3）
+  ---
+  duration_ms: 1.063096
+  type: 'test'
+  ...
+# Subtest: L-04-A④ 运行期守卫有牙：输入含 content 字段即抛（不是返回布尔被人忽略）
+ok 359 - L-04-A④ 运行期守卫有牙：输入含 content 字段即抛（不是返回布尔被人忽略）
+  ---
+  duration_ms: 0.4874
+  type: 'test'
+  ...
+# Subtest: L-04-A④ 写入口真的过守卫：带 content 的输入必须抛，且**库内零写入**
+ok 360 - L-04-A④ 写入口真的过守卫：带 content 的输入必须抛，且**库内零写入**
+  ---
+  duration_ms: 0.345226
+  type: 'test'
+  ...
+# Subtest: L-04-A④ 本包不引用内容写入口：源码面零 `writeMemoryItem` 调用
+ok 361 - L-04-A④ 本包不引用内容写入口：源码面零 `writeMemoryItem` 调用
+  ---
+  duration_ms: 0.620833
+  type: 'test'
+  ...
+# Subtest: L-04-A⑤ 非法输入一律抛错（fail-fast），不得静默落到缺省
+ok 362 - L-04-A⑤ 非法输入一律抛错（fail-fast），不得静默落到缺省
+  ---
+  duration_ms: 1.146006
+  type: 'test'
+  ...
+# Subtest: L-04-A⑤ 写面完整性：新文件可被 node --check 解析（防静默截断）
+ok 363 - L-04-A⑤ 写面完整性：新文件可被 node --check 解析（防静默截断）
+  ---
+  duration_ms: 243.682353
+  type: 'test'
+  ...
+# Subtest: L-04-A⑤ 追溯线索：返回的 key 与组装值一致（keyMismatch 恒 false）
+ok 364 - L-04-A⑤ 追溯线索：返回的 key 与组装值一致（keyMismatch 恒 false）
+  ---
+  duration_ms: 0.76496
+  type: 'test'
+  ...
+# Subtest: L-04 回归自检：既有测试件与守藏画像件在本次运行中一字节未动
+ok 365 - L-04 回归自检：既有测试件与守藏画像件在本次运行中一字节未动
+  ---
+  duration_ms: 1.633069
+  type: 'test'
+  ...
+# Subtest: L-04-A⑤ 负向对拍的前置：仓内源文件指纹可复现（变异不写回仓）
+ok 366 - L-04-A⑤ 负向对拍的前置：仓内源文件指纹可复现（变异不写回仓）
+  ---
+  duration_ms: 0.970248
+  type: 'test'
+  ...
+# (node:610) [UNDICI-EHPA] Warning: EnvHttpProxyAgent is experimental, expect them to change at any time.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# (node:610) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# Subtest: B5.1-⑦ metacognition 骨架：apply 提供服务，status 回报判据版本
+ok 367 - B5.1-⑦ metacognition 骨架：apply 提供服务，status 回报判据版本
+  ---
+  duration_ms: 1.370242
+  type: 'test'
+  ...
+# Subtest: B5.1-⑦ 服务面读口与直接读口一致（服务只是投影，不写第二份实现）
+ok 368 - B5.1-⑦ 服务面读口与直接读口一致（服务只是投影，不写第二份实现）
+  ---
+  duration_ms: 12.356057
+  type: 'test'
+  ...
+# Subtest: B5.1-⑦ G9 + 依赖：注册 agent/pre-step 直通监听器；缺 core 即抛
+ok 369 - B5.1-⑦ G9 + 依赖：注册 agent/pre-step 直通监听器；缺 core 即抛
+  ---
+  duration_ms: 0.560103
+  type: 'test'
+  ...
+# Subtest: B5.1-⑦ 【回归 · 走真 Config】`confidenceTarget` 不留从不生效的 null 缺省
+ok 370 - B5.1-⑦ 【回归 · 走真 Config】`confidenceTarget` 不留从不生效的 null 缺省
+  ---
+  duration_ms: 1.971836
+  type: 'test'
+  ...
+# Subtest: B5.1-⑦ 移植面齐备：真源/生成器/投影/读口四件都在本包内（缺一即数值不可追）
+ok 371 - B5.1-⑦ 移植面齐备：真源/生成器/投影/读口四件都在本包内（缺一即数值不可追）
+  ---
+  duration_ms: 0.765861
+  type: 'test'
+  ...
+# (node:618) [UNDICI-EHPA] Warning: EnvHttpProxyAgent is experimental, expect them to change at any time.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# (node:618) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# Subtest: P1 ①真生产路径：经真 Loader 链 perceive ⇒ mana_trace 出现 observation 行，块数与内容逐块对上
+ok 372 - P1 ①真生产路径：经真 Loader 链 perceive ⇒ mana_trace 出现 observation 行，块数与内容逐块对上
+  ---
+  duration_ms: 1003.401466
+  type: 'test'
+  ...
+# Subtest: P2 ①配置面：maxChunkChars 真生效（声明了却不产生可观测差异 = 死开关）
+ok 373 - P2 ①配置面：maxChunkChars 真生效（声明了却不产生可观测差异 = 死开关）
+  ---
+  duration_ms: 1819.442673
+  type: 'test'
+  ...
+# Subtest: P3 ②chunkText 闭式锚点：空串/单字/恰满/超一/超长/多段，边界逐字复现
+ok 374 - P3 ②chunkText 闭式锚点：空串/单字/恰满/超一/超长/多段，边界逐字复现
+  ---
+  duration_ms: 0.746661
+  type: 'test'
+  ...
+# Subtest: P4 ③observation 类真在 mana_trace 上出现，且类名取自 MANA_STAGES（不手写第三套）
+ok 375 - P4 ③observation 类真在 mana_trace 上出现，且类名取自 MANA_STAGES（不手写第三套）
+  ---
+  duration_ms: 913.986576
+  type: 'test'
+  ...
+# Subtest: P5 ④形态：ctx.effect 注册 1 点、agent/pre-step 直通 1 条且真调 next()、事件名在契约内
+ok 376 - P5 ④形态：ctx.effect 注册 1 点、agent/pre-step 直通 1 条且真调 next()、事件名在契约内
+  ---
+  duration_ms: 0.942718
+  type: 'test'
+  ...
+# Subtest: P6 反证：卸载 perception 后服务不可读，且同一触发不再产生新 observation 行
+ok 377 - P6 反证：卸载 perception 后服务不可读，且同一触发不再产生新 observation 行
+  ---
+  duration_ms: 1418.649894
+  type: 'test'
+  ...
+# (node:626) [UNDICI-EHPA] Warning: EnvHttpProxyAgent is experimental, expect them to change at any time.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# (node:626) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# Subtest: ① 前提取数：legacy 库**确实缺这两列**，而契约库**确实有这两列**（不假设，两处都取数）
+ok 378 - ① 前提取数：legacy 库**确实缺这两列**，而契约库**确实有这两列**（不假设，两处都取数）
+  ---
+  duration_ms: 1806.330461
+  type: 'test'
+  ...
+# Subtest: ② 开窗降级：degraded:true + reason 非空且可辨 + **一条留痕** + 库内零改动
+ok 379 - ② 开窗降级：degraded:true + reason 非空且可辨 + **一条留痕** + 库内零改动
+  ---
+  duration_ms: 557.120869
+  type: 'test'
+  ...
+# Subtest: ③ 内容更新降级：同样三态齐（reason 非空 / 留痕 / 段数落 null 不用 0 冒充）
+ok 380 - ③ 内容更新降级：同样三态齐（reason 非空 / 留痕 / 段数落 null 不用 0 冒充）
+  ---
+  duration_ms: 560.40317
+  type: 'test'
+  ...
+# Subtest: ④ 关窗降级：扫不到窗口不是"没有到期"，而是"两列不在"——必须区分
+ok 381 - ④ 关窗降级：扫不到窗口不是"没有到期"，而是"两列不在"——必须区分
+  ---
+  duration_ms: 1131.165627
+  type: 'test'
+  ...
+# Subtest: ⑤ 降级**不得崩**、也不得"什么都不抛"（对照：未知类型仍必须抛）
+ok 382 - ⑤ 降级**不得崩**、也不得"什么都不抛"（对照：未知类型仍必须抛）
+  ---
+  duration_ms: 562.691601
+  type: 'test'
+  ...
+# Subtest: ⑥ 补列后自动转 applied：存量库经 createSchema 补列 ⇒ 三态从 degraded 转 applied（无需改码）
+ok 383 - ⑥ 补列后自动转 applied：存量库经 createSchema 补列 ⇒ 三态从 degraded 转 applied（无需改码）
+  ---
+  duration_ms: 559.608424
+  type: 'test'
+  ...
+# (node:633) [UNDICI-EHPA] Warning: EnvHttpProxyAgent is experimental, expect them to change at any time.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# (node:633) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# Subtest: ① 窗口参数改错 1 秒 ⇒ 四窗口边界判据**必红**
+ok 384 - ① 窗口参数改错 1 秒 ⇒ 四窗口边界判据**必红**
+  ---
+  duration_ms: 365.508598
+  type: 'test'
+  ...
+# Subtest: ② `update_history` 改成**覆盖写** ⇒ 更新可追溯判据**必红**
+ok 385 - ② `update_history` 改成**覆盖写** ⇒ 更新可追溯判据**必红**
+  ---
+  duration_ms: 3063.334423
+  type: 'test'
+  ...
+# Subtest: ③ 缺列时**静默返回空**（不降级/不留痕）⇒ 三态降级腿**必红**
+ok 386 - ③ 缺列时**静默返回空**（不降级/不留痕）⇒ 三态降级腿**必红**
+  ---
+  duration_ms: 5532.321457
+  type: 'test'
+  ...
+# Subtest: ④ trace 标签改成 S1 五类之一 ⇒ 自有命名空间腿**必红**
+ok 387 - ④ trace 标签改成 S1 五类之一 ⇒ 自有命名空间腿**必红**
+  ---
+  duration_ms: 1885.759861
+  type: 'test'
+  ...
+# Subtest: ⑤ 扰动必须真的落在**被 import 的那份 src** 上（靶子自检：读回扰动内容）
+ok 388 - ⑤ 扰动必须真的落在**被 import 的那份 src** 上（靶子自检：读回扰动内容）
+  ---
+  duration_ms: 419.049078
+  type: 'test'
+  ...
+# Subtest: ⑥ **把契约里的两列注释掉** ⇒ 补列/applied 腿**必红**（打的是 core 的契约真源）
+ok 389 - ⑥ **把契约里的两列注释掉** ⇒ 补列/applied 腿**必红**（打的是 core 的契约真源）
+  ---
+  duration_ms: 225.544184
+  type: 'test'
+  ...
+# (node:670) [UNDICI-EHPA] Warning: EnvHttpProxyAgent is experimental, expect them to change at any time.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# (node:670) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# Subtest: ① 自有常量表与核心的 S1 五类**集合相等**（负向对照表不得漂移）
+ok 390 - ① 自有常量表与核心的 S1 五类**集合相等**（负向对照表不得漂移）
+  ---
+  duration_ms: 83.521095
+  type: 'test'
+  ...
+# Subtest: ② 真数据腿：走**全部**三条生产路径后，`mana_trace` 新增行逐行带自有前缀
+ok 391 - ② 真数据腿：走**全部**三条生产路径后，`mana_trace` 新增行逐行带自有前缀
+  ---
+  duration_ms: 558.099824
+  type: 'test'
+  ...
+# Subtest: ③ 降级路径同样在命名空间内（降级留痕最容易写成"借用"别的标签）
+ok 392 - ③ 降级路径同样在命名空间内（降级留痕最容易写成"借用"别的标签）
+  ---
+  duration_ms: 559.787469
+  type: 'test'
+  ...
+# Subtest: ④ 负向对照必须真能否证：把 S1 五类逐个喂进判定函数 ⇒ 全部为 false
+ok 393 - ④ 负向对照必须真能否证：把 S1 五类逐个喂进判定函数 ⇒ 全部为 false
+  ---
+  duration_ms: 0.531893
+  type: 'test'
+  ...
+# Subtest: ⑤ 本包**装配期不写任何 trace**（"插件已加载"不是认知事件，写它即污染计数）
+ok 394 - ⑤ 本包**装配期不写任何 trace**（"插件已加载"不是认知事件，写它即污染计数）
+  ---
+  duration_ms: 552.965454
+  type: 'test'
+  ...
+# (node:712) [UNDICI-EHPA] Warning: EnvHttpProxyAgent is experimental, expect them to change at any time.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# (node:712) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# Subtest: ① 连续两次更新 ⇒ 新增**两段**（不是只剩最后一段）
+ok 395 - ① 连续两次更新 ⇒ 新增**两段**（不是只剩最后一段）
+  ---
+  duration_ms: 626.971324
+  type: 'test'
+  ...
+# Subtest: ② 三段以上仍逐段可数（段数是单调递增的，不是"最新的那一段"）
+ok 396 - ② 三段以上仍逐段可数（段数是单调递增的，不是"最新的那一段"）
+  ---
+  duration_ms: 554.86464
+  type: 'test'
+  ...
+# Subtest: ③ 历史列**被外部写坏**时必须抛，不得回落成空数组（回落 = 下一次更新覆盖整段历史）
+ok 397 - ③ 历史列**被外部写坏**时必须抛，不得回落成空数组（回落 = 下一次更新覆盖整段历史）
+  ---
+  duration_ms: 552.734057
+  type: 'test'
+  ...
+# Subtest: ④ 裁剪有上界且**显式回报丢了几段**（不许静默裁剪；正常态 dropped 恒为 0）
+ok 398 - ④ 裁剪有上界且**显式回报丢了几段**（不许静默裁剪；正常态 dropped 恒为 0）
+  ---
+  duration_ms: 1123.760658
+  type: 'test'
+  ...
+# Subtest: ⑤ 未命中 id 的记忆：不是降级（schema 没毛病），但同样不得静默
+ok 399 - ⑤ 未命中 id 的记忆：不是降级（schema 没毛病），但同样不得静默
+  ---
+  duration_ms: 553.830079
+  type: 'test'
+  ...
+# (node:720) [UNDICI-EHPA] Warning: EnvHttpProxyAgent is experimental, expect them to change at any time.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# (node:720) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# Subtest: ① 四值逐字复现（固定夹具，绝对差 ≤1e-6；毫秒与秒两套口径同时断言）
+ok 400 - ① 四值逐字复现（固定夹具，绝对差 ≤1e-6；毫秒与秒两套口径同时断言）
+  ---
+  duration_ms: 1.563131
+  type: 'test'
+  ...
+# Subtest: ② 未知类型必须抛 RangeError（不得静默回落缺省窗）+ 抛错消息点名合法取值
+ok 401 - ② 未知类型必须抛 RangeError（不得静默回落缺省窗）+ 抛错消息点名合法取值
+  ---
+  duration_ms: 0.780651
+  type: 'test'
+  ...
+# Subtest: ③ until 只能等于 now + windowMs（纯函数，固定 now；逐字相等不是近似）
+ok 402 - ③ until 只能等于 now + windowMs（纯函数，固定 now；逐字相等不是近似）
+  ---
+  duration_ms: 0.531853
+  type: 'test'
+  ...
+# Subtest: ④ 窗口开闭的**边界语义**：until 严格大于 now 才算开（相等即已关）
+ok 403 - ④ 窗口开闭的**边界语义**：until 严格大于 now 才算开（相等即已关）
+  ---
+  duration_ms: 0.196257
+  type: 'test'
+  ...
+# Subtest: ⑤ 窗口时长是**常量**不是配置项（假旋钮不得回流：冻结表 + 无 Config 导出）
+ok 404 - ⑤ 窗口时长是**常量**不是配置项（假旋钮不得回流：冻结表 + 无 Config 导出）
+  ---
+  duration_ms: 0.200147
+  type: 'test'
+  ...
+# (node:728) [UNDICI-EHPA] Warning: EnvHttpProxyAgent is experimental, expect them to change at any time.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# (node:728) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# Subtest: ① 注入一条 ⇒ 开窗：until === now + windowMs(type)，列里的值可回读且与之逐字一致
+ok 405 - ① 注入一条 ⇒ 开窗：until === now + windowMs(type)，列里的值可回读且与之逐字一致
+  ---
+  duration_ms: 615.534986
+  type: 'test'
+  ...
+# Subtest: ② 到点关闭（重新稳定化）：未到点不关，到点关且列回读为 NULL
+ok 406 - ② 到点关闭（重新稳定化）：未到点不关，到点关且列回读为 NULL
+  ---
+  duration_ms: 554.163667
+  type: 'test'
+  ...
+# Subtest: ③ 关窗是幂等读改：重复调用不重复计（"以为关了"不得冒充关过）
+ok 407 - ③ 关窗是幂等读改：重复调用不重复计（"以为关了"不得冒充关过）
+  ---
+  duration_ms: 570.017548
+  type: 'test'
+  ...
+# Subtest: ④ 两条记忆各自的窗口互不串台（类型不同 ⇒ 窗长不同 ⇒ 到点时刻不同）
+ok 408 - ④ 两条记忆各自的窗口互不串台（类型不同 ⇒ 窗长不同 ⇒ 到点时刻不同）
+  ---
+  duration_ms: 555.590455
+  type: 'test'
+  ...
+# (node:736) [UNDICI-EHPA] Warning: EnvHttpProxyAgent is experimental, expect them to change at any time.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# (node:736) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# Subtest: A1 形状齐备（name/inject/Config/apply + cordis.patch.yml）
+ok 409 - A1 形状齐备（name/inject/Config/apply + cordis.patch.yml）
+  ---
+  duration_ms: 49.943229
+  type: 'test'
+  ...
+# Subtest: A2 真 Context 装载：服务可读 + status().wired === true
+ok 410 - A2 真 Context 装载：服务可读 + status().wired === true
+  ---
+  duration_ms: 516.045585
+  type: 'test'
+  ...
+# Subtest: B1 下游哨兵被走到 ⇒ core 与 scheduler 的监听器都真的调了 next()
+ok 411 - B1 下游哨兵被走到 ⇒ core 与 scheduler 的监听器都真的调了 next()
+  ---
+  duration_ms: 705.035639
+  type: 'test'
+  ...
+# Subtest: B2 负向对照：一个不调 next() 的监听器 ⇒ 哨兵必须走不到（证明 B1 的哨兵有牙）
+ok 412 - B2 负向对照：一个不调 next() 的监听器 ⇒ 哨兵必须走不到（证明 B1 的哨兵有牙）
+  ---
+  duration_ms: 504.230333
+  type: 'test'
+  ...
+# (node:799) [UNDICI-EHPA] Warning: EnvHttpProxyAgent is experimental, expect them to change at any time.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: B3 本包真在 agent/pre-step 链上（effect 面 + 卸载即净）
+ok 413 - B3 本包真在 agent/pre-step 链上（effect 面 + 卸载即净）
+  ---
+  duration_ms: 810.907444
+  type: 'test'
+  ...
+# Subtest: C1 async 监听器抛错变成 unhandledRejection（计数 0→1），同步监听器则同步可见
+ok 414 - C1 async 监听器抛错变成 unhandledRejection（计数 0→1），同步监听器则同步可见
+  ---
+  duration_ms: 219.987871
+  type: 'test'
+  ...
+# Subtest: D1 目标栈：入栈序 / 投影序 / 出栈后序 / 异常路径
+ok 415 - D1 目标栈：入栈序 / 投影序 / 出栈后序 / 异常路径
+  ---
+  duration_ms: 505.086651
+  type: 'test'
+  ...
+# Subtest: D2 SOAR 三阶段：候选序 / 决策序 / 行动事实集 / impasse 与不动点可枚举
+ok 416 - D2 SOAR 三阶段：候选序 / 决策序 / 行动事实集 / impasse 与不动点可枚举
+  ---
+  duration_ms: 501.621088
+  type: 'test'
+  ...
+# Subtest: D3 SOAR 决策：utility 相同时按 successRate → cost → id 逐级决定（无"看运气"余量）
+ok 417 - D3 SOAR 决策：utility 相同时按 successRate → cost → id 逐级决定（无"看运气"余量）
+  ---
+  duration_ms: 502.599539
+  type: 'test'
+  ...
+# Subtest: D4 maxGoals 上限：拒绝入栈且**抛错**（不得静默丢弃）
+ok 418 - D4 maxGoals 上限：拒绝入栈且**抛错**（不得静默丢弃）
+  ---
+  duration_ms: 502.161286
+  type: 'test'
+  ...
+# Subtest: E1 卸载 scheduler 后同一触发不再产生新行（带正向前置控制）
+ok 419 - E1 卸载 scheduler 后同一触发不再产生新行（带正向前置控制）
+  ---
+  duration_ms: 1207.514064
+  type: 'test'
+  ...
+# Subtest: F1 契约未被本轮改动：core 两个核心文件 sha256 与 _freeze.sha256 逐字相等
+ok 420 - F1 契约未被本轮改动：core 两个核心文件 sha256 与 _freeze.sha256 逐字相等
+  ---
+  duration_ms: 1.63144
+  type: 'test'
+  ...
+# Subtest: F2 core 的 PACKAGE_MAP 仍是 6 条（新增 P1 包未污染契约面）
+ok 421 - F2 core 的 PACKAGE_MAP 仍是 6 条（新增 P1 包未污染契约面）
+  ---
+  duration_ms: 0.344656
+  type: 'test'
+  ...
+# Subtest: G 用例计数自检：本套件真跑的用例数必须等于常量（删/截断用例 ⇒ 必红）
+ok 422 - G 用例计数自检：本套件真跑的用例数必须等于常量（删/截断用例 ⇒ 必红）
+  ---
+  duration_ms: 0.202038
+  type: 'test'
+  ...
+# (node:742) [UNDICI-EHPA] Warning: EnvHttpProxyAgent is experimental, expect them to change at any time.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# (node:742) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# Subtest: 装配① 正向前置：ui **未装配**时服务必须不可读（否则判据平凡通过）
+ok 423 - 装配① 正向前置：ui **未装配**时服务必须不可读（否则判据平凡通过）
+  ---
+  duration_ms: 519.980472
+  type: 'test'
+  ...
+# Subtest: 装配② ui 经 Loader 按包名解析并 provide mana-ui（装配计数 1 → 2）
+ok 424 - 装配② ui 经 Loader 按包名解析并 provide mana-ui（装配计数 1 → 2）
+  ---
+  duration_ms: 304.186923
+  type: 'test'
+  ...
+# Subtest: 装配③ 反证（卸载即净）：逐个 remove entry 后装配计数归零、服务不可读
+ok 425 - 装配③ 反证（卸载即净）：逐个 remove entry 后装配计数归零、服务不可读
+  ---
+  duration_ms: 401.539042
+  type: 'test'
+  ...
+# (node:752) [UNDICI-EHPA] Warning: EnvHttpProxyAgent is experimental, expect them to change at any time.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# (node:752) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# Subtest: A5-3① 回放产出的状态序列与原始序列**逐项相等**（数据来自真装配链，非夹具）
+ok 426 - A5-3① 回放产出的状态序列与原始序列**逐项相等**（数据来自真装配链，非夹具）
+  ---
+  duration_ms: 1189.818217
+  type: 'test'
+  ...
+# Subtest: A5-3② 可复现：同一片段回放两次，结果**逐字节相同**（回放是顺序器具，不是随机取样）
+ok 427 - A5-3② 可复现：同一片段回放两次，结果**逐字节相同**（回放是顺序器具，不是随机取样）
+  ---
+  duration_ms: 1170.303382
+  type: 'test'
+  ...
+# Subtest: A5-3③ **审计回放不写库**：memory_items 库镜像逐字节不变（含行内容哈希）
+ok 428 - A5-3③ **审计回放不写库**：memory_items 库镜像逐字节不变（含行内容哈希）
+  ---
+  duration_ms: 1409.100969
+  type: 'test'
+  ...
+# Subtest: A5-3④ 分流可判定：审计回放自报写目标恒空，且与「状态回放会写的表」交集为空
+ok 429 - A5-3④ 分流可判定：审计回放自报写目标恒空，且与「状态回放会写的表」交集为空
+  ---
+  duration_ms: 0.80906
+  type: 'test'
+  ...
+# Subtest: A5-3⑤ 守卫有牙：回放面自报写目标时 assertAuditReplayReadOnly **必须抛**
+ok 430 - A5-3⑤ 守卫有牙：回放面自报写目标时 assertAuditReplayReadOnly **必须抛**
+  ---
+  duration_ms: 0.979178
+  type: 'test'
+  ...
+# Subtest: A5-3⑥ ★负扫探针：面板实现内不存在任何写 memory_items 的 SQL 语句
+ok 431 - A5-3⑥ ★负扫探针：面板实现内不存在任何写 memory_items 的 SQL 语句
+  ---
+  duration_ms: 1.58526
+  type: 'test'
+  ...
+# Subtest: R5① 装载态：client 产物真跑一次渲染 ⇒ 落点新增一行 ui/render（正向前置）
+ok 432 - R5① 装载态：client 产物真跑一次渲染 ⇒ 落点新增一行 ui/render（正向前置）
+  ---
+  duration_ms: 1285.427621
+  type: 'test'
+  ...
+# [A5-4] src/index.ts=4413 B（样板 5002 B，比值 0.88×）· lib/index.js=2480 B · panel+store=14526 B · replay=14496 B
+# [A5-5] lib/ 根下 client 产物 = client.js（27228 B）；目录内其它条目：index.js, panel.js, replay.js, store.js, types
+# Subtest: R5② **反证**：卸载 mana-ui 后，同一触发不再产生新行（临时库，不碰 $DSH_HOME）
+ok 433 - R5② **反证**：卸载 mana-ui 后，同一触发不再产生新行（临时库，不碰 $DSH_HOME）
+  ---
+  duration_ms: 1297.170303
+  type: 'test'
+  ...
+# Subtest: A5-4 复核：入口体积同量级（给数字，不给「差不多」）
+ok 434 - A5-4 复核：入口体积同量级（给数字，不给「差不多」）
+  ---
+  duration_ms: 1.002308
+  type: 'test'
+  ...
+# Subtest: A5-5 复核：client 产物唯一，且清单可枚举（多产物须写明理由）
+ok 435 - A5-5 复核：client 产物唯一，且清单可枚举（多产物须写明理由）
+  ---
+  duration_ms: 0.985578
+  type: 'test'
+  ...
+# Subtest: A5-2 复核：client 产物对三个模式命中 0（AST 真调用 + 令牌字面量两层）
+ok 436 - A5-2 复核：client 产物对三个模式命中 0（AST 真调用 + 令牌字面量两层）
+  ---
+  duration_ms: 657.041694
+  type: 'test'
+  ...
+# Subtest: A5-3⑦ 消费侧：回放面若自报写目标，Client 半区必须判降级并拒绝使用
+ok 437 - A5-3⑦ 消费侧：回放面若自报写目标，Client 半区必须判降级并拒绝使用
+  ---
+  duration_ms: 3.899638
+  type: 'test'
+  ...
+# Subtest: A5-3⑧ 判据自检：造扰动 ⇒ 「逐项相等」与「不写库」两条腿**必须**各自报红
+ok 438 - A5-3⑧ 判据自检：造扰动 ⇒ 「逐项相等」与「不写库」两条腿**必须**各自报红
+  ---
+  duration_ms: 0.576193
+  type: 'test'
+  ...
+# Subtest: A5-3⑨ 边界如实计数：空窗口 / 不可解析 payload / seq 缺口都落**显式数字**
+ok 439 - A5-3⑨ 边界如实计数：空窗口 / 不可解析 payload / seq 缺口都落**显式数字**
+  ---
+  duration_ms: 0.273192
+  type: 'test'
+  ...
+# Subtest: A5-3⑩ 类别真源：未归类标签落 null，不静默归并进五类
+ok 440 - A5-3⑩ 类别真源：未归类标签落 null，不静默归并进五类
+  ---
+  duration_ms: 0.185188
+  type: 'test'
+  ...
+# (node:760) [UNDICI-EHPA] Warning: EnvHttpProxyAgent is experimental, expect them to change at any time.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# (node:760) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# Subtest: A5-1/A5-5 client 产物存在、字节数 > 0、且是单一产物
+ok 441 - A5-1/A5-5 client 产物存在、字节数 > 0、且是单一产物
+  ---
+  duration_ms: 1.65618
+  type: 'test'
+  ...
+# Subtest: A5-1 产物可真求值（在假浏览器壳里工厂能执行完并导出 apply）
+ok 442 - A5-1 产物可真求值（在假浏览器壳里工厂能执行完并导出 apply）
+  ---
+  duration_ms: 1.154436
+  type: 'test'
+  ...
+# Subtest: A5-2 client 产物不得含宿主专有 API（真调用 AST + 令牌字面量两层）
+ok 443 - A5-2 client 产物不得含宿主专有 API（真调用 AST + 令牌字面量两层）
+  ---
+  duration_ms: 407.332901
+  type: 'test'
+  ...
+# Subtest: A5-2 判据自身可红：四种变异逐条变色 + 注释假阳性不得回归（防判据恒绿）
+ok 444 - A5-2 判据自身可红：四种变异逐条变色 + 注释假阳性不得回归（防判据恒绿）
+  ---
+  duration_ms: 141.518579
+  type: 'test'
+  ...
+# Subtest: A5-4 Host 入口体积同量级（样板 src/index.ts = 5002 B）
+ok 445 - A5-4 Host 入口体积同量级（样板 src/index.ts = 5002 B）
+  ---
+  duration_ms: 0.333716
+  type: 'test'
+  ...
+# Subtest: ui 插件在真 Context 中装载并 provide mana-ui（装配判据=服务可读）
+ok 446 - ui 插件在真 Context 中装载并 provide mana-ui（装配判据=服务可读）
+  ---
+  duration_ms: 517.891975
+  type: 'test'
+  ...
+# Subtest: R5 落点：渲染一次即在 mana_trace 新增一行 ui/render
+ok 447 - R5 落点：渲染一次即在 mana_trace 新增一行 ui/render
+  ---
+  duration_ms: 405.977573
+  type: 'test'
+  ...
+# Subtest: R5 反证判据：卸载 ui 后同一触发不再产生新行
+ok 448 - R5 反证判据：卸载 ui 后同一触发不再产生新行
+  ---
+  duration_ms: 605.973055
+  type: 'test'
+  ...
+# Subtest: I-8 降级落显式字段：读路面失败时 degraded===true 且 reason 非空
+ok 449 - I-8 降级落显式字段：读路面失败时 degraded===true 且 reason 非空
+  ---
+  duration_ms: 0.949238
+  type: 'test'
+  ...
+# Subtest: 读上限必须夹取（不设无界读）
+ok 450 - 读上限必须夹取（不设无界读）
+  ---
+  duration_ms: 0.80941
+  type: 'test'
+  ...
+# Subtest: 目标栈摊平带 depth 且不成环（邻接表防环）
+ok 451 - 目标栈摊平带 depth 且不成环（邻接表防环）
+  ---
+  duration_ms: 0.693141
+  type: 'test'
+  ...
+# Subtest: d2-① 槽真注册：SlotCore 台账里能读到本条目，且参数逐字一致
+ok 452 - d2-① 槽真注册：SlotCore 台账里能读到本条目，且参数逐字一致
+  ---
+  duration_ms: 3.432079
+  type: 'test'
+  ...
+# Subtest: d2-② 负向控制：槽面不可读时必须 registered=false，且台账为空
+ok 453 - d2-② 负向控制：槽面不可读时必须 registered=false，且台账为空
+  ---
+  duration_ms: 0.712851
+  type: 'test'
+  ...
+# Subtest: d2-③ 渲染树可枚举：三面板节点带稳定标记，降级态有可读提示
+ok 454 - d2-③ 渲染树可枚举：三面板节点带稳定标记，降级态有可读提示
+  ---
+  duration_ms: 1.378753
+  type: 'test'
+  ...
+# (node:768) [UNDICI-EHPA] Warning: EnvHttpProxyAgent is experimental, expect them to change at any time.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# (node:768) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# Subtest: A4-3① 正控：经 core 写入口真写一行 ⇒ content 行数 +1（先证明仪器会动）
+ok 455 - A4-3① 正控：经 core 写入口真写一行 ⇒ content 行数 +1（先证明仪器会动）
+  ---
+  duration_ms: 643.322348
+  type: 'test'
+  ...
+# Subtest: A4-3② 本包全部写面跑一遍 ⇒ memory_items.content 新增行数 == 0
+ok 456 - A4-3② 本包全部写面跑一遍 ⇒ memory_items.content 新增行数 == 0
+  ---
+  duration_ms: 506.016221
+  type: 'test'
+  ...
+# Subtest: A4-3③ 运行期守卫有牙：输入含 content 字段即抛（不是返回布尔被人忽略）
+ok 457 - A4-3③ 运行期守卫有牙：输入含 content 字段即抛（不是返回布尔被人忽略）
+  ---
+  duration_ms: 503.575385
+  type: 'test'
+  ...
+# Subtest: A4-3④ 写入口真的过守卫：updatePreference 带 content 字段必须抛，且**库内零写入**
+ok 458 - A4-3④ 写入口真的过守卫：updatePreference 带 content 字段必须抛，且**库内零写入**
+  ---
+  duration_ms: 503.730258
+  type: 'test'
+  ...
+# Subtest: A4-3【负向对拍】把内容中立守卫摘掉、并让写面直写 content ⇒ 判据必须报红（克隆变异）
+ok 459 - A4-3【负向对拍】把内容中立守卫摘掉、并让写面直写 content ⇒ 判据必须报红（克隆变异）
+  ---
+  duration_ms: 1008.847715
+  type: 'test'
+  ...
+# (node:776) [UNDICI-EHPA] Warning: EnvHttpProxyAgent is experimental, expect them to change at any time.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# (node:776) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# Subtest: A4-4① 表存在且列齐（PRAGMA table_info 原文口径）
+ok 460 - A4-4① 表存在且列齐（PRAGMA table_info 原文口径）
+  ---
+  duration_ms: 626.658138
+  type: 'test'
+  ...
+# Subtest: A4-4② 经本包写面做一次偏好更新 ⇒ 历史表新增**恰好一行**
+ok 461 - A4-4② 经本包写面做一次偏好更新 ⇒ 历史表新增**恰好一行**
+  ---
+  duration_ms: 504.630103
+  type: 'test'
+  ...
+# Subtest: A4-4③ 写入字段逐列可核（包装不得吞掉/篡改调用方给的值）
+ok 462 - A4-4③ 写入字段逐列可核（包装不得吞掉/篡改调用方给的值）
+  ---
+  duration_ms: 503.23577
+  type: 'test'
+  ...
+# Subtest: A4-4④ 边界：显式 confidence=0 不得被当成"没传"而落成缺省 0.5
+ok 463 - A4-4④ 边界：显式 confidence=0 不得被当成"没传"而落成缺省 0.5
+  ---
+  duration_ms: 503.169831
+  type: 'test'
+  ...
+# Subtest: A4-4【负向对拍】历史追加改成覆盖语义 ⇒ 判据必须报红（克隆变异，仓内零写入）
+ok 464 - A4-4【负向对拍】历史追加改成覆盖语义 ⇒ 判据必须报红（克隆变异，仓内零写入）
+  ---
+  duration_ms: 516.163824
+  type: 'test'
+  ...
+# (node:807) [UNDICI-EHPA] Warning: EnvHttpProxyAgent is experimental, expect them to change at any time.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# (node:807) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# Subtest: 宿主装配① 前置：user-model **未装配**时服务必须不可读（否则判据平凡通过）
+ok 465 - 宿主装配① 前置：user-model **未装配**时服务必须不可读（否则判据平凡通过）
+  ---
+  duration_ms: 531.511152
+  type: 'test'
+  ...
+# Subtest: 宿主装配② 按包名解析成功（装配计数 1 → 2，判据=服务可读）
+ok 466 - 宿主装配② 按包名解析成功（装配计数 1 → 2，判据=服务可读）
+  ---
+  duration_ms: 304.341853
+  type: 'test'
+  ...
+# Subtest: 宿主装配③ **宿主真加载的那份产物**上，未校准态必须是 null（D2 的落点）
+ok 467 - 宿主装配③ **宿主真加载的那份产物**上，未校准态必须是 null（D2 的落点）
+  ---
+  duration_ms: 0.231537
+  type: 'test'
+  ...
+# Subtest: 宿主装配④ 反证（卸载即净）：remove entry 后装配计数归零、服务不可读
+ok 468 - 宿主装配④ 反证（卸载即净）：remove entry 后装配计数归零、服务不可读
+  ---
+  duration_ms: 401.848006
+  type: 'test'
+  ...
+# (node:815) [UNDICI-EHPA] Warning: EnvHttpProxyAgent is experimental, expect them to change at any time.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# (node:815) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# Subtest: 行为① effect 面**恰好 3 条**且逐条点名（多一条即红 ⇒ 强制交代新增行为）
+ok 469 - 行为① effect 面**恰好 3 条**且逐条点名（多一条即红 ⇒ 强制交代新增行为）
+  ---
+  duration_ms: 1188.38739
+  type: 'test'
+  ...
+# Subtest: 行为② behavior='active' 必须有**实现面背书**（防"自称 active 而背后无事"）
+ok 470 - 行为② behavior='active' 必须有**实现面背书**（防"自称 active 而背后无事"）
+  ---
+  duration_ms: 557.580527
+  type: 'test'
+  ...
+# Subtest: 行为③ **卸载即净**（反证腿）：卸载后同一触发**不再产生新行**
+ok 471 - 行为③ **卸载即净**（反证腿）：卸载后同一触发**不再产生新行**
+  ---
+  duration_ms: 1161.449242
+  type: 'test'
+  ...
+# Subtest: 行为④ 本包写入的 trace 类型**全部**在自有命名空间内（不冒充 S1 五类）
+ok 472 - 行为④ 本包写入的 trace 类型**全部**在自有命名空间内（不冒充 S1 五类）
+  ---
+  duration_ms: 505.059772
+  type: 'test'
+  ...
+# (node:823) [UNDICI-EHPA] Warning: EnvHttpProxyAgent is experimental, expect them to change at any time.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: 写面完整性：本包全部测试文件以换行结尾且通过 node --check
+ok 473 - 写面完整性：本包全部测试文件以换行结尾且通过 node --check
+  ---
+  duration_ms: 378.387734
+  type: 'test'
+  ...
+# Subtest: 写面完整性【负向对拍】造一个真截断的文件 ⇒ 哨兵必须抓到
+ok 474 - 写面完整性【负向对拍】造一个真截断的文件 ⇒ 哨兵必须抓到
+  ---
+  duration_ms: 46.173939
+  type: 'test'
+  ...
+# (node:855) [UNDICI-EHPA] Warning: EnvHttpProxyAgent is experimental, expect them to change at any time.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# (node:855) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# Subtest: 参数 289 可复算：requiredSampleSize() 逐位等于册:598 的 n ≥ 289（公式输入脱节即红）
+ok 475 - 参数 289 可复算：requiredSampleSize() 逐位等于册:598 的 n ≥ 289（公式输入脱节即红）
+  ---
+  duration_ms: 1.587171
+  type: 'test'
+  ...
+# Subtest: 参数 30/3 与册:150 原文同源（改一处即红）
+ok 476 - 参数 30/3 与册:150 原文同源（改一处即红）
+  ---
+  duration_ms: 0.195558
+  type: 'test'
+  ...
+# Subtest: ④ 漂移探针：同一 key 30 天内改 3 次 ⇒ 候选；改 2 次 ⇒ 不是候选
+ok 477 - ④ 漂移探针：同一 key 30 天内改 3 次 ⇒ 候选；改 2 次 ⇒ 不是候选
+  ---
+  duration_ms: 1.342294
+  type: 'test'
+  ...
+# Subtest: ④ 漂移探针：窗口外的改动**不**计入（30 天是硬边界）
+ok 478 - ④ 漂移探针：窗口外的改动**不**计入（30 天是硬边界）
+  ---
+  duration_ms: 0.338066
+  type: 'test'
+  ...
+# Subtest: ④ 漂移探针：值没变的行**不**计入 changes（否则"反复确认"被读成"不稳定"）
+ok 479 - ④ 漂移探针：值没变的行**不**计入 changes（否则"反复确认"被读成"不稳定"）
+  ---
+  duration_ms: 0.338816
+  type: 'test'
+  ...
+# Subtest: ④ 漂移探针：坏时刻必须抛错，不得静默当"窗口外"
+ok 480 - ④ 漂移探针：坏时刻必须抛错，不得静默当"窗口外"
+  ---
+  duration_ms: 0.244417
+  type: 'test'
+  ...
+# Subtest: ④ 漂移探针：`now` 必须显式传参（同一批输入在不同时刻给出同一结论）
+ok 481 - ④ 漂移探针：`now` 必须显式传参（同一批输入在不同时刻给出同一结论）
+  ---
+  duration_ms: 0.260827
+  type: 'test'
+  ...
+# Subtest: ④ 漂移探针落 trace：`reportDrift` 每次真写一行 `user-model/drift`（卸载即净的依据）
+ok 482 - ④ 漂移探针落 trace：`reportDrift` 每次真写一行 `user-model/drift`（卸载即净的依据）
+  ---
+  duration_ms: 528.538312
+  type: 'test'
+  ...
+# Subtest: ④ 漂移探针：`user-model/drift` **不是** S1 五类之一（不得冒充 observation/attention/…）
+ok 483 - ④ 漂移探针：`user-model/drift` **不是** S1 五类之一（不得冒充 observation/attention/…）
+  ---
+  duration_ms: 503.861985
+  type: 'test'
+  ...
+# Subtest: ⑤ 退场动作：置信度跌破阈值 ⇒ retired_no_injection（不再是"照常注入"）
+ok 484 - ⑤ 退场动作：置信度跌破阈值 ⇒ retired_no_injection（不再是"照常注入"）
+  ---
+  duration_ms: 0.657012
+  type: 'test'
+  ...
+# Subtest: ⑤ 退场动作：阈值未定（A4-1 待拍板）⇒ undeterminable，**不得**读成 inject
+ok 485 - ⑤ 退场动作：阈值未定（A4-1 待拍板）⇒ undeterminable，**不得**读成 inject
+  ---
+  duration_ms: 0.209358
+  type: 'test'
+  ...
+# Subtest: ⑤ 退场动作：置信度读数坏了 ⇒ undeterminable，**不得**默认放行
+ok 486 - ⑤ 退场动作：置信度读数坏了 ⇒ undeterminable，**不得**默认放行
+  ---
+  duration_ms: 0.179178
+  type: 'test'
+  ...
+# Subtest: ⑤ 退场动作：服务面与纯函数**同一结论**（包装不得各说各话）
+ok 487 - ⑤ 退场动作：服务面与纯函数**同一结论**（包装不得各说各话）
+  ---
+  duration_ms: 1008.08247
+  type: 'test'
+  ...
+# Subtest: ⑤【负向对拍】把"跌破 ⇒ 不注入"改成"照常注入" ⇒ 退场判据必须报红（克隆变异）
+ok 488 - ⑤【负向对拍】把"跌破 ⇒ 不注入"改成"照常注入" ⇒ 退场判据必须报红（克隆变异）
+  ---
+  duration_ms: 5.746269
+  type: 'test'
+  ...
+# Subtest: ⑥ A4-2：阈值未定 ⇒ undeterminable（册:598「未定前不判通过」）
+ok 489 - ⑥ A4-2：阈值未定 ⇒ undeterminable（册:598「未定前不判通过」）
+  ---
+  duration_ms: 0.377425
+  type: 'test'
+  ...
+# Subtest: ⑥ A4-2：样本量不足 ⇒ undeterminable（**不是** pass）
+ok 490 - ⑥ A4-2：样本量不足 ⇒ undeterminable（**不是** pass）
+  ---
+  duration_ms: 0.359995
+  type: 'test'
+  ...
+# Subtest: ⑥ A4-2：样本为空 ⇒ undeterminable 且 hitRate 为 null（不用 0 冒充"全错"）
+ok 491 - ⑥ A4-2：样本为空 ⇒ undeterminable 且 hitRate 为 null（不用 0 冒充"全错"）
+  ---
+  duration_ms: 0.216637
+  type: 'test'
+  ...
+# Subtest: ⑥ A4-2：样本够 + 阈值给了 ⇒ 才判 pass/fail（方法与读数都真在跑）
+ok 492 - ⑥ A4-2：样本够 + 阈值给了 ⇒ 才判 pass/fail（方法与读数都真在跑）
+  ---
+  duration_ms: 0.603413
+  type: 'test'
+  ...
+# Subtest: ⑥ A4-2 首测方法可跑：从真库读偏好 → 产出一份可复核的评估报告（端到端）
+ok 493 - ⑥ A4-2 首测方法可跑：从真库读偏好 → 产出一份可复核的评估报告（端到端）
+  ---
+  duration_ms: 511.203952
+  type: 'test'
+  ...
+# (node:909) [UNDICI-EHPA] Warning: EnvHttpProxyAgent is experimental, expect them to change at any time.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# (node:909) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# Subtest: B5.1-⑦ user-model 骨架：apply 提供服务且 status 可读
+ok 494 - B5.1-⑦ user-model 骨架：apply 提供服务且 status 可读
+  ---
+  duration_ms: 1.067351
+  type: 'test'
+  ...
+# Subtest: B5.1-⑦ 精度目标缺省 null（未校准 ≠ 编一个数冒充已拍板，册:568）
+ok 495 - B5.1-⑦ 精度目标缺省 null（未校准 ≠ 编一个数冒充已拍板，册:568）
+  ---
+  duration_ms: 0.146358
+  type: 'test'
+  ...
+# Subtest: B5.1-⑦ G9：apply 注册了 agent/pre-step 监听器且依赖 core（缺 core 即抛）
+ok 496 - B5.1-⑦ G9：apply 注册了 agent/pre-step 监听器且依赖 core（缺 core 即抛）
+  ---
+  duration_ms: 0.834429
+  type: 'test'
+  ...
+# Subtest: B5.1-⑦ 【回归 · 声明面】`precisionTarget` 不得带缺省声明（与 metacognition 侧同形）
+ok 497 - B5.1-⑦ 【回归 · 声明面】`precisionTarget` 不得带缺省声明（与 metacognition 侧同形）
+  ---
+  duration_ms: 0.83976
+  type: 'test'
+  ...
+# Subtest: B5.1-⑦ 【回归 · 产物面】真 Config + apply 后未校准态必须是 null 而不是 undefined
+ok 498 - B5.1-⑦ 【回归 · 产物面】真 Config + apply 后未校准态必须是 null 而不是 undefined
+  ---
+  duration_ms: 0.301516
+  type: 'test'
+  ...
+# Subtest: B5.1-⑦ 【回归 · 显式值】归一不得吃掉/篡改申请方真给的值（防"除谎做成丢功能"）
+ok 499 - B5.1-⑦ 【回归 · 显式值】归一不得吃掉/篡改申请方真给的值（防"除谎做成丢功能"）
+  ---
+  duration_ms: 0.885179
+  type: 'test'
+  ...
+# Subtest: B5.1-⑦ 契约缺口已解除：user_model_history 表已在 core 预留（A4-4 前置满足）
+ok 500 - B5.1-⑦ 契约缺口已解除：user_model_history 表已在 core 预留（A4-4 前置满足）
+  ---
+  duration_ms: 0.590322
+  type: 'test'
+  ...
+# Subtest: B5.1-⑦ 接线缺口已解除：core 已提供 updateUserModel 写入口（真增行可机检）
+ok 501 - B5.1-⑦ 接线缺口已解除：core 已提供 updateUserModel 写入口（真增行可机检）
+  ---
+  duration_ms: 0.493344
+  type: 'test'
+  ...
+# (node:919) [UNDICI-EHPA] Warning: EnvHttpProxyAgent is experimental, expect them to change at any time.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: B1.1-⓪ 判据自检：本文件 test( 计数**等于** 15 且交付文件齐备
+ok 502 - B1.1-⓪ 判据自检：本文件 test( 计数**等于** 15 且交付文件齐备
+  ---
+  duration_ms: 2.155073
+  type: 'test'
+  ...
+# Subtest: B1.1-① A1-4 RRF 三锚点：k=60 时 [1,1]/[1,50]/[50,50] 绝对差 ≤1e-6（A 档）
+ok 503 - B1.1-① A1-4 RRF 三锚点：k=60 时 [1,1]/[1,50]/[50,50] 绝对差 ≤1e-6（A 档）
+  ---
+  duration_ms: 0.536136
+  type: 'test'
+  ...
+# [A1-4] k=60 [1,1] = 0.032787（差 1.148e-7）
+# [A1-4] k=60 [1,50] = 0.025484（差 3.517e-7）
+# [A1-4] k=60 [50,50] = 0.018182（差 1.818e-7）
+# Subtest: B1.1-② RRF 平局与重复键：同输入逐位可复现，重复键去重**并重排**
+ok 504 - B1.1-② RRF 平局与重复键：同输入逐位可复现，重复键去重**并重排**
+  ---
+  duration_ms: 0.929389
+  type: 'test'
+  ...
+# Subtest: B1.1-③ cosine 与上游语义逐位对拍 + 边界（长度不等/零向量 ⇒ 0，不抛）
+ok 505 - B1.1-③ cosine 与上游语义逐位对拍 + 边界（长度不等/零向量 ⇒ 0，不抛）
+  ---
+  duration_ms: 4.199877
+  type: 'test'
+  ...
+# [对拍] 6 组 1024 维夹具，最大逐位差 = 0（要求 == 0）
+# Subtest: B1.1-④ assertDim：维度契约单独成条，不与"非法输入返回 0"混同
+ok 506 - B1.1-④ assertDim：维度契约单独成条，不与"非法输入返回 0"混同
+  ---
+  duration_ms: 0.289536
+  type: 'test'
+  ...
+# Subtest: B1.1-⑤ BLOB 编解码往返逐位相等（含 byteOffset 切片坑）
+ok 507 - B1.1-⑤ BLOB 编解码往返逐位相等（含 byteOffset 切片坑）
+  ---
+  duration_ms: 0.722931
+  type: 'test'
+  ...
+# [BLOB] 3 类失败原因：memory_items.vector 长度为 0（空 BLOB，无法解码） / memory_items.vector 字节数 5 不是 4 的倍数（非 Float32 编码） / 向量维度不符：期望 768 维，实际 1024 维
+# Subtest: B1.1-⑥ VectorStore：常驻命中不查库、落库失败不静默、清空有计数
+ok 508 - B1.1-⑥ VectorStore：常驻命中不查库、落库失败不静默、清空有计数
+  ---
+  duration_ms: 2.627599
+  type: 'test'
+  ...
+# Subtest: B1.1-⑦ 降级可枚举断言：端点不可达 ⇒ degraded===true / reason 非空 / channel=degraded / rankBy=local_score
+ok 509 - B1.1-⑦ 降级可枚举断言：端点不可达 ⇒ degraded===true / reason 非空 / channel=degraded / rankBy=local_score
+  ---
+  duration_ms: 4.939098
+  type: 'test'
+  ...
+# [A1-11] degraded=true channel=degraded rankBy=local_score reason=查询嵌入失败：嵌入请求失败（http://127.0.0.1:1/v1，timeoutMs=2000）：TypeErro…
+# Subtest: B1.1-⑧ 维度契约降级：端点返回非 1024 维 ⇒ 显式降级且 reason 含实测值
+ok 510 - B1.1-⑧ 维度契约降级：端点返回非 1024 维 ⇒ 显式降级且 reason 含实测值
+  ---
+  duration_ms: 2.748175
+  type: 'test'
+  ...
+# Subtest: B1.1-⑨ vec0 未启用是**显式**的：route=vec0 给非空原因，不静默回落到 js
+ok 511 - B1.1-⑨ vec0 未启用是**显式**的：route=vec0 给非空原因，不静默回落到 js
+  ---
+  duration_ms: 0.492294
+  type: 'test'
+  ...
+# (node:919) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# Subtest: B1.1-⑩ 真嵌入（本机 Ollama）：dim==1024；重复同一文本 cos ≥ 0.999999
+ok 512 - B1.1-⑩ 真嵌入（本机 Ollama）：dim==1024；重复同一文本 cos ≥ 0.999999
+  ---
+  duration_ms: 4842.741379
+  type: 'test'
+  ...
+# [A1-12 · B 档测量条件说明] 同文重复 cos=1.000000 · 改写句 cos=0.345421 · 嵌入耗时 4788ms/22ms/33ms（**绝对毫秒不进阈值列**）
+# Subtest: B1.1-⑪ 真库 BLOB 落点 + 真 cordis 装载：写进 memory_items.vector 并可读回
+ok 513 - B1.1-⑪ 真库 BLOB 落点 + 真 cordis 装载：写进 memory_items.vector 并可读回
+  ---
+  duration_ms: 1032.430211
+  type: 'test'
+  ...
+# [真库] memory_items.vector 落点 1024×4 B 4096 B，真库往返逐位相等，新 ctx 从库解码成功
+# Subtest: B1.1-⑫ 骨架保持：name/inject/Config 未变 + G9 直通链仍走到末端
+ok 514 - B1.1-⑫ 骨架保持：name/inject/Config 未变 + G9 直通链仍走到末端
+  ---
+  duration_ms: 453.430166
+  type: 'test'
+  ...
+# Subtest: B1.1-⑬ 反证：卸载 vector 后同一触发不再产生新行（附正向对照防平凡通过）
+ok 515 - B1.1-⑬ 反证：卸载 vector 后同一触发不再产生新行（附正向对照防平凡通过）
+  ---
+  duration_ms: 1132.238658
+  type: 'test'
+  ...
+# [反证 · 进程内装配] 装载态 +1 行 / +1 事件（0→1）；卸载后 0 新行 / 0 新事件（1→1）
+# Subtest: B1.1-⑭ 召回记录**已落库**：recall 段不再只存在于返回对象（原缺口已闭合）
+ok 516 - B1.1-⑭ 召回记录**已落库**：recall 段不再只存在于返回对象（原缺口已闭合）
+  ---
+  duration_ms: 681.121133
+  type: 'test'
+  ...
+# [四表增量] {"trace":1,"inject":0,"items":0,"jev":0}（本题只判 recall 那一类；其余三表的增量口径见各自用例）
+# [缺陷③ 钉住] 真降级（degraded=true, channel=degraded）但四表增量 = {"trace":1,"inject":0,"items":0,"jev":0} ⇒ 「降级态仅存于返回对象、未落库、事后不可查」是可机检事实，不是文档自述
+# (node:927) [UNDICI-EHPA] Warning: EnvHttpProxyAgent is experimental, expect them to change at any time.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# (node:927) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# Subtest: W1 ⑤容量闸边界腿：容量−1 / 容量 / 容量+1 三点 —— 逐出只发生在 +1 那一次
+ok 517 - W1 ⑤容量闸边界腿：容量−1 / 容量 / 容量+1 三点 —— 逐出只发生在 +1 那一次
+  ---
+  duration_ms: 507.822875
+  type: 'test'
+  ...
+# Subtest: W2 ⑤evicted 精确记账：条数连续、内容精确、status 与 snapshot 同源
+ok 518 - W2 ⑤evicted 精确记账：条数连续、内容精确、status 与 snapshot 同源
+  ---
+  duration_ms: 503.233955
+  type: 'test'
+  ...
+# Subtest: W3 ⑤容量语义边界：capacityChunks = 0 ⇒ 该轴不设闸（**不逐出、不记账**，如实钉住现状）
+ok 519 - W3 ⑤容量语义边界：capacityChunks = 0 ⇒ 该轴不设闸（**不逐出、不记账**，如实钉住现状）
+  ---
+  duration_ms: 502.771764
+  type: 'test'
+  ...
+# Subtest: W6 ⑥真消费：作意放行经真事件链进工作记忆（真 Loader 装配，capacity=2）
+ok 520 - W6 ⑥真消费：作意放行经真事件链进工作记忆（真 Loader 装配，capacity=2）
+  ---
+  duration_ms: 1247.218465
+  type: 'test'
+  ...
+# Subtest: W7 ⑥反证：卸载工作记忆后，同一触发不再产生新的会话外行（卸载即净）
+ok 521 - W7 ⑥反证：卸载工作记忆后，同一触发不再产生新的会话外行（卸载即净）
+  ---
+  duration_ms: 1716.977953
+  type: 'test'
+  ...
+# Subtest: W5 ⑦snapshot 结构与顺序：顺序**敏感**（FIFO：idx 0 最旧、末位最新），且是深拷贝
+ok 522 - W5 ⑦snapshot 结构与顺序：顺序**敏感**（FIFO：idx 0 最旧、末位最新），且是深拷贝
+  ---
+  duration_ms: 502.295975
+  type: 'test'
+  ...
+# Subtest: W4 ⑧形态：1 个 effect 注册点、agent/pre-step 直通且真调 next()、事件面尺寸正确
+ok 523 - W4 ⑧形态：1 个 effect 注册点、agent/pre-step 直通且真调 next()、事件面尺寸正确
+  ---
+  duration_ms: 502.90682
+  type: 'test'
+  ...
+# Subtest: W8 ⑧失败可观测：畸形作意载荷**大声抛**（未被静默吞）—— 如实钉住现状
+ok 524 - W8 ⑧失败可观测：畸形作意载荷**大声抛**（未被静默吞）—— 如实钉住现状
+  ---
+  duration_ms: 0.512584
+  type: 'test'
+  ...
+# Subtest: W9 ⑨预算闸边界：容量轴关掉、只留预算轴 —— 恰满不动作 / 超 1 字必动作 / 多块逐出 / 单块截断
+ok 525 - W9 ⑨预算闸边界：容量轴关掉、只留预算轴 —— 恰满不动作 / 超 1 字必动作 / 多块逐出 / 单块截断
+  ---
+  duration_ms: 3516.211124
+  type: 'test'
+  ...
+# Subtest: W10 ⑨两闸串联：先容量后预算 —— 末态**同时**满足两个上界，且记账归属不串账
+ok 526 - W10 ⑨两闸串联：先容量后预算 —— 末态**同时**满足两个上界，且记账归属不串账
+  ---
+  duration_ms: 1508.087208
+  type: 'test'
+  ...
+# Subtest: W12 ⑨两个闸的"不设闸"语义：capacityChunks<=0 / budgetChars<=0 —— 含**真出口**与反向对照
+ok 527 - W12 ⑨两个闸的"不设闸"语义：capacityChunks<=0 / budgetChars<=0 —— 含**真出口**与反向对照
+  ---
+  duration_ms: 4026.350107
+  type: 'test'
+  ...
+# Subtest: W13 ⑨记账三层自洽 + 审计不泄内容：snapshot / status / mana_trace 三处同源
+ok 528 - W13 ⑨记账三层自洽 + 审计不泄内容：snapshot / status / mana_trace 三处同源
+  ---
+  duration_ms: 1210.000089
+  type: 'test'
+  ...
+# Subtest: W14 ⑨防复发：每个 Config 键都必须出现在**真比较**里（budgetChars 那类死开关的机检门）
+ok 529 - W14 ⑨防复发：每个 Config 键都必须出现在**真比较**里（budgetChars 那类死开关的机检门）
+  ---
+  duration_ms: 0.599092
+  type: 'test'
+  ...
+1..529
+# tests 529
+# suites 0
+# pass 529
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 30851.542448
+TEST_WALL_S=31.33 TEST_MAXRSS_KB=160728

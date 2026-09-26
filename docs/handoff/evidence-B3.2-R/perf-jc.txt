@@ -1,0 +1,45 @@
+(node:217) [UNDICI-EHPA] Warning: EnvHttpProxyAgent is experimental, expect them to change at any time.
+(Use `node --trace-warnings ...` to show where the warning was created)
+TAP version 13
+# (node:224) [UNDICI-EHPA] Warning: EnvHttpProxyAgent is experimental, expect them to change at any time.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# (node:224) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# Subtest: J1 判定链：mana/jev/judge 有监听器并被真调到
+ok 1 - J1 判定链：mana/jev/judge 有监听器并被真调到
+  ---
+  duration_ms: 630.305436
+  type: 'test'
+  ...
+# Subtest: J2 降级必须显式：degraded=true + reason 非空 + probability=null（禁 0 冒充）
+ok 2 - J2 降级必须显式：degraded=true + reason 非空 + probability=null（禁 0 冒充）
+  ---
+  duration_ms: 609.278611
+  type: 'test'
+  ...
+# Subtest: J3 next() 义务：jev 降级时下游哨兵必须被调到（不吞掉下游）
+ok 3 - J3 next() 义务：jev 降级时下游哨兵必须被调到（不吞掉下游）
+  ---
+  duration_ms: 758.557126
+  type: 'test'
+  ...
+# Subtest: J4 负向：ctx.emit 分发 waterfall 型事件会因 next 不是函数而炸（G6）
+ok 4 - J4 负向：ctx.emit 分发 waterfall 型事件会因 next 不是函数而炸（G6）
+  ---
+  duration_ms: 1110.351882
+  type: 'test'
+  ...
+# Subtest: J5 关联键：结果的 requestId 必须等于请求的 requestId（不可错位）
+ok 5 - J5 关联键：结果的 requestId 必须等于请求的 requestId（不可错位）
+  ---
+  duration_ms: 608.221748
+  type: 'test'
+  ...
+1..5
+# tests 5
+# suites 0
+# pass 5
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 3804.699239

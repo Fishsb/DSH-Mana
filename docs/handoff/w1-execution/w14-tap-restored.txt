@@ -1,0 +1,62 @@
+(node:175242) [UNDICI-EHPA] Warning: EnvHttpProxyAgent is experimental, expect them to change at any time.
+(Use `node --trace-warnings ...` to show where the warning was created)
+TAP version 13
+# (node:175249) [UNDICI-EHPA] Warning: EnvHttpProxyAgent is experimental, expect them to change at any time.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# (node:175249) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# Subtest: W1-4-⓪ 判据自检：用例计数 == 7，交付文件齐备且门控接线点在 src 里
+ok 1 - W1-4-⓪ 判据自检：用例计数 == 7，交付文件齐备且门控接线点在 src 里
+  ---
+  duration_ms: 1.330323
+  type: 'test'
+  ...
+# Subtest: W1-4-① 生产调用方 ≥1：vector/src 里有调用点；hook 模块零监听器/零 pre-step
+ok 2 - W1-4-① 生产调用方 ≥1：vector/src 里有调用点；hook 模块零监听器/零 pre-step
+  ---
+  duration_ms: 0.339436
+  type: 'test'
+  ...
+# Subtest: W1-4-② 端到端：recall() ⇒ 门控真被调用（真产物解析）⇒ 声明集 == jev_log 新增行集
+ok 3 - W1-4-② 端到端：recall() ⇒ 门控真被调用（真产物解析）⇒ 声明集 == jev_log 新增行集
+  ---
+  duration_ms: 829.437787
+  type: 'test'
+  ...
+# [W1-4 端到端] 解析=/home/lk/Mana/packages/long-term/lib/index.js · 派发=3 声明=3 落库增量=3 · ids=["w14-e2e\#rel_mem-w14-a","w14-e2e\#rel_mem-w14-b","w14-e2e\#rel_mem-w14-c"] · 管道(degraded=true rankBy=local_score items=3)
+# Subtest: W1-4-③ 反证 A（真故障注入）：监听器少落一行 ⇒ 声明 3 / 行 2 / failureKind=null ⇒ 对账必红
+ok 4 - W1-4-③ 反证 A（真故障注入）：监听器少落一行 ⇒ 声明 3 / 行 2 / failureKind=null ⇒ 对账必红
+  ---
+  duration_ms: 709.450083
+  type: 'test'
+  ...
+# [反证 A] 声明=3 落库=2 failureKind=null ⇒ 集合对账报红（无声失败被抓出）
+# Subtest: W1-4-④ 反证 B：门控显式关闭 ⇒ 门**未被调用** ⇒ 对账必红（接线这句话可证伪）
+ok 5 - W1-4-④ 反证 B：门控显式关闭 ⇒ 门**未被调用** ⇒ 对账必红（接线这句话可证伪）
+  ---
+  duration_ms: 705.010416
+  type: 'test'
+  ...
+# [反证 B] enabled=false ⇒ attempted=false 派发=0 新增行=0 ⇒ 对账第 4 条报红；检索仍返回 3 条
+# Subtest: W1-4-⑤ A1-8 Recall 支路：判定驱动失败 ⇒ jev_log 行 degraded=1 且返回有序 items
+ok 6 - W1-4-⑤ A1-8 Recall 支路：判定驱动失败 ⇒ jev_log 行 degraded=1 且返回有序 items
+  ---
+  duration_ms: 708.146051
+  type: 'test'
+  ...
+# [A1-8 Recall] jev_log 行=3（全 degraded=1 / probability=null / gate=["unavailable","unavailable","unavailable"]） · 门控 gate=degraded rankBy=local_score · items=3
+# Subtest: W1-4-⑥ 回归：ManaRecall 契约字段未改 + 插件面未变 + 管道语义未变
+ok 7 - W1-4-⑥ 回归：ManaRecall 契约字段未改 + 插件面未变 + 管道语义未变
+  ---
+  duration_ms: 659.681455
+  type: 'test'
+  ...
+# [回归] 载荷契约字段逐字同管道结果 · recallGate 读数已挂载 · recall 段落库 1 行 · inject=["mana-core"]
+1..7
+# tests 7
+# suites 0
+# pass 7
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 3723.121934

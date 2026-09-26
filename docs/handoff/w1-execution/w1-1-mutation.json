@@ -1,0 +1,37 @@
+{
+  "baseline": "green",
+  "before": {
+    "index": "3a60f358525232ba8bfabd7a5ea429f3fa943f0378857d1c7d3a27f516c371cc",
+    "chains": "05749728838d764bea9c3ed42f36cab2183191f48569e79dc67b079b9254932a"
+  },
+  "results": [
+    {
+      "id": "M1",
+      "why": "未装配时**静默跳过**（不写行）—— 本仓首位缺陷类「失败不可观测」",
+      "expectRed": "T7",
+      "red": [
+        "T7"
+      ],
+      "caught": true
+    },
+    {
+      "id": "M2",
+      "why": "开关变**假旋钮**（driverEnabled 被忽略）",
+      "expectRed": "T9",
+      "red": [
+        "T9"
+      ],
+      "caught": true
+    },
+    {
+      "id": "M3",
+      "why": "覆盖面 trace 行被吞（「某行从未被驱动」重新变得不可观测）",
+      "expectRed": "T10",
+      "red": [
+        "T10"
+      ],
+      "caught": true
+    }
+  ],
+  "restored": true
+}

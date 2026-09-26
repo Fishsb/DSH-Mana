@@ -1,0 +1,158 @@
+(node:108) [UNDICI-EHPA] Warning: EnvHttpProxyAgent is experimental, expect them to change at any time.
+(Use `node --trace-warnings ...` to show where the warning was created)
+TAP version 13
+# (node:115) [UNDICI-EHPA] Warning: EnvHttpProxyAgent is experimental, expect them to change at any time.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# (node:115) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# Subtest: S1-1 noul 单问：桩收到的 body 三件齐（model/state/questions）、题数=1、type/instructions 逐字；映射为 yes + 概率
+ok 1 - S1-1 noul 单问：桩收到的 body 三件齐（model/state/questions）、题数=1、type/instructions 逐字；映射为 yes + 概率
+  ---
+  duration_ms: 3.170791
+  type: 'test'
+  ...
+# [S1-1] url=https://nano-gpt.com/api/v1/systemone value=yes p=0.97
+# Subtest: S1-2 反向：noul=0.06 ⇒ no（阈值语义与旧通道一致）
+ok 2 - S1-2 反向：noul=0.06 ⇒ no（阈值语义与旧通道一致）
+  ---
+  duration_ms: 0.788561
+  type: 'test'
+  ...
+# Subtest: S1-3 **多问不压扁**：桩收到的 body 恰有 3 题且逐题 type/instructions/criteria 对上；返回 answers 三键全在
+ok 3 - S1-3 **多问不压扁**：桩收到的 body 恰有 3 题且逐题 type/instructions/criteria 对上；返回 answers 三键全在
+  ---
+  duration_ms: 0.618223
+  type: 'test'
+  ...
+# [S1-3] 3 题同调 → answers=urgent|kind|weight；契约面取 primary=urgent
+# Subtest: S1-4 `question` 缺省合成：不给 questions 时用契约面的 question 合成一个 noul 问（映射：question → instructions）
+ok 4 - S1-4 `question` 缺省合成：不给 questions 时用契约面的 question 合成一个 noul 问（映射：question → instructions）
+  ---
+  duration_ms: 0.303307
+  type: 'test'
+  ...
+# Subtest: S1-5 choice：value=unknown + probability=null（不用 0 冒充）+ **degraded=false**（链路健康，不是降级）+ 取值在 answers
+ok 5 - S1-5 choice：value=unknown + probability=null（不用 0 冒充）+ **degraded=false**（链路健康，不是降级）+ 取值在 answers
+  ---
+  duration_ms: 25.359225
+  type: 'test'
+  ...
+# Subtest: S1-6 score：同上（unknown/null/非降级），且 legend + 索引 score 都在
+ok 6 - S1-6 score：同上（unknown/null/非降级），且 legend + 索引 score 都在
+  ---
+  duration_ms: 0.352896
+  type: 'test'
+  ...
+# Subtest: S1-7 主问题缺失 ⇒ **显式降级**并列出可用键（**不偷偷挑第一个键**）
+ok 7 - S1-7 主问题缺失 ⇒ **显式降级**并列出可用键（**不偷偷挑第一个键**）
+  ---
+  duration_ms: 0.431954
+  type: 'test'
+  ...
+# Subtest: S1-8 次要答案形状认不出 ⇒ 进 `unusableAnswers`（可枚举）+ 原样留 raw，不静默丢
+ok 8 - S1-8 次要答案形状认不出 ⇒ 进 `unusableAnswers`（可枚举）+ 原样留 raw，不静默丢
+  ---
+  duration_ms: 0.269536
+  type: 'test'
+  ...
+# Subtest: S1-9 `normalizeAnswers` 纯函数面：非对象 ⇒ 空；缺 type ⇒ 记 (missing)
+ok 9 - S1-9 `normalizeAnswers` 纯函数面：非对象 ⇒ 空；缺 type ⇒ 记 (missing)
+  ---
+  duration_ms: 0.306956
+  type: 'test'
+  ...
+# Subtest: S1-10 无凭据 ⇒ **一次请求都不发** + 显式降级 systemone-no-api-key（不许静默 skip、不许回落 Ollama）
+ok 10 - S1-10 无凭据 ⇒ **一次请求都不发** + 显式降级 systemone-no-api-key（不许静默 skip、不许回落 Ollama）
+  ---
+  duration_ms: 0.493474
+  type: 'test'
+  ...
+# Subtest: S1-11 401 ⇒ httpError + reason 带服务端正文（实测形态：missing_api_key）
+ok 11 - S1-11 401 ⇒ httpError + reason 带服务端正文（实测形态：missing_api_key）
+  ---
+  duration_ms: 0.429895
+  type: 'test'
+  ...
+# Subtest: S1-12 400 错模型 ⇒ reason 带**服务端自报白名单**，且与本地常量逐项对账
+ok 12 - S1-12 400 错模型 ⇒ reason 带**服务端自报白名单**，且与本地常量逐项对账
+  ---
+  duration_ms: 0.867859
+  type: 'test'
+  ...
+# Subtest: S1-13 非 JSON 响应 / 网络异常 ⇒ 各自可枚举 reason，且**本函数不抛**
+ok 13 - S1-13 非 JSON 响应 / 网络异常 ⇒ 各自可枚举 reason，且**本函数不抛**
+  ---
+  duration_ms: 0.975228
+  type: 'test'
+  ...
+# Subtest: S1-14 无 answers / noul 越界 ⇒ 各自显式降级（不得当成 0 或 no）
+ok 14 - S1-14 无 answers / noul 越界 ⇒ 各自显式降级（不得当成 0 或 no）
+  ---
+  duration_ms: 0.530674
+  type: 'test'
+  ...
+# Subtest: S1-15 落痕守恒：6 条路径各落一行、降级行 degraded=1、cost_usd 落真实成本（拿不到则 null）
+ok 15 - S1-15 落痕守恒：6 条路径各落一行、降级行 degraded=1、cost_usd 落真实成本（拿不到则 null）
+  ---
+  duration_ms: 7.230225
+  type: 'test'
+  ...
+# [S1-15] 6 行：degraded=0,0,1,1,1,1
+# Subtest: S1-16 缺省值钉死：Config 缺省 = **ollama 通道 + 本地端点 + 本地模型**；systemone 常量独立且正确
+ok 16 - S1-16 缺省值钉死：Config 缺省 = **ollama 通道 + 本地端点 + 本地模型**；systemone 常量独立且正确
+  ---
+  duration_ms: 10.321352
+  type: 'test'
+  ...
+# Subtest: S1-17 双通道**都能被选中**且各自端点/模型正确（经 apply 装配 + 桩；不静默只剩云端）
+ok 17 - S1-17 双通道**都能被选中**且各自端点/模型正确（经 apply 装配 + 桩；不静默只剩云端）
+  ---
+  duration_ms: 752.637722
+  type: 'test'
+  ...
+# [S1-17] ollama→http://127.0.0.1:11434/api/chat · systemone→https://nano-gpt.com/api/v1/systemone
+# Subtest: S1-18 真通道判据的**显式红**是结构性事实：live 文件必须含 assert.fail、且**不得**出现静默跳过
+ok 18 - S1-18 真通道判据的**显式红**是结构性事实：live 文件必须含 assert.fail、且**不得**出现静默跳过
+  ---
+  duration_ms: 0.411745
+  type: 'test'
+  ...
+# Subtest: S1-19 契约未越界：本通道只产出 `JevJudgeResult` 的**超集**，core 的三态取值一字未增
+ok 19 - S1-19 契约未越界：本通道只产出 `JevJudgeResult` 的**超集**，core 的三态取值一字未增
+  ---
+  duration_ms: 0.389735
+  type: 'test'
+  ...
+# Subtest: S1-20 凭据解析优先级：显式入参 > 环境变量 > env 文件；来源**可枚举**且不含 key 本身
+ok 20 - S1-20 凭据解析优先级：显式入参 > 环境变量 > env 文件；来源**可枚举**且不含 key 本身
+  ---
+  duration_ms: 0.501554
+  type: 'test'
+  ...
+# Subtest: S1-21 `parseEnvFile` 纯函数面：注释/空行/export 前缀/单双引号/非法行
+ok 21 - S1-21 `parseEnvFile` 纯函数面：注释/空行/export 前缀/单双引号/非法行
+  ---
+  duration_ms: 0.276406
+  type: 'test'
+  ...
+# Subtest: S1-22 同源硬件约束：判据面与探针面读凭据走**同一个函数**（结构上不可能再分叉）
+ok 22 - S1-22 同源硬件约束：判据面与探针面读凭据走**同一个函数**（结构上不可能再分叉）
+  ---
+  duration_ms: 0.569043
+  type: 'test'
+  ...
+# Subtest: S1-23 主问题形状**认不出**（服务端可能新增 type）⇒ 显式降级 + reason 可枚举（不得当正常路径放行）
+ok 23 - S1-23 主问题形状**认不出**（服务端可能新增 type）⇒ 显式降级 + reason 可枚举（不得当正常路径放行）
+  ---
+  duration_ms: 0.283427
+  type: 'test'
+  ...
+# [S1-23] 认不出的主问题 ⇒ systemone-primary-not-noul: type=quantum
+1..23
+# tests 23
+# suites 0
+# pass 23
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 941.462512

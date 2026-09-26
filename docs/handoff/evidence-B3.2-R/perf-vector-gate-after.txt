@@ -1,0 +1,119 @@
+(node:785) [UNDICI-EHPA] Warning: EnvHttpProxyAgent is experimental, expect them to change at any time.
+(Use `node --trace-warnings ...` to show where the warning was created)
+[vector·gate] 前置检查通过：1 个文件 / 15 条用例 / 非空 / 含 assert
+(node:793) [UNDICI-EHPA] Warning: EnvHttpProxyAgent is experimental, expect them to change at any time.
+(Use `node --trace-warnings ...` to show where the warning was created)
+TAP version 13
+# (node:800) [UNDICI-EHPA] Warning: EnvHttpProxyAgent is experimental, expect them to change at any time.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: B1.1-⓪ 判据自检：本文件 test( 计数**等于** 15 且交付文件齐备
+ok 1 - B1.1-⓪ 判据自检：本文件 test( 计数**等于** 15 且交付文件齐备
+  ---
+  duration_ms: 2.140199
+  type: 'test'
+  ...
+# Subtest: B1.1-① A1-4 RRF 三锚点：k=60 时 [1,1]/[1,50]/[50,50] 绝对差 ≤1e-6（A 档）
+ok 2 - B1.1-① A1-4 RRF 三锚点：k=60 时 [1,1]/[1,50]/[50,50] 绝对差 ≤1e-6（A 档）
+  ---
+  duration_ms: 0.534863
+  type: 'test'
+  ...
+# [A1-4] k=60 [1,1] = 0.032787（差 1.148e-7）
+# [A1-4] k=60 [1,50] = 0.025484（差 3.517e-7）
+# [A1-4] k=60 [50,50] = 0.018182（差 1.818e-7）
+# Subtest: B1.1-② RRF 平局与重复键：同输入逐位可复现，重复键去重**并重排**
+ok 3 - B1.1-② RRF 平局与重复键：同输入逐位可复现，重复键去重**并重排**
+  ---
+  duration_ms: 1.459301
+  type: 'test'
+  ...
+# Subtest: B1.1-③ cosine 与上游语义逐位对拍 + 边界（长度不等/零向量 ⇒ 0，不抛）
+ok 4 - B1.1-③ cosine 与上游语义逐位对拍 + 边界（长度不等/零向量 ⇒ 0，不抛）
+  ---
+  duration_ms: 4.494739
+  type: 'test'
+  ...
+# [对拍] 6 组 1024 维夹具，最大逐位差 = 0（要求 == 0）
+# Subtest: B1.1-④ assertDim：维度契约单独成条，不与"非法输入返回 0"混同
+ok 5 - B1.1-④ assertDim：维度契约单独成条，不与"非法输入返回 0"混同
+  ---
+  duration_ms: 0.353325
+  type: 'test'
+  ...
+# Subtest: B1.1-⑤ BLOB 编解码往返逐位相等（含 byteOffset 切片坑）
+ok 6 - B1.1-⑤ BLOB 编解码往返逐位相等（含 byteOffset 切片坑）
+  ---
+  duration_ms: 0.83911
+  type: 'test'
+  ...
+# [BLOB] 3 类失败原因：memory_items.vector 长度为 0（空 BLOB，无法解码） / memory_items.vector 字节数 5 不是 4 的倍数（非 Float32 编码） / 向量维度不符：期望 768 维，实际 1024 维
+# Subtest: B1.1-⑥ VectorStore：常驻命中不查库、落库失败不静默、清空有计数
+ok 7 - B1.1-⑥ VectorStore：常驻命中不查库、落库失败不静默、清空有计数
+  ---
+  duration_ms: 1.734669
+  type: 'test'
+  ...
+# Subtest: B1.1-⑦ 降级可枚举断言：端点不可达 ⇒ degraded===true / reason 非空 / channel=degraded / rankBy=local_score
+ok 8 - B1.1-⑦ 降级可枚举断言：端点不可达 ⇒ degraded===true / reason 非空 / channel=degraded / rankBy=local_score
+  ---
+  duration_ms: 5.593801
+  type: 'test'
+  ...
+# [A1-11] degraded=true channel=degraded rankBy=local_score reason=查询嵌入失败：嵌入请求失败（http://127.0.0.1:1/v1，timeoutMs=2000）：TypeErro…
+# Subtest: B1.1-⑧ 维度契约降级：端点返回非 1024 维 ⇒ 显式降级且 reason 含实测值
+ok 9 - B1.1-⑧ 维度契约降级：端点返回非 1024 维 ⇒ 显式降级且 reason 含实测值
+  ---
+  duration_ms: 2.43531
+  type: 'test'
+  ...
+# Subtest: B1.1-⑨ vec0 未启用是**显式**的：route=vec0 给非空原因，不静默回落到 js
+ok 10 - B1.1-⑨ vec0 未启用是**显式**的：route=vec0 给非空原因，不静默回落到 js
+  ---
+  duration_ms: 0.364305
+  type: 'test'
+  ...
+# (node:800) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# Subtest: B1.1-⑩ 真嵌入（本机 Ollama）：dim==1024；重复同一文本 cos ≥ 0.999999
+ok 11 - B1.1-⑩ 真嵌入（本机 Ollama）：dim==1024；重复同一文本 cos ≥ 0.999999
+  ---
+  duration_ms: 131.824075
+  type: 'test'
+  ...
+# [A1-12 · B 档测量条件说明] 同文重复 cos=1.000000 · 改写句 cos=0.345421 · 嵌入耗时 54ms/29ms/47ms（**绝对毫秒不进阈值列**）
+# Subtest: B1.1-⑪ 真库 BLOB 落点 + 真 cordis 装载：写进 memory_items.vector 并可读回
+ok 12 - B1.1-⑪ 真库 BLOB 落点 + 真 cordis 装载：写进 memory_items.vector 并可读回
+  ---
+  duration_ms: 1033.889087
+  type: 'test'
+  ...
+# [真库] memory_items.vector 落点 1024×4 B 4096 B，真库往返逐位相等，新 ctx 从库解码成功
+# Subtest: B1.1-⑫ 骨架保持：name/inject/Config 未变 + G9 直通链仍走到末端
+ok 13 - B1.1-⑫ 骨架保持：name/inject/Config 未变 + G9 直通链仍走到末端
+  ---
+  duration_ms: 451.863902
+  type: 'test'
+  ...
+# Subtest: B1.1-⑬ 反证：卸载 vector 后同一触发不再产生新行（附正向对照防平凡通过）
+ok 14 - B1.1-⑬ 反证：卸载 vector 后同一触发不再产生新行（附正向对照防平凡通过）
+  ---
+  duration_ms: 1151.748231
+  type: 'test'
+  ...
+# [反证 · 进程内装配] 装载态 +1 行 / +1 事件（0→1）；卸载后 0 新行 / 0 新事件（1→1）
+# Subtest: B1.1-⑭ 召回记录**已落库**：recall 段不再只存在于返回对象（原缺口已闭合）
+ok 15 - B1.1-⑭ 召回记录**已落库**：recall 段不再只存在于返回对象（原缺口已闭合）
+  ---
+  duration_ms: 679.291802
+  type: 'test'
+  ...
+# [四表增量] {"trace":1,"inject":0,"items":0,"jev":0}（本题只判 recall 那一类；其余三表的增量口径见各自用例）
+# [缺陷③ 钉住] 真降级（degraded=true, channel=degraded）但四表增量 = {"trace":1,"inject":0,"items":0,"jev":0} ⇒ 「降级态仅存于返回对象、未落库、事后不可查」是可机检事实，不是文档自述
+1..15
+# tests 15
+# suites 0
+# pass 15
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 3597.84876

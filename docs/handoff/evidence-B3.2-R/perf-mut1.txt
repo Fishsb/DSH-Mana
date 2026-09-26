@@ -1,0 +1,92 @@
+(node:13) [UNDICI-EHPA] Warning: EnvHttpProxyAgent is experimental, expect them to change at any time.
+(Use `node --trace-warnings ...` to show where the warning was created)
+TAP version 13
+# (node:20) [UNDICI-EHPA] Warning: EnvHttpProxyAgent is experimental, expect them to change at any time.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# (node:20) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# Subtest: RG-JL-① 判定键派生：同批唯一、跨批不复用、拼接式单射（反解唯一）
+ok 1 - RG-JL-① 判定键派生：同批唯一、跨批不复用、拼接式单射（反解唯一）
+  ---
+  duration_ms: 1.171605
+  type: 'test'
+  ...
+# Subtest: RG-JL-② 路径①重复候选键：去重后声明集 == 落库行集，且 duplicateKeys 显式报出
+not ok 2 - RG-JL-② 路径①重复候选键：去重后声明集 == 落库行集，且 duplicateKeys 显式报出
+  ---
+  duration_ms: 661.603329
+  type: 'test'
+  location: '/home/lk/Mana/packages/long-term/tests/recall-gate-jevlog.test.mjs:170:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    去重后送判定的是 2 条（不是 3 条）
+    
+    3 !== 2
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 2
+  actual: 3
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///home/lk/Mana/packages/long-term/tests/recall-gate-jevlog.test.mjs:188:10)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: RG-JL-③ 路径②候选抛错：抛错项进 threwKeys **不进 judgeIds**，声明集 == 落库行集
+ok 3 - RG-JL-③ 路径②候选抛错：抛错项进 threwKeys **不进 judgeIds**，声明集 == 落库行集
+  ---
+  duration_ms: 625.256228
+  type: 'test'
+  ...
+# [路径②抛错] probed=3 judgeIds=2 threwKeys=["m-b"] 落库增量=2
+# Subtest: RG-JL-④ 反证：把去重变异掉 ⇒ 路径①（重复键）的集合对账必红
+not ok 4 - RG-JL-④ 反证：把去重变异掉 ⇒ 路径①（重复键）的集合对账必红
+  ---
+  duration_ms: 0.592443
+  type: 'test'
+  location: '/home/lk/Mana/packages/long-term/tests/recall-gate-jevlog.test.mjs:215:1'
+  failureType: 'testCodeFailure'
+  error: '注入锚点必须逐字命中（锚点漂了本对拍就是空跑，必须红）'
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: true
+  actual: false
+  operator: '=='
+  stack: |-
+    TestContext.<anonymous> (file:///home/lk/Mana/packages/long-term/tests/recall-gate-jevlog.test.mjs:218:10)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: RG-JL-⑤ 既有结论不回退：三态可分辨、降级不标 jev_prob、rankBy 回落
+ok 5 - RG-JL-⑤ 既有结论不回退：三态可分辨、降级不标 jev_prob、rankBy 回落
+  ---
+  duration_ms: 502.961382
+  type: 'test'
+  ...
+# [不回退自证] pass=judged/jev_prob · 无监听器=degraded/local_score · 真件=degraded
+# Subtest: RG-JL-⑥ 前置条件：同一 requestId 被两批复用 ⇒ 第二批撞主键、家族失效（本腿即"可检出"的证据）
+ok 6 - RG-JL-⑥ 前置条件：同一 requestId 被两批复用 ⇒ 第二批撞主键、家族失效（本腿即"可检出"的证据）
+  ---
+  duration_ms: 745.595801
+  type: 'test'
+  ...
+# [前置条件] 第一批声明 3 新增=3；第二批声明 3 新增=0 ⇒ 复用 requestId 会让家族失效（调用方前置条件，已在 judgeIds 文档写明）
+# Subtest: RG-JL-⑦ 用例计数自检
+ok 7 - RG-JL-⑦ 用例计数自检
+  ---
+  duration_ms: 0.334956
+  type: 'test'
+  ...
+1..7
+# tests 7
+# suites 0
+# pass 5
+# fail 2
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 2648.293443

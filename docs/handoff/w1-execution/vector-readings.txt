@@ -1,0 +1,87 @@
+# W1-4 · Recall Gate 生产调用方接线 —— 读数（vector 席）
+
+取数坐标：开工 HEAD `4de9b87` → 收工 HEAD `4de9b87`（**未移动**）· 时刻 2026-09-26T08:26 → 09:0x · node v22.22.1
+写面：`packages/vector/src/**` + `packages/vector/tests/**`（**未越界**：另两个同事席的 `packages/long-term/**`、`packages/core/**` 只读）
+
+## 一、交付文件（路径 + 行数变化）
+
+| 文件 | 变化 | 说明 |
+|---|---|---|
+| `packages/vector/src/recall-gate-hook.ts` | **新增 340 行** | 软解析 long-term 的 `recallGate` + 显式三态 + 载荷读数；**零注册点** |
+| `packages/vector/src/index.ts` | 245 → 330 行（+85/−0） | Config 加 `recallGate` 嵌套块；recall 出口调用门控；服务面加 `lastRecallGate()` |
+| `packages/vector/tests/recall-gate-wiring.test.mjs` | **新增 7 例 / 421 行** | 端到端 + 两条反证 + A1-8 读数 + 回归 |
+
+`lib/` 已重建：`npm run build -w dsh-mana-vector` → exit 0（`lib/recall-gate-hook.js` 9.3 kB · `lib/index.js` 11.7 kB）
+
+## 二、判据执行（命令 → exit → 关键读数）
+
+| 命令 | exit | 关键读数 |
+|---|---|---|
+| `grep -rn 'await runRecallGate(' packages/vector/src/` | 0 | **1 处**：`src/index.ts:242`（接线前全仓 `packages/*/src` 调用方 = 0） |
+| `node --test packages/vector/tests/recall-gate-wiring.test.mjs` | **0** | tests 7 / pass 7 / fail 0 |
+| `npm test`（根链，含本批 7 例 ok 558–564） | 1 | tests 577 / pass 574 / fail 3（3 条**全在 long-term**，见 §五） |
+| `node packages/vector/tests/gate.mjs` | **0** | tests 15 / pass 15 / fail 0（既有向量门未回归） |
+| `node packages/vector/tests/pkg-registration.guard.mjs` | **0** | 6 包全过；`dsh-mana-vector` exports 面未变 |
+| `npm run typecheck -w dsh-mana-vector` | **0** | 干净 |
+
+**端到端真跑（TAP diagnostic 原文）**：
+```
+# [W1-4 端到端] 解析=/home/lk/Mana/packages/long-term/lib/index.js · 派发=3 声明=3 落库增量=3
+#   ids=["w14-e2e\#rel_mem-w14-a","w14-e2e\#rel_mem-w14-b","w14-e2e\#rel_mem-w14-c"]
+#   · 管道(degraded=true rankBy=local_score items=3)
+# [A1-8 Recall] jev_log 行=3（全 degraded=1 / probability=null / gate=["unavailable","unavailable","unavailable"]）
+#   · 门控 gate=degraded rankBy=local_score · items=3
+# [回归] 载荷契约字段逐字同管道结果 · recallGate 读数已挂载 · recall 段落库 1 行 · inject=["mana-core"]
+```
+⇒ 检索 → 门控**真被调用**（解析到 long-term 真产物）→ 3 条 `rel_<id>` 派发 → **jev_log 真落 3 行** → 行集 == 声明集。
+
+## 三、反证对拍（**真实源文件扰动** + 逐字节恢复，未用 `git reset --hard`）
+
+| # | 扰动 | 观察 | 结果 | 恢复 |
+|---|---|---|---|---|
+| 1（源文件级） | `src/index.ts` 的 `await runRecallGate(` 换成**桩**（接线摘掉） | `--test recall-gate-wiring` | **exit 1 · 7 例全红**（TAP 存 `w14-tap-mutant.txt`） | md5 回 `874b8e950d393e7ab87007ff20400331` ⇒ **exit 0 · 7/7** |
+| 2（夹具注入） | 夹具监听器对第 3 条候选**正常返回但不落痕** | 门控读数 | 声明 3 / 落库 2 / **`failureKind===null`**（派单点名的"修前形态"）⇒ 集合对账**报红** | 夹具作用域内，无源文件改动 |
+| 3（配置级） | `recallGate.enabled=false` | 门控读数 | `attempted=false` / `gate=null` / 派发 0 / 新增行 0 ⇒ 对账**第 4 条报红**；检索仍返回 3 条 | 同上 |
+
+⚠ 反证 2 的意义要写准：**接线 ≠ 对账**。"接上了"**不会**让落痕失败变得可见 —— 那条失败是**无声**的
+（`failureKind` 仍 null、门控自己不认为降级），只有**集合级对账**抓得住。
+
+## 四、回归自检（我碰过的既有行为逐条核）
+
+| 触碰 | 既有行为 | 凭什么确认仍成立 |
+|---|---|---|
+| recall 出口新增一次调用 | `recall()` 的四字段语义（`channel`/`rankBy`/`degraded`/命中） | ⑥ 断言载荷四字段**逐字等于**管道结果；`b11-vector.test.mjs` ⑭ 的"降级落恰好 1 行 recall"仍 15/15 |
+| 同上 | `RecallOutcome` 契约面 | **未改**（门控读数走 `lastRecallGate()` 与载荷增量字段，**不进** `RecallOutcome`） |
+| Config 加嵌套块 | 既有 7 个配置键 + 假旋钮面 | ⑥ 读 `Config({})`：`recallGate.enabled=true` / `threshold=0.7` / `topN=10`；`name`/`inject` 逐字未变 |
+| 新增 hook 模块 | **G9 不新增注册点** | ① 源码级断言 hook 模块**零** `ctx.on(`/`ctx.waterfall(`/`registerPassThroughPreStep`/`ctx.effect(`/`setInterval`；并用"banned 清单在 index.ts 里必须命中"作**反空跑**自证 |
+| 与 8 事件契约 | `packages/core/src/event-types.ts` | **零改动**（`git status` 该文件非我改；载荷增量字段是契约外扩，类型上用交叉类型，不改契约） |
+| `mana/recall` 落库点 | F-01 的 recall `mana_trace` 段落点 | ⑥ 断言 recall 段仍 ≥1 行；b11 ⑭ 15/15 |
+
+## 五、⚠ 派单坐标两处过时 + 一条**不由本席承担**的红
+
+1. **jev 服务面三出口的行号已漂**：派单写 `jev/src/index.ts:249/259/271`；实测当前为
+   **`:381 judge` / `:391 judgeSystemone` / `:403 judgeGuarded`**（另新增 `:417 judgeBatch` / `:469 judgeFanout` / `:482 judgeSeries`，
+   他席 W1-2 在途）。`packages/long-term/src/index.ts:284` 的监听器现为 **`:531`**。
+2. **本席接的路径不经三出口**：调用链是
+   `vector recall → recallGate → ctx.waterfall('mana/jev/judge')`（`recall-gate.ts:501`）
+   `→ jev 的监听器 ctx.on('mana/jev/judge')`（`jev/src/index.ts:531`）⇒ 判定**真落 jev_log**（实测 3 行）。
+   三出口的"仍静默/不经监听器"判断对本接线**不构成影响面**（本径可观测，已由 ② 的落库对账证明）。
+3. **根链 3 条 FAIL 不属本席写面**（`npm test` 中 long-term 侧）：
+   `RG-JL-⑥c`(`recall-gate-jevlog.test.mjs:454`)、`RG-JL-Q1`(:550)、`retirement.test.mjs:306`。
+   归属证据：这些测试文件 `grep 'vector'` **命中 0**；且本席在 **全 HEAD 只读副本**（`git archive HEAD` + 允许的未跟踪件）
+   上跑同族用例同样为红 ⇒ **HEAD 上就红**，属长期在途的 `packages/long-term/src`（未提交）+ 他席在途重编。
+
+## 六、本席踩到并处置的两条**自身**缺陷（如实记）
+
+1. **首版夹具漏配 `embedBaseUrl`** ⇒ 同一条断言随"本机 Ollama 在不在跑"变色（`degraded=true/false`）。
+   由本文件 ③ 用例抓出 ⇒ 现**每个用例都显式钉** `http://127.0.0.1:1/v1`（恒不可达）⇒ 零网络、逐次同值。
+2. **`lastRecallGate()` 与载荷读数一度是两个形状** ⇒ 用例当场报 `applied === undefined`。
+   已统一为**同一个 `recallGateReadout()` 产物**（服务面查到的 == 审计里看到的，不可能漂开）。
+
+## 七、未做 / 未定（不得读成已完成）
+
+- **门控不折叠进 items 排序**：`rankBy` 仍由 vector 管道决定（`applied:false` 显式可断言）。
+  理由：`rankBy`/`degraded` 是 A1-11 的机检锚点，册面**未拍板**"召回结果按 `jev_prob` 重排"前改它
+  = 把读数伪装成排序依据。**列 [建议决策]**。
+- `Config.recallGate.specifier` **不暴露**（可配 = 能把接线指歪的旋钮，失败只在运行期可见）。
+- 判定链降级时 `gate='unavailable'`（`jev_log.gate` 词表仍两值）—— 本席未扩词表。

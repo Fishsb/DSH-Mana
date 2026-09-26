@@ -1,0 +1,69 @@
+(node:36) [UNDICI-EHPA] Warning: EnvHttpProxyAgent is experimental, expect them to change at any time.
+(Use `node --trace-warnings ...` to show where the warning was created)
+TAP version 13
+# (node:43) [UNDICI-EHPA] Warning: EnvHttpProxyAgent is experimental, expect them to change at any time.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# (node:43) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# Subtest: ① A1-5 时间衰减三锚点 + 负向对拍（h=14 → 7 必须偏离）
+ok 1 - ① A1-5 时间衰减三锚点 + 负向对拍（h=14 → 7 必须偏离）
+  ---
+  duration_ms: 0.85385
+  type: 'test'
+  ...
+# Subtest: ② A2-1 基础激活四锚点 + 幂律同形腿（不得被第二套衰减乘过）
+ok 2 - ② A2-1 基础激活四锚点 + 幂律同形腿（不得被第二套衰减乘过）
+  ---
+  duration_ms: 0.718641
+  type: 'test'
+  ...
+# Subtest: ③ A2-2 检索概率三锚点 + s 是由 σ 派生的尺度（s≠σ 反向对照）
+ok 3 - ③ A2-2 检索概率三锚点 + s 是由 σ 派生的尺度（s≠σ 反向对照）
+  ---
+  duration_ms: 0.398355
+  type: 'test'
+  ...
+# Subtest: ④ A2-2 延迟二锚点 + 钳位语义（A−3 与 A−2 逐位同值）+ 单调非严格
+ok 4 - ④ A2-2 延迟二锚点 + 钳位语义（A−3 与 A−2 逐位同值）+ 单调非严格
+  ---
+  duration_ms: 0.616562
+  type: 'test'
+  ...
+# Subtest: ⑤ 收敛口径：概率与噪声共用同一个 s，且噪声可复现（无隐式 RNG）
+ok 5 - ⑤ 收敛口径：概率与噪声共用同一个 s，且噪声可复现（无隐式 RNG）
+  ---
+  duration_ms: 0.841209
+  type: 'test'
+  ...
+# Subtest: ⑥ 导出面逐个断言（实现被搬走/改名 ⇒ 必红）
+ok 6 - ⑥ 导出面逐个断言（实现被搬走/改名 ⇒ 必红）
+  ---
+  duration_ms: 14.793348
+  type: 'test'
+  ...
+# Subtest: ⑦ 参数单一出处：冻结参数不得在 params.ts 之外以字面量重现（C14）
+ok 7 - ⑦ 参数单一出处：冻结参数不得在 params.ts 之外以字面量重现（C14）
+  ---
+  duration_ms: 1.54362
+  type: 'test'
+  ...
+# Subtest: ⑧ 真装配：服务面可复算锚点 + behavior=active + 卸载后服务消失
+ok 8 - ⑧ 真装配：服务面可复算锚点 + behavior=active + 卸载后服务消失
+  ---
+  duration_ms: 817.655449
+  type: 'test'
+  ...
+# Subtest: ⑨ 用例计数自检 + 锚点字面量在册（防本文件被截断/掏空）
+ok 9 - ⑨ 用例计数自检 + 锚点字面量在册（防本文件被截断/掏空）
+  ---
+  duration_ms: 1.050622
+  type: 'test'
+  ...
+1..9
+# tests 9
+# suites 0
+# pass 9
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 972.202213

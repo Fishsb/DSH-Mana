@@ -1,0 +1,160 @@
+(node:74) [UNDICI-EHPA] Warning: EnvHttpProxyAgent is experimental, expect them to change at any time.
+(Use `node --trace-warnings ...` to show where the warning was created)
+TAP version 13
+# (node:81) [UNDICI-EHPA] Warning: EnvHttpProxyAgent is experimental, expect them to change at any time.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# (node:81) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# Subtest: F1 缓存：同 state_hash+question 在 299s 内命中、301s 过期未命中；cached 列 0→1；命中同样留痕
+ok 1 - F1 缓存：同 state_hash+question 在 299s 内命中、301s 过期未命中；cached 列 0→1；命中同样留痕
+  ---
+  duration_ms: 26.424374
+  type: 'test'
+  ...
+# [F1] fetch 调用 2 次 / jev_log 3 行（cached=0,1,0）
+# Subtest: F2 缓存键含 question：同 state 不同 question 不得互相当作命中
+ok 2 - F2 缓存键含 question：同 state 不同 question 不得互相当作命中
+  ---
+  duration_ms: 0.931489
+  type: 'test'
+  ...
+# Subtest: F3 TTL=0 ⇒ 缓存结构性失效（同一毫秒的第二次调用也必须再问模型）
+ok 3 - F3 TTL=0 ⇒ 缓存结构性失效（同一毫秒的第二次调用也必须再问模型）
+  ---
+  duration_ms: 1.161816
+  type: 'test'
+  ...
+# Subtest: F4 熔断：连续 5 次失败才打开（第 4 次仍 closed）；打开后第 6 次直接拒绝且不打模型
+ok 4 - F4 熔断：连续 5 次失败才打开（第 4 次仍 closed）；打开后第 6 次直接拒绝且不打模型
+  ---
+  duration_ms: 7.207591
+  type: 'test'
+  ...
+# [F4] failures=5 state=open fetch=5 rows=6
+# Subtest: F5 熔断：中途成功一次即清零（4 次失败 + 1 次成功 + 4 次失败 ⇒ 仍 closed）
+ok 5 - F5 熔断：中途成功一次即清零（4 次失败 + 1 次成功 + 4 次失败 ⇒ 仍 closed）
+  ---
+  duration_ms: 1.743949
+  type: 'test'
+  ...
+# Subtest: F6 冷却/半开：59s 仍 open（且拒绝）、60s 转 half-open 放行一次试探、试探成功即 closed
+ok 6 - F6 冷却/半开：59s 仍 open（且拒绝）、60s 转 half-open 放行一次试探、试探成功即 closed
+  ---
+  duration_ms: 0.893269
+  type: 'test'
+  ...
+# [F6] 59s=open / 60s=half-open / 试探成功=yes → closed
+# Subtest: F7 冷却：半开试探**失败** ⇒ 重新打开，且冷却**重新计时**（不是停在旧时刻）
+ok 7 - F7 冷却：半开试探**失败** ⇒ 重新打开，且冷却**重新计时**（不是停在旧时刻）
+  ---
+  duration_ms: 0.629213
+  type: 'test'
+  ...
+# Subtest: F8 半开单探针闸：冷却到点后**只放行一个**试探，其余拒绝且不打模型（可枚举 reason）
+ok 8 - F8 半开单探针闸：冷却到点后**只放行一个**试探，其余拒绝且不打模型（可枚举 reason）
+  ---
+  duration_ms: 17.238318
+  type: 'test'
+  ...
+# Subtest: F9 并发：maxConcurrency=4 ⇒ 桩观测的在飞峰值**恰为 4**；结束后无槽位泄漏
+ok 9 - F9 并发：maxConcurrency=4 ⇒ 桩观测的在飞峰值**恰为 4**；结束后无槽位泄漏
+  ---
+  duration_ms: 68.953608
+  type: 'test'
+  ...
+# [F9] 峰值=4 上限=4 完成=10
+# Subtest: F10 并发：等槽超时 ⇒ 可枚举 reason + 仍留痕（不引入"无声挂起"这一新失败模式）
+ok 10 - F10 并发：等槽超时 ⇒ 可枚举 reason + 仍留痕（不引入"无声挂起"这一新失败模式）
+  ---
+  duration_ms: 64.951397
+  type: 'test'
+  ...
+# Subtest: F11 预算：session 上限 3 ⇒ 第 4 次拒绝；**按 session 分桶**；拒绝同样留痕
+ok 11 - F11 预算：session 上限 3 ⇒ 第 4 次拒绝；**按 session 分桶**；拒绝同样留痕
+  ---
+  duration_ms: 6.385532
+  type: 'test'
+  ...
+# [F11] A 桶 3/3 后拒绝；B 桶独立；rows=5
+# Subtest: F12 预算=0 ⇒ 每次都拒（配置项"关掉"的可观测差异）；resetSession 后可放行一次
+ok 12 - F12 预算=0 ⇒ 每次都拒（配置项"关掉"的可观测差异）；resetSession 后可放行一次
+  ---
+  duration_ms: 0.75388
+  type: 'test'
+  ...
+# Subtest: F13 熔断开时缓存仍可服务：命中路径不碰模型 ⇒ 断路器**未被绕过**（fetch 计数不变）
+ok 13 - F13 熔断开时缓存仍可服务：命中路径不碰模型 ⇒ 断路器**未被绕过**（fetch 计数不变）
+  ---
+  duration_ms: 0.869679
+  type: 'test'
+  ...
+# Subtest: F16 留痕计数守恒：N 次调用恰好 N 行 —— 无沉默分支、无重复落痕
+ok 14 - F16 留痕计数守恒：N 次调用恰好 N 行 —— 无沉默分支、无重复落痕
+  ---
+  duration_ms: 6.046231
+  type: 'test'
+  ...
+# [F16] 5 次调用 → 5 行（含 1 次熔断拒绝 + 1 次缓存命中）
+# Subtest: F14/F15 装配面：apply(config) 六项配置真被消费（guardState 逐项对账 + 并发上限端到端生效）
+ok 15 - F14/F15 装配面：apply(config) 六项配置真被消费（guardState 逐项对账 + 并发上限端到端生效）
+  ---
+  duration_ms: 526.256071
+  type: 'test'
+  ...
+# [F14/F15] config 逐项对账通过；并发峰值=2；jev_log=5 行
+# Subtest: F17 护栏不偷改模型面：正常判定的 value/probability 与纯原语逐字一致（缓存只复制、不重算）
+ok 16 - F17 护栏不偷改模型面：正常判定的 value/probability 与纯原语逐字一致（缓存只复制、不重算）
+  ---
+  duration_ms: 0.855139
+  type: 'test'
+  ...
+# Subtest: F18 结构性：src/index.ts 里无 `void config`，且每个 Config 键都被 config.<key> 引用（附闸自身负向控制）
+ok 17 - F18 结构性：src/index.ts 里无 `void config`，且每个 Config 键都被 config.<key> 引用（附闸自身负向控制）
+  ---
+  duration_ms: 1.226175
+  type: 'test'
+  ...
+# Subtest: F19 键 cacheTtlSeconds 真被消费：设为 0 ⇒ 同 state+question 连续两次都不命中（缺省 300 会命中）
+ok 18 - F19 键 cacheTtlSeconds 真被消费：设为 0 ⇒ 同 state+question 连续两次都不命中（缺省 300 会命中）
+  ---
+  duration_ms: 453.231363
+  type: 'test'
+  ...
+# Subtest: F20 键 circuitBreakerFailures 真被消费：设为 2 ⇒ 第 2 次失败即打开（缺省 5 时会是 closed）
+ok 19 - F20 键 circuitBreakerFailures 真被消费：设为 2 ⇒ 第 2 次失败即打开（缺省 5 时会是 closed）
+  ---
+  duration_ms: 454.265435
+  type: 'test'
+  ...
+# Subtest: F21 键 circuitBreakerCooldownSeconds 真被消费：设 1 ⇒ 冷却按配置走（不是写死 60）；设 0 ⇒ 打开即半开
+ok 20 - F21 键 circuitBreakerCooldownSeconds 真被消费：设 1 ⇒ 冷却按配置走（不是写死 60）；设 0 ⇒ 打开即半开
+  ---
+  duration_ms: 2006.56995
+  type: 'test'
+  ...
+# Subtest: F22 键 maxConcurrency 真被消费：设为 2 ⇒ 服务面桩观测峰值**恰为 2**（缺省 4 会是 4）
+ok 21 - F22 键 maxConcurrency 真被消费：设为 2 ⇒ 服务面桩观测峰值**恰为 2**（缺省 4 会是 4）
+  ---
+  duration_ms: 515.403228
+  type: 'test'
+  ...
+# Subtest: F23 键 sessionBudget 真被消费：设为 2 ⇒ 第 3 次拒绝（缺省 200 会放行）
+ok 22 - F23 键 sessionBudget 真被消费：设为 2 ⇒ 第 3 次拒绝（缺省 200 会放行）
+  ---
+  duration_ms: 453.984292
+  type: 'test'
+  ...
+# Subtest: F24 键 concurrencyWaitTimeoutMs 真被消费：设为 80ms ⇒ 满载时等候者被拒（缺省 30s 会一直等）
+ok 23 - F24 键 concurrencyWaitTimeoutMs 真被消费：设为 80ms ⇒ 满载时等候者被拒（缺省 30s 会一直等）
+  ---
+  duration_ms: 603.992645
+  type: 'test'
+  ...
+1..23
+# tests 23
+# suites 0
+# pass 23
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 5333.378514

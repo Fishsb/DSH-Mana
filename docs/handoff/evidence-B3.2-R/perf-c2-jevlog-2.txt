@@ -1,0 +1,54 @@
+(node:3) [UNDICI-EHPA] Warning: EnvHttpProxyAgent is experimental, expect them to change at any time.
+(Use `node --trace-warnings ...` to show where the warning was created)
+TAP version 13
+# (node:10) [UNDICI-EHPA] Warning: EnvHttpProxyAgent is experimental, expect them to change at any time.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# (node:10) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# Subtest: RG-JL-① 判定键派生：同批次 N 条候选 ⇒ N 个互不相同的键；跨批次不复用
+ok 1 - RG-JL-① 判定键派生：同批次 N 条候选 ⇒ N 个互不相同的键；跨批次不复用
+  ---
+  duration_ms: 1.082527
+  type: 'test'
+  ...
+# Subtest: RG-JL-③ 真件对账：3 候选 ⇒ jev_log 恰新增 3 行，行 id 逐条等于 out.judgeIds
+ok 2 - RG-JL-③ 真件对账：3 候选 ⇒ jev_log 恰新增 3 行，行 id 逐条等于 out.judgeIds
+  ---
+  duration_ms: 4945.315812
+  type: 'test'
+  ...
+# [真件对账] gate=below_threshold probed=3 judged=3 jev_log 增量=3 · ids=["r-count\#rel_m-a","r-count\#rel_m-b","r-count\#rel_m-c"]
+# Subtest: RG-JL-③b 真生产者 judgeWithGuard（注入 fetch）⇒ 判过阈且落痕 id 逐条等于 judgeIds
+ok 3 - RG-JL-③b 真生产者 judgeWithGuard（注入 fetch）⇒ 判过阈且落痕 id 逐条等于 judgeIds
+  ---
+  duration_ms: 657.10491
+  type: 'test'
+  ...
+# [真生产者] gate=judged judged=3 rankBy=jev_prob 增量=3 ids=["r-prod\#rel_m-a","r-prod\#rel_m-b","r-prod\#rel_m-c"]
+# Subtest: RG-JL-④ 反证对拍：把唯一 requestId 变异回退成逐候选复用同一 requestId ⇒ 计数必红
+ok 4 - RG-JL-④ 反证对拍：把唯一 requestId 变异回退成逐候选复用同一 requestId ⇒ 计数必红
+  ---
+  duration_ms: 359.180651
+  type: 'test'
+  ...
+# Subtest: RG-JL-⑤ 既有结论不回退：三态可分辨仍成立、降级不标 jev_prob、rankBy 回落
+ok 5 - RG-JL-⑤ 既有结论不回退：三态可分辨仍成立、降级不标 jev_prob、rankBy 回落
+  ---
+  duration_ms: 504.505919
+  type: 'test'
+  ...
+# [不回退自证] pass=judged/jev_prob · 无监听器=degraded/local_score · 真件=degraded
+# Subtest: RG-JL-⑥ 用例计数自检
+ok 6 - RG-JL-⑥ 用例计数自检
+  ---
+  duration_ms: 0.435234
+  type: 'test'
+  ...
+1..6
+# tests 6
+# suites 0
+# pass 6
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 6587.314428

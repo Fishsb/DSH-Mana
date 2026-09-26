@@ -1,0 +1,318 @@
+(node:131) [UNDICI-EHPA] Warning: EnvHttpProxyAgent is experimental, expect them to change at any time.
+(Use `node --trace-warnings ...` to show where the warning was created)
+[jev·gate] 静态腿通过：framework.test.mjs(23 条/非空/含 assert/无写死网络标记) · systemone.test.mjs(23 条/非空/含 assert/无写死网络标记)
+[jev·gate] 静态腿通过：离线 46/46 · 联网面 b12-jev.test.mjs(11) · live/systemone-live.test.mjs(5) · 合计 62/62（逐文件 + 两级总和等式）
+[jev·gate] 静态腿通过：src/index.ts 无 `void config`；14 个 Config 键全部被 config.<key> 引用且无未知键
+[jev·gate] ⚠ 已知盲区（由自检腿钉住）：B腿·已知盲区已复现：动态拼接 + globalThis["fe"+"tch"] 绕过字面量黑名单（⇒ 兜住零网络的是**动态腿**，不是这一腿）
+[jev·gate] ⚠ 已知盲区（由自检腿钉住）：B腿·"必须有 fetchImpl"确认只是弱信号：写个同名变量即可满足（length=0）⇒ 不得当零网络证据
+[jev·gate] ⚠ 已知盲区（由自检腿钉住）：D腿·已知盲区已复现：assert.fail 在场但被条件包住时本检查器抓不到 ⇒ 兜住它的是闸的 **④b 行为腿**（无凭据现场跑，须 exit≠0 且 skipped=0）
+TAP version 13
+# (node:146) [UNDICI-EHPA] Warning: EnvHttpProxyAgent is experimental, expect them to change at any time.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# (node:146) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# Subtest: F1 缓存：同 state_hash+question 在 299s 内命中、301s 过期未命中；cached 列 0→1；命中同样留痕
+ok 1 - F1 缓存：同 state_hash+question 在 299s 内命中、301s 过期未命中；cached 列 0→1；命中同样留痕
+  ---
+  duration_ms: 35.110411
+  type: 'test'
+  ...
+# [F1] fetch 调用 2 次 / jev_log 3 行（cached=0,1,0）
+# Subtest: F2 缓存键含 question：同 state 不同 question 不得互相当作命中
+ok 2 - F2 缓存键含 question：同 state 不同 question 不得互相当作命中
+  ---
+  duration_ms: 1.173786
+  type: 'test'
+  ...
+# Subtest: F3 TTL=0 ⇒ 缓存结构性失效（同一毫秒的第二次调用也必须再问模型）
+ok 3 - F3 TTL=0 ⇒ 缓存结构性失效（同一毫秒的第二次调用也必须再问模型）
+  ---
+  duration_ms: 1.037907
+  type: 'test'
+  ...
+# Subtest: F4 熔断：连续 5 次失败才打开（第 4 次仍 closed）；打开后第 6 次直接拒绝且不打模型
+ok 4 - F4 熔断：连续 5 次失败才打开（第 4 次仍 closed）；打开后第 6 次直接拒绝且不打模型
+  ---
+  duration_ms: 9.389791
+  type: 'test'
+  ...
+# [F4] failures=5 state=open fetch=5 rows=6
+# Subtest: F5 熔断：中途成功一次即清零（4 次失败 + 1 次成功 + 4 次失败 ⇒ 仍 closed）
+ok 5 - F5 熔断：中途成功一次即清零（4 次失败 + 1 次成功 + 4 次失败 ⇒ 仍 closed）
+  ---
+  duration_ms: 1.399713
+  type: 'test'
+  ...
+# Subtest: F6 冷却/半开：59s 仍 open（且拒绝）、60s 转 half-open 放行一次试探、试探成功即 closed
+ok 6 - F6 冷却/半开：59s 仍 open（且拒绝）、60s 转 half-open 放行一次试探、试探成功即 closed
+  ---
+  duration_ms: 1.216646
+  type: 'test'
+  ...
+# [F6] 59s=open / 60s=half-open / 试探成功=yes → closed
+# Subtest: F7 冷却：半开试探**失败** ⇒ 重新打开，且冷却**重新计时**（不是停在旧时刻）
+ok 7 - F7 冷却：半开试探**失败** ⇒ 重新打开，且冷却**重新计时**（不是停在旧时刻）
+  ---
+  duration_ms: 0.713481
+  type: 'test'
+  ...
+# Subtest: F8 半开单探针闸：冷却到点后**只放行一个**试探，其余拒绝且不打模型（可枚举 reason）
+ok 8 - F8 半开单探针闸：冷却到点后**只放行一个**试探，其余拒绝且不打模型（可枚举 reason）
+  ---
+  duration_ms: 17.509392
+  type: 'test'
+  ...
+# Subtest: F9 并发：maxConcurrency=4 ⇒ 桩观测的在飞峰值**恰为 4**；结束后无槽位泄漏
+ok 9 - F9 并发：maxConcurrency=4 ⇒ 桩观测的在飞峰值**恰为 4**；结束后无槽位泄漏
+  ---
+  duration_ms: 69.248411
+  type: 'test'
+  ...
+# [F9] 峰值=4 上限=4 完成=10
+# Subtest: F10 并发：等槽超时 ⇒ 可枚举 reason + 仍留痕（不引入"无声挂起"这一新失败模式）
+ok 10 - F10 并发：等槽超时 ⇒ 可枚举 reason + 仍留痕（不引入"无声挂起"这一新失败模式）
+  ---
+  duration_ms: 65.451203
+  type: 'test'
+  ...
+# Subtest: F11 预算：session 上限 3 ⇒ 第 4 次拒绝；**按 session 分桶**；拒绝同样留痕
+ok 11 - F11 预算：session 上限 3 ⇒ 第 4 次拒绝；**按 session 分桶**；拒绝同样留痕
+  ---
+  duration_ms: 7.157331
+  type: 'test'
+  ...
+# [F11] A 桶 3/3 后拒绝；B 桶独立；rows=5
+# Subtest: F12 预算=0 ⇒ 每次都拒（配置项"关掉"的可观测差异）；resetSession 后可放行一次
+ok 12 - F12 预算=0 ⇒ 每次都拒（配置项"关掉"的可观测差异）；resetSession 后可放行一次
+  ---
+  duration_ms: 0.758351
+  type: 'test'
+  ...
+# Subtest: F13 熔断开时缓存仍可服务：命中路径不碰模型 ⇒ 断路器**未被绕过**（fetch 计数不变）
+ok 13 - F13 熔断开时缓存仍可服务：命中路径不碰模型 ⇒ 断路器**未被绕过**（fetch 计数不变）
+  ---
+  duration_ms: 1.138895
+  type: 'test'
+  ...
+# Subtest: F16 留痕计数守恒：N 次调用恰好 N 行 —— 无沉默分支、无重复落痕
+ok 14 - F16 留痕计数守恒：N 次调用恰好 N 行 —— 无沉默分支、无重复落痕
+  ---
+  duration_ms: 7.291115
+  type: 'test'
+  ...
+# [F16] 5 次调用 → 5 行（含 1 次熔断拒绝 + 1 次缓存命中）
+# Subtest: F14/F15 装配面：apply(config) 六项配置真被消费（guardState 逐项对账 + 并发上限端到端生效）
+ok 15 - F14/F15 装配面：apply(config) 六项配置真被消费（guardState 逐项对账 + 并发上限端到端生效）
+  ---
+  duration_ms: 528.072321
+  type: 'test'
+  ...
+# [F14/F15] config 逐项对账通过；并发峰值=2；jev_log=5 行
+# Subtest: F17 护栏不偷改模型面：正常判定的 value/probability 与纯原语逐字一致（缓存只复制、不重算）
+ok 16 - F17 护栏不偷改模型面：正常判定的 value/probability 与纯原语逐字一致（缓存只复制、不重算）
+  ---
+  duration_ms: 0.852719
+  type: 'test'
+  ...
+# Subtest: F18 结构性：src/index.ts 里无 `void config`，且每个 Config 键都被 config.<key> 引用（附闸自身负向控制）
+ok 17 - F18 结构性：src/index.ts 里无 `void config`，且每个 Config 键都被 config.<key> 引用（附闸自身负向控制）
+  ---
+  duration_ms: 1.173746
+  type: 'test'
+  ...
+# Subtest: F19 键 cacheTtlSeconds 真被消费：设为 0 ⇒ 同 state+question 连续两次都不命中（缺省 300 会命中）
+ok 18 - F19 键 cacheTtlSeconds 真被消费：设为 0 ⇒ 同 state+question 连续两次都不命中（缺省 300 会命中）
+  ---
+  duration_ms: 453.058795
+  type: 'test'
+  ...
+# Subtest: F20 键 circuitBreakerFailures 真被消费：设为 2 ⇒ 第 2 次失败即打开（缺省 5 时会是 closed）
+ok 19 - F20 键 circuitBreakerFailures 真被消费：设为 2 ⇒ 第 2 次失败即打开（缺省 5 时会是 closed）
+  ---
+  duration_ms: 452.322404
+  type: 'test'
+  ...
+# Subtest: F21 键 circuitBreakerCooldownSeconds 真被消费：设 1 ⇒ 冷却按配置走（不是写死 60）；设 0 ⇒ 打开即半开
+ok 20 - F21 键 circuitBreakerCooldownSeconds 真被消费：设 1 ⇒ 冷却按配置走（不是写死 60）；设 0 ⇒ 打开即半开
+  ---
+  duration_ms: 2006.299102
+  type: 'test'
+  ...
+# Subtest: F22 键 maxConcurrency 真被消费：设为 2 ⇒ 服务面桩观测峰值**恰为 2**（缺省 4 会是 4）
+ok 21 - F22 键 maxConcurrency 真被消费：设为 2 ⇒ 服务面桩观测峰值**恰为 2**（缺省 4 会是 4）
+  ---
+  duration_ms: 515.38783
+  type: 'test'
+  ...
+# Subtest: F23 键 sessionBudget 真被消费：设为 2 ⇒ 第 3 次拒绝（缺省 200 会放行）
+ok 22 - F23 键 sessionBudget 真被消费：设为 2 ⇒ 第 3 次拒绝（缺省 200 会放行）
+  ---
+  duration_ms: 453.619032
+  type: 'test'
+  ...
+# Subtest: F24 键 concurrencyWaitTimeoutMs 真被消费：设为 80ms ⇒ 满载时等候者被拒（缺省 30s 会一直等）
+ok 23 - F24 键 concurrencyWaitTimeoutMs 真被消费：设为 80ms ⇒ 满载时等候者被拒（缺省 30s 会一直等）
+  ---
+  duration_ms: 603.088873
+  type: 'test'
+  ...
+# (node:147) [UNDICI-EHPA] Warning: EnvHttpProxyAgent is experimental, expect them to change at any time.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# (node:147) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# Subtest: S1-1 noul 单问：桩收到的 body 三件齐（model/state/questions）、题数=1、type/instructions 逐字；映射为 yes + 概率
+ok 24 - S1-1 noul 单问：桩收到的 body 三件齐（model/state/questions）、题数=1、type/instructions 逐字；映射为 yes + 概率
+  ---
+  duration_ms: 3.061261
+  type: 'test'
+  ...
+# [S1-1] url=https://nano-gpt.com/api/v1/systemone value=yes p=0.97
+# Subtest: S1-2 反向：noul=0.06 ⇒ no（阈值语义与旧通道一致）
+ok 25 - S1-2 反向：noul=0.06 ⇒ no（阈值语义与旧通道一致）
+  ---
+  duration_ms: 0.349286
+  type: 'test'
+  ...
+# Subtest: S1-3 **多问不压扁**：桩收到的 body 恰有 3 题且逐题 type/instructions/criteria 对上；返回 answers 三键全在
+ok 26 - S1-3 **多问不压扁**：桩收到的 body 恰有 3 题且逐题 type/instructions/criteria 对上；返回 answers 三键全在
+  ---
+  duration_ms: 0.470624
+  type: 'test'
+  ...
+# [S1-3] 3 题同调 → answers=urgent|kind|weight；契约面取 primary=urgent
+# Subtest: S1-4 `question` 缺省合成：不给 questions 时用契约面的 question 合成一个 noul 问（映射：question → instructions）
+ok 27 - S1-4 `question` 缺省合成：不给 questions 时用契约面的 question 合成一个 noul 问（映射：question → instructions）
+  ---
+  duration_ms: 0.267796
+  type: 'test'
+  ...
+# Subtest: S1-5 choice：value=unknown + probability=null（不用 0 冒充）+ **degraded=false**（链路健康，不是降级）+ 取值在 answers
+ok 28 - S1-5 choice：value=unknown + probability=null（不用 0 冒充）+ **degraded=false**（链路健康，不是降级）+ 取值在 answers
+  ---
+  duration_ms: 29.051743
+  type: 'test'
+  ...
+# Subtest: S1-6 score：同上（unknown/null/非降级），且 legend + 索引 score 都在
+ok 29 - S1-6 score：同上（unknown/null/非降级），且 legend + 索引 score 都在
+  ---
+  duration_ms: 0.354686
+  type: 'test'
+  ...
+# Subtest: S1-7 主问题缺失 ⇒ **显式降级**并列出可用键（**不偷偷挑第一个键**）
+ok 30 - S1-7 主问题缺失 ⇒ **显式降级**并列出可用键（**不偷偷挑第一个键**）
+  ---
+  duration_ms: 0.510333
+  type: 'test'
+  ...
+# Subtest: S1-8 次要答案形状认不出 ⇒ 进 `unusableAnswers`（可枚举）+ 原样留 raw，不静默丢
+ok 31 - S1-8 次要答案形状认不出 ⇒ 进 `unusableAnswers`（可枚举）+ 原样留 raw，不静默丢
+  ---
+  duration_ms: 0.323905
+  type: 'test'
+  ...
+# Subtest: S1-9 `normalizeAnswers` 纯函数面：非对象 ⇒ 空；缺 type ⇒ 记 (missing)
+ok 32 - S1-9 `normalizeAnswers` 纯函数面：非对象 ⇒ 空；缺 type ⇒ 记 (missing)
+  ---
+  duration_ms: 0.467694
+  type: 'test'
+  ...
+# Subtest: S1-10 无凭据 ⇒ **一次请求都不发** + 显式降级 systemone-no-api-key（不许静默 skip、不许回落 Ollama）
+ok 33 - S1-10 无凭据 ⇒ **一次请求都不发** + 显式降级 systemone-no-api-key（不许静默 skip、不许回落 Ollama）
+  ---
+  duration_ms: 0.773689
+  type: 'test'
+  ...
+# Subtest: S1-11 401 ⇒ httpError + reason 带服务端正文（实测形态：missing_api_key）
+ok 34 - S1-11 401 ⇒ httpError + reason 带服务端正文（实测形态：missing_api_key）
+  ---
+  duration_ms: 0.579683
+  type: 'test'
+  ...
+# Subtest: S1-12 400 错模型 ⇒ reason 带**服务端自报白名单**，且与本地常量逐项对账
+ok 35 - S1-12 400 错模型 ⇒ reason 带**服务端自报白名单**，且与本地常量逐项对账
+  ---
+  duration_ms: 0.544103
+  type: 'test'
+  ...
+# Subtest: S1-13 非 JSON 响应 / 网络异常 ⇒ 各自可枚举 reason，且**本函数不抛**
+ok 36 - S1-13 非 JSON 响应 / 网络异常 ⇒ 各自可枚举 reason，且**本函数不抛**
+  ---
+  duration_ms: 0.519124
+  type: 'test'
+  ...
+# Subtest: S1-14 无 answers / noul 越界 ⇒ 各自显式降级（不得当成 0 或 no）
+ok 37 - S1-14 无 answers / noul 越界 ⇒ 各自显式降级（不得当成 0 或 no）
+  ---
+  duration_ms: 0.412704
+  type: 'test'
+  ...
+# Subtest: S1-15 落痕守恒：6 条路径各落一行、降级行 degraded=1、cost_usd 落真实成本（拿不到则 null）
+ok 38 - S1-15 落痕守恒：6 条路径各落一行、降级行 degraded=1、cost_usd 落真实成本（拿不到则 null）
+  ---
+  duration_ms: 7.663677
+  type: 'test'
+  ...
+# [S1-15] 6 行：degraded=0,0,1,1,1,1
+# Subtest: S1-16 缺省值钉死：Config 缺省 = **ollama 通道 + 本地端点 + 本地模型**；systemone 常量独立且正确
+ok 39 - S1-16 缺省值钉死：Config 缺省 = **ollama 通道 + 本地端点 + 本地模型**；systemone 常量独立且正确
+  ---
+  duration_ms: 9.726655
+  type: 'test'
+  ...
+# Subtest: S1-17 双通道**都能被选中**且各自端点/模型正确（经 apply 装配 + 桩；不静默只剩云端）
+ok 40 - S1-17 双通道**都能被选中**且各自端点/模型正确（经 apply 装配 + 桩；不静默只剩云端）
+  ---
+  duration_ms: 752.376065
+  type: 'test'
+  ...
+# [S1-17] ollama→http://127.0.0.1:11434/api/chat · systemone→https://nano-gpt.com/api/v1/systemone
+# Subtest: S1-18 真通道判据的**显式红**是结构性事实：live 文件必须含 assert.fail、且**不得**出现静默跳过
+ok 41 - S1-18 真通道判据的**显式红**是结构性事实：live 文件必须含 assert.fail、且**不得**出现静默跳过
+  ---
+  duration_ms: 0.472824
+  type: 'test'
+  ...
+# Subtest: S1-19 契约未越界：本通道只产出 `JevJudgeResult` 的**超集**，core 的三态取值一字未增
+ok 42 - S1-19 契约未越界：本通道只产出 `JevJudgeResult` 的**超集**，core 的三态取值一字未增
+  ---
+  duration_ms: 0.397075
+  type: 'test'
+  ...
+# Subtest: S1-20 凭据解析优先级：显式入参 > 环境变量 > env 文件；来源**可枚举**且不含 key 本身
+ok 43 - S1-20 凭据解析优先级：显式入参 > 环境变量 > env 文件；来源**可枚举**且不含 key 本身
+  ---
+  duration_ms: 0.394685
+  type: 'test'
+  ...
+# Subtest: S1-21 `parseEnvFile` 纯函数面：注释/空行/export 前缀/单双引号/非法行
+ok 44 - S1-21 `parseEnvFile` 纯函数面：注释/空行/export 前缀/单双引号/非法行
+  ---
+  duration_ms: 0.219768
+  type: 'test'
+  ...
+# Subtest: S1-22 同源硬件约束：判据面与探针面读凭据走**同一个函数**（结构上不可能再分叉）
+ok 45 - S1-22 同源硬件约束：判据面与探针面读凭据走**同一个函数**（结构上不可能再分叉）
+  ---
+  duration_ms: 0.426855
+  type: 'test'
+  ...
+# Subtest: S1-23 主问题形状**认不出**（服务端可能新增 type）⇒ 显式降级 + reason 可枚举（不得当正常路径放行）
+ok 46 - S1-23 主问题形状**认不出**（服务端可能新增 type）⇒ 显式降级 + reason 可枚举（不得当正常路径放行）
+  ---
+  duration_ms: 0.209967
+  type: 'test'
+  ...
+# [S1-23] 认不出的主问题 ⇒ systemone-primary-not-noul: type=quantum
+1..46
+# tests 46
+# suites 0
+# pass 46
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 5366.439958
+(node:139) [UNDICI-EHPA] Warning: EnvHttpProxyAgent is experimental, expect them to change at any time.
+(Use `node --trace-warnings ...` to show where the warning was created)
+[jev·gate] **动态腿通过**：离线命名空间下 46/46 绿（exit 0）⇒ 判据确实零网络
+[jev·gate] **显式红腿通过**：无凭据跑真通道判据 ⇒ exit=1 tests=5 fail=5 **skipped=0**（红 + 零跳过 ⇒ "没凭据就是没验证过"是事实，不是文案）
+[jev·gate] 模型依赖面普查 · live/systemone-live.test.mjs：5 条用例，1 处以 assert.fail 兜住"无凭据/不可达"（不得静默 skip）
+[jev·gate] 绿：离线 46/46 · 合计 62 条判据全在等式内；自检腿 + 静态腿 + 动态腿（离线）+ 显式红腿 四通过

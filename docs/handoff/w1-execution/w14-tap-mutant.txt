@@ -1,0 +1,159 @@
+(node:175065) [UNDICI-EHPA] Warning: EnvHttpProxyAgent is experimental, expect them to change at any time.
+(Use `node --trace-warnings ...` to show where the warning was created)
+TAP version 13
+# (node:175072) [UNDICI-EHPA] Warning: EnvHttpProxyAgent is experimental, expect them to change at any time.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# (node:175072) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# Subtest: W1-4-⓪ 判据自检：用例计数 == 7，交付文件齐备且门控接线点在 src 里
+not ok 1 - W1-4-⓪ 判据自检：用例计数 == 7，交付文件齐备且门控接线点在 src 里
+  ---
+  duration_ms: 1.816472
+  type: 'test'
+  location: '/home/lk/Mana/packages/vector/tests/recall-gate-wiring.test.mjs:192:1'
+  failureType: 'testCodeFailure'
+  error: 'index.ts 里必须有对 runRecallGate 的**调用**（只有 import = 没接线）'
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: true
+  actual: false
+  operator: '=='
+  stack: |-
+    TestContext.<anonymous> (file:///home/lk/Mana/packages/vector/tests/recall-gate-wiring.test.mjs:203:10)
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+  ...
+# Subtest: W1-4-① 生产调用方 ≥1：vector/src 里有调用点；hook 模块零监听器/零 pre-step
+not ok 2 - W1-4-① 生产调用方 ≥1：vector/src 里有调用点；hook 模块零监听器/零 pre-step
+  ---
+  duration_ms: 0.281586
+  type: 'test'
+  location: '/home/lk/Mana/packages/vector/tests/recall-gate-wiring.test.mjs:208:1'
+  failureType: 'testCodeFailure'
+  error: '生产调用方必须 ≥1（实测 0）'
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: true
+  actual: false
+  operator: '=='
+  stack: |-
+    TestContext.<anonymous> (file:///home/lk/Mana/packages/vector/tests/recall-gate-wiring.test.mjs:211:10)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+  ...
+# Subtest: W1-4-② 端到端：recall() ⇒ 门控真被调用（真产物解析）⇒ 声明集 == jev_log 新增行集
+not ok 3 - W1-4-② 端到端：recall() ⇒ 门控真被调用（真产物解析）⇒ 声明集 == jev_log 新增行集
+  ---
+  duration_ms: 790.00956
+  type: 'test'
+  location: '/home/lk/Mana/packages/vector/tests/recall-gate-wiring.test.mjs:228:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    门控必须真被调用；unwiredReason=perturbed：接线被摘掉（负向对拍）
+    
+    false !== true
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: true
+  actual: false
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///home/lk/Mana/packages/vector/tests/recall-gate-wiring.test.mjs:237:10)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: W1-4-③ 反证 A（真故障注入）：监听器少落一行 ⇒ 声明 3 / 行 2 / failureKind=null ⇒ 对账必红
+not ok 4 - W1-4-③ 反证 A（真故障注入）：监听器少落一行 ⇒ 声明 3 / 行 2 / failureKind=null ⇒ 对账必红
+  ---
+  duration_ms: 706.052117
+  type: 'test'
+  location: '/home/lk/Mana/packages/vector/tests/recall-gate-wiring.test.mjs:268:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    门控声明 3 条（实测 0）
+    
+    0 !== 3
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 3
+  actual: 0
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///home/lk/Mana/packages/vector/tests/recall-gate-wiring.test.mjs:278:10)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: W1-4-④ 反证 B：门控显式关闭 ⇒ 门**未被调用** ⇒ 对账必红（接线这句话可证伪）
+not ok 5 - W1-4-④ 反证 B：门控显式关闭 ⇒ 门**未被调用** ⇒ 对账必红（接线这句话可证伪）
+  ---
+  duration_ms: 705.362611
+  type: 'test'
+  location: '/home/lk/Mana/packages/vector/tests/recall-gate-wiring.test.mjs:294:1'
+  failureType: 'testCodeFailure'
+  error: '未调用必须给出**可读且可分辨**的原因：perturbed：接线被摘掉（负向对拍）'
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: true
+  actual: false
+  operator: '=='
+  stack: |-
+    TestContext.<anonymous> (file:///home/lk/Mana/packages/vector/tests/recall-gate-wiring.test.mjs:305:10)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: W1-4-⑤ A1-8 Recall 支路：判定驱动失败 ⇒ jev_log 行 degraded=1 且返回有序 items
+not ok 6 - W1-4-⑤ A1-8 Recall 支路：判定驱动失败 ⇒ jev_log 行 degraded=1 且返回有序 items
+  ---
+  duration_ms: 705.735224
+  type: 'test'
+  location: '/home/lk/Mana/packages/vector/tests/recall-gate-wiring.test.mjs:325:1'
+  failureType: 'testCodeFailure'
+  error: '判定失败**也必须落痕**（G8：降级落显式字段，不是不写行）'
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: true
+  actual: false
+  operator: '=='
+  stack: |-
+    TestContext.<anonymous> (file:///home/lk/Mana/packages/vector/tests/recall-gate-wiring.test.mjs:333:10)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: W1-4-⑥ 回归：ManaRecall 契约字段未改 + 插件面未变 + 管道语义未变
+not ok 7 - W1-4-⑥ 回归：ManaRecall 契约字段未改 + 插件面未变 + 管道语义未变
+  ---
+  duration_ms: 653.632508
+  type: 'test'
+  location: '/home/lk/Mana/packages/vector/tests/recall-gate-wiring.test.mjs:356:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    
+    false !== true
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: true
+  actual: false
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///home/lk/Mana/packages/vector/tests/recall-gate-wiring.test.mjs:375:10)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+1..7
+# tests 7
+# suites 0
+# pass 0
+# fail 7
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 3653.141623

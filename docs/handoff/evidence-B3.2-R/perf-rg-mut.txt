@@ -1,0 +1,132 @@
+(node:36) [UNDICI-EHPA] Warning: EnvHttpProxyAgent is experimental, expect them to change at any time.
+(Use `node --trace-warnings ...` to show where the warning was created)
+TAP version 13
+# (node:43) [UNDICI-EHPA] Warning: EnvHttpProxyAgent is experimental, expect them to change at any time.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# (node:43) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# Subtest: RG-① 实现面清单逐个在册且是函数（反「实现被挖空」）
+ok 1 - RG-① 实现面清单逐个在册且是函数（反「实现被挖空」）
+  ---
+  duration_ms: 27.129686
+  type: 'test'
+  ...
+# Subtest: RG-② 态3 不可用：无监听器 / 抛错 / 未发起 / 空候选，四条入口都给 degraded + 非空 reason
+not ok 2 - RG-② 态3 不可用：无监听器 / 抛错 / 未发起 / 空候选，四条入口都给 degraded + 非空 reason
+  ---
+  duration_ms: 15.091293
+  type: 'test'
+  location: '/home/lk/Mana/packages/long-term/tests/recall-gate.test.mjs:131:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    gate 必须是 degraded，实测 judged
+    + actual - expected
+    
+    + 'judged'
+    - 'degraded'
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 'degraded'
+  actual: 'judged'
+  operator: 'strictEqual'
+  stack: |-
+    assertGateCoherent (file:///home/lk/Mana/packages/long-term/tests/recall-gate.test.mjs:62:10)
+    TestContext.<anonymous> (file:///home/lk/Mana/packages/long-term/tests/recall-gate.test.mjs:136:5)
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: RG-③ 态1/态2 真判定链：过阈 ⇒ judged/jev_prob；未过阈 ⇒ below_threshold/local_score
+not ok 3 - RG-③ 态1/态2 真判定链：过阈 ⇒ judged/jev_prob；未过阈 ⇒ below_threshold/local_score
+  ---
+  duration_ms: 13.637551
+  type: 'test'
+  location: '/home/lk/Mana/packages/long-term/tests/recall-gate.test.mjs:171:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    三态必须各自可分辨，实测 gate=judged / below_threshold / judged
+    
+    2 !== 3
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 3
+  actual: 2
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///home/lk/Mana/packages/long-term/tests/recall-gate.test.mjs:211:12)
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# [态1 过阈] gate=judged rankBy=jev_prob judged=3 prob=0.91 judgeType=rel_m-a
+# [态2 未过阈] gate=below_threshold degraded=false rankBy=local_score reason=判定可用但未过阈值：3 条候选已判（最高概率 0.210000 < 阈值 0.7） ⇒ 回落本地分排序（**这不是降级**：判定链可用且给出
+# Subtest: RG-④ 反证对拍：把降级信封里的 degraded:true 去掉 ⇒ 本判据必须报红（纯内存克隆）
+not ok 4 - RG-④ 反证对拍：把降级信封里的 degraded:true 去掉 ⇒ 本判据必须报红（纯内存克隆）
+  ---
+  duration_ms: 0.713601
+  type: 'test'
+  location: '/home/lk/Mana/packages/long-term/tests/recall-gate.test.mjs:221:1'
+  failureType: 'testCodeFailure'
+  error: '注入锚点必须**逐字**命中（锚点漂了本对拍就是空跑，必须红）'
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: true
+  actual: false
+  operator: '=='
+  stack: |-
+    TestContext.<anonymous> (file:///home/lk/Mana/packages/long-term/tests/recall-gate.test.mjs:224:10)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: RG-⑤ 既有行为：本批不新挂 agent/pre-step，effect 面仍恰好 3 条
+not ok 5 - RG-⑤ 既有行为：本批不新挂 agent/pre-step，effect 面仍恰好 3 条
+  ---
+  duration_ms: 645.900456
+  type: 'test'
+  location: '/home/lk/Mana/packages/long-term/tests/recall-gate.test.mjs:246:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    本仓未装判定链监听器 ⇒ 必然显式降级（fail-degraded）
+    + actual - expected
+    
+    + 'judged'
+    - 'degraded'
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 'degraded'
+  actual: 'judged'
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///home/lk/Mana/packages/long-term/tests/recall-gate.test.mjs:284:10)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: RG-⑥ 与既有 jev 插件真件联跑：装上 mana-jev 后 recallGate 走到它的监听器
+ok 6 - RG-⑥ 与既有 jev 插件真件联跑：装上 mana-jev 后 recallGate 走到它的监听器
+  ---
+  duration_ms: 776.67668
+  type: 'test'
+  ...
+# [真件联跑] gate=below_threshold channel=vector rankBy=local_score degraded=false probed=3 judged=3
+# Subtest: RG-⑦ 用例计数自检
+ok 7 - RG-⑦ 用例计数自检
+  ---
+  duration_ms: 0.928898
+  type: 'test'
+  ...
+1..7
+# tests 7
+# suites 0
+# pass 3
+# fail 4
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 1634.785618

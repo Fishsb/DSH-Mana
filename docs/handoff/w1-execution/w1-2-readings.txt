@@ -1,0 +1,106 @@
+# W1-2 读数 —— 真 JEV 通道 + 并发能力（席名 w1-2）
+# 取数坐标：HEAD 4de9b87（未提交，写面 = packages/jev/**，工作树无独占期）
+# 开工基线（BASELINE.txt）：npm test 561 pass / 0 fail · tracked 脏文件 19
+
+## 〇 交付文件表（路径 + 行数变化）
+packages/jev/src/framework.ts                  +124 / -5    （并发缺省 32 + 硬上限 120 + 预算 2000 + judgeFanout）
+packages/jev/src/index.ts                      +340 / -23   （channel 缺省翻转 + status() 四处读数 + judgeBatch/judgeFanout/judgeSeries）
+packages/jev/tests/w12-real-channel.test.mjs   +432（新）   （9 条零网络判据）
+packages/jev/tests/live/systemone-live.test.mjs +186 / -0   （L6–L9 四条真跑腿，5 → 9）
+packages/jev/tests/gate.mjs                    +4  / -1     （计数等式：离线 55 / 合计 75）
+packages/jev/tests/framework.test.mjs          +10 / -2     （8 条护栏腿**显式**声明 ollama 通道）
+packages/jev/tests/systemone.test.mjs          +10 / -3     （S1-16：缺省口径按 W1-2 翻转重钉）
+构建：npm run build -w packages/jev ⇒ lib 重出；已核 lib/framework.js 含 JEV_MAX_CONCURRENCY_LIMIT、
+      lib/index.js 含 judgeFanout/judgeBatch 与 default('systemone')，src/lib mtime FRESH。
+
+## 一 判据执行（命令 → exit → 关键读数）
+
+### ① 本包外部闸（静态 + 动态 + 显式红，四腿）
+$ node packages/jev/tests/gate.mjs
+exit=0
+  [jev·gate] **动态腿通过**：离线命名空间下 55/55 绿（exit 0）⇒ 判据确实零网络
+  [jev·gate] **显式红腿通过**：无凭据跑真通道判据 ⇒ exit=1 tests=9 fail=9 skipped=0
+  [jev·gate] 绿：离线 55/55 · 合计 75 条判据全在等式内；自检腿 + 静态腿 + 动态腿（离线）+ 显式红腿 四通过
+（离线 55 = framework 23 + systemone 23 + w12 9；联网面 20 = b12 11 + live 9）
+
+### ② 真通道真跑（live 腿，凭据来自 ~/jev/.env 的 NANOGPT_API_KEY，key 全程不回显）
+$ set -a; . ~/jev/.env; set +a; node --test packages/jev/tests/live/systemone-live.test.mjs
+exit=0   # tests 9 / pass 9 / fail 0 / skipped 0
+  [L6] channel=systemone model=jev-1.13 served=typesafe/jev-1.13-20260917 noul=0.97 768ms cost=0.000012222
+  [L7] 50问单请求=992ms（19.8ms/问） · 单问均值=878ms · 模型=typesafe/jev-1.13-20260917 · 成本=0.000069468
+  [L8] ok=120/120 wall=4200ms p50=2690ms p95=3290ms max=4198ms 28.6 req/s 行=120 峰值在飞=120
+  [L9] 数组形态 ⇒ status=400 body={"error":{"message":"Questions must be a non-empty object.",
+       "type":"invalid_request_error","code":"invalid_questions","param":"questions"}}
+复跑（同日第二遍，B 档浮动量的散布）：
+  [L6] 768→788ms · [L7] 50问 992ms / 814ms / 1461ms 三遍（16–29ms/问）
+  [L8] wall 4200ms（p95 3290ms）与 5695ms（p95 4745ms）两遍 ⇒ p95 均 < 5000ms
+
+### ③ 用户可复跑的就绪度探针（本批未改，原样通过）
+$ set -a; . ~/jev/.env; set +a; node packages/jev/scripts/probe-systemone.mjs --multi
+exit=0  6/6 PASS（noul 正/反 + choice 三例 + 多问同调），服务端自报 typesafe/jev-1.13-20260917
+
+### ④ 全量测试（本席收口时）
+$ npm test
+exit=1   # tests 587 / pass 585 / **fail 2**
+两条红均**不在本席写面**，且已做因果 A/B（见下 §三.4）：RG-JL-⑥c · RG-JL-Q1（packages/long-term）
+
+## 二 反证对拍（造扰动 ⇒ 判据必红 ⇒ 逐字节恢复；**全程未用 git reset --hard**）
+恢复判据 = sha256 前 16 位比对（每轮记录扰动前值，恢复后必须逐字节复现）
+
+| # | 扰动（改哪一行） | 判据 | 结果 |
+|---|---|---|---|
+| ① | framework.ts #release()：移交语义 → **先减后加** | W1-2-5 | **not ok**（exit=1） |
+| ② | framework.ts judgeFanout：Promise.all → **串行 for-await** | W1-2-4 | **not ok**，实测"桩观测的在飞峰值必须恰为 120…**实测 1**" |
+| ③ | index.ts Config：摘掉 `.max(JEV_MAX_CONCURRENCY_LIMIT)` | W1-2-3 | **not ok**（121 不再抛） |
+
+恢复核验：
+  framework.ts 扰动前 c933e7511e02fee0 → 恢复后 c933e7511e02fee0  **BYTE-IDENTICAL**
+  index.ts     扰动前 d479398ce681d076 → 恢复后 d479398ce681d076  **BYTE-IDENTICAL**
+
+## 三 回归自检（我碰过的既有行为，逐条核）
+1. **JevGuard 槽位移交语义**（framework.ts #release）：判据原文未改，新增 W1-2-5 把它钉成结构事实
+   （移交瞬间 inFlight 恒为上限、峰值 ≤ 上限、跑完归 0）；扰动①必红 ⇒ 未被弱化。
+2. **judgeWithGuard 准入顺序 / 唯一落痕出口 makeJevOutcome**：一行未改（diff 只在新函数里调用它）。
+3. **六护栏与 fail-closed 语义**：F1–F24 既有 23 条全绿（本批只把**夹具的通道**显式声明为 ollama，
+   断言与语义一字未改 —— 因为 W1-2 翻转了缺省通道，不声明就会测到另一条腿）。
+4. **★反向违约双向不变量 + traceWritten 三态**：不在本席写面（long-term / recall-gate）。
+   其两条腿转红**已做因果 A/B**（在本席写面内翻一个字面量交叉验证，不碰他席文件）：
+     腿 A：channel 缺省 = 'ollama' ⇒ recall-gate-jevlog **12/12 绿**
+     腿 B：channel 缺省 = 'systemone'（= 本批交付值）⇒ 同文件 **2 红**，且读数给出确切原因：
+          items=[["m-a",null],["m-b",null],["m-c",null]] · reason 含 `downstream-degraded(systemone-no-api-key)`
+     归因：我把它设成缺省 systemone 后，另席那条腿的**本地确定性生产桩**（只注入 fetchImpl、不给 apiKey）
+     被改道到真通道 ⇒ 无 key 即降级 ⇒ 该腿断言的前置（"走正常出口"）不成立。
+     ⚠ 这不是"把别处弄坏"：那两条腿测的是**别席生产侧**的行为，其**通道未显式声明**；
+     修法两选一（需父席/别席定，我不越界改）：
+       甲）在该文件唯一的 jev 挂载点 `ctx.plugin(jevMod, { channel: 'ollama' })` 显式声明替身通道
+           （一处改动即可让该文件 12/12 复绿；我已实测 A 腿）；
+       乙）在该文件的本地 judge 桩里传 `apiKey: 'stub-key'`（等价，且更贴"注入桩"的本意）。
+5. **契约与领域模型墙**：`git status --porcelain -- packages/core/src/event-types.ts packages/core/src/domain.ts`
+   ⇒ **空**（一字未动）；未装任何依赖；未碰 shoucang；未碰 DSH 宿主；无物理删除（唯一的表操作是
+   long-term 测试自身的 ALTER RENAME，非本席所为）。
+6. **未回退项**：annotate() 唯一归因计算点 / assertRowsMatchDeclaration 唯一对账实现 —— 本席未触碰；
+   六项护栏中 maxConcurrency 上限与 sessionBudget 缺省**有据改动**（见下 §五）。
+
+## 四 反向复核：我改了什么、凭什么说它没旁伤
+| 改动 | 碰到的既有行为 | 凭什么确认仍成立 |
+|---|---|---|
+| channel 缺省 ollama→systemone | 所有**未显式声明通道**的装配（含本仓 5 个测试文件、生产 profile） | 两通道各自端到端腿（S1-17）仍绿；repo 内逐挂载点扫过（见 §三.4 清单），改动的只有本包两条**测护栏**的文件 |
+| maxConcurrency 缺省 4→32 + 上限 120 | F14/F15/F22/F23/F24 的"缺省 4/200"口径 | 那些腿全部**显式传值**，本就不依赖缺省；F22 标题里"缺省 4"的字样按实测改写（断言未变） |
+| sessionBudget 缺省 200→2000 | F23（"缺省 200 会放行"） | F23 显式传 2，不依赖缺省；改因见 §五（120 并发下 200 会被预算先掐死） |
+| 新增 judgeFanout/judgeBatch | 既有 judgeSeries/judgeGuarded | 新函数不改旧函数；judgeSeries 保留为"并发上限=1"的等价通路，两路语义可由同一条配置推出 |
+
+## 五 缺省值与其依据（不是偏好）
+- **channel 缺省 = 'systemone'**：旧缺省 'ollama' 是**替身**（非 JEV 模型）⇒「配好了真 JEV 却跑替身」
+  是静默的配置与能力不匹配。代价如实记：缺省腿需要 key，无 key 时**显式降级**（不静默、不回落）。
+- **maxConcurrency 缺省 = 32**：旧值 4 是**本机替身**（单 GPU）时代的约束；真 JEV 实测 120/120 成功。
+  取 32 而非 120 是**冲击面**考虑：缺省是无人值守的第一个值，真打 120 请显式配置（上限由 Schema 红住）。
+- **硬上限 = 120**：超配不会变吞吐，只会变 429/降级行 ⇒ 把"打过头"挡在**配置面**而不是库里。
+- **sessionBudget 缺省 200→2000**：被并发上调**迫着改**的——真实形态「50 问 × 120 并发」一次就超过 200，
+  会出现"并发刚打开、预算先闭麦"（让失败不可观测）。
+
+## 六 未做（如实记，避免被读成"已做"）
+- **两级叠加（N 问/请求 × M 并发）未做**：本次 120 并发腿是 120 × 1 问。它属方案 W3-3（本批验收只要求
+  "120 并发 ok=120/120、p95<5s" 与 "50 问单请求 ≈1.7s" 两条独立的腿）。
+- **未改 profile 装配**：翻转的是**代码缺省**；若需要线上活体跑真通道，仍需在 profile 配置里确认/显式写
+  `channel`（本席无 profile 写权，属部署面）。
+- **未提交**：本仓只有一个 git 写席（并发纪律 §4），提交归父席。

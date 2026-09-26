@@ -1,0 +1,65 @@
+(node:58) [UNDICI-EHPA] Warning: EnvHttpProxyAgent is experimental, expect them to change at any time.
+(Use `node --trace-warnings ...` to show where the warning was created)
+TAP version 13
+# (node:65) [UNDICI-EHPA] Warning: EnvHttpProxyAgent is experimental, expect them to change at any time.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# (node:65) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# Subtest: RG-JL-① 判定键派生：同批次 N 条候选 ⇒ N 个互不相同的键；跨批次不复用
+ok 1 - RG-JL-① 判定键派生：同批次 N 条候选 ⇒ N 个互不相同的键；跨批次不复用
+  ---
+  duration_ms: 1.065346
+  type: 'test'
+  ...
+# Subtest: RG-JL-③ 真件对账：3 候选 ⇒ jev_log 恰新增 3 行，行 id 逐条等于 out.judgeIds
+not ok 2 - RG-JL-③ 真件对账：3 候选 ⇒ jev_log 恰新增 3 行，行 id 逐条等于 out.judgeIds
+  ---
+  duration_ms: 6583.695189
+  type: 'test'
+  location: '/home/lk/Mana/packages/long-term/tests/recall-gate-jevlog.test.mjs:101:1'
+  failureType: 'testCodeFailure'
+  error: 'session_id 必须逐行等于请求里的会话（护栏分区不得并进 undefined）：[null,null,null]'
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: true
+  actual: false
+  operator: '=='
+  stack: |-
+    TestContext.<anonymous> (file:///home/lk/Mana/packages/long-term/tests/recall-gate-jevlog.test.mjs:120:10)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: RG-JL-③b 真生产者 judgeWithGuard（注入 fetch）⇒ 判过阈且落痕 id 逐条等于 judgeIds
+ok 3 - RG-JL-③b 真生产者 judgeWithGuard（注入 fetch）⇒ 判过阈且落痕 id 逐条等于 judgeIds
+  ---
+  duration_ms: 657.6562
+  type: 'test'
+  ...
+# [真生产者] gate=judged judged=3 rankBy=jev_prob 增量=3 ids=["r-prod\#rel_m-a","r-prod\#rel_m-b","r-prod\#rel_m-c"] · 透传给驱动的阈值=[null,null,null,null,null,null] · 严格阈值那次 gate=below_threshold
+# Subtest: RG-JL-④ 反证对拍：把唯一 requestId 变异回退成逐候选复用同一 requestId ⇒ 计数必红
+ok 4 - RG-JL-④ 反证对拍：把唯一 requestId 变异回退成逐候选复用同一 requestId ⇒ 计数必红
+  ---
+  duration_ms: 358.827775
+  type: 'test'
+  ...
+# Subtest: RG-JL-⑤ 既有结论不回退：三态可分辨仍成立、降级不标 jev_prob、rankBy 回落
+ok 5 - RG-JL-⑤ 既有结论不回退：三态可分辨仍成立、降级不标 jev_prob、rankBy 回落
+  ---
+  duration_ms: 506.553042
+  type: 'test'
+  ...
+# [不回退自证] pass=judged/jev_prob · 无监听器=degraded/local_score · 真件=degraded · jev 监听器不透传 threshold=✓（字面层断言）
+# Subtest: RG-JL-⑥ 用例计数自检
+ok 6 - RG-JL-⑥ 用例计数自检
+  ---
+  duration_ms: 0.409975
+  type: 'test'
+  ...
+1..6
+# tests 6
+# suites 0
+# pass 5
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 8227.812218
