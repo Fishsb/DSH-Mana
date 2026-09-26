@@ -2,7 +2,7 @@
   "name": "mana",
   "version": "0.1.0",
   "private": true,
-  "description": "Mana（末那识）：认知架构模拟与长期 AI 助手 —— DSH 插件集工作区",
+  "description": "Mana（末那识）：认知架构模拟与长期 AI 助手 —— 基于人类记忆架构的认知内核（DSH 插件集）",
   "type": "module",
   "license": "MIT",
   "workspaces": [
