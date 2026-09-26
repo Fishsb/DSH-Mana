@@ -27,6 +27,8 @@ import { dirname, join } from 'node:path'
  *     被整份删除时**不再有机会执行**，故那层自检挡不住"删整个文件"；登记进本闸才挡得住。
  *     本席只补登记，**未动它的任何断言与条数**。
  *   · `bigloop.test.mjs`（12 条）为 D2 席新增文件，随本次改动一并登记。
+ *   · `bigloop-wiring.test.mjs`（11 条）为 E2 接线席新增文件（大环路的生产调用方判据），
+ *     随本次改动一并登记 —— **不登记就等于"删掉整份判据"在本闸下不可见**（形态 ②）。
  */
 const FILES = [
   { file: 'b11-vector.test.mjs', cases: 15 },
@@ -37,6 +39,8 @@ const FILES = [
   // D2 大环路递归检索（v10 §12.5 / §14.7）：新增文件**必须在此登记**，
   // 否则"删掉整份判据"这一形态在本闸下不可见（本仓实测过的假绿形态 ②）。
   { file: 'bigloop.test.mjs', cases: 12 },
+  // E2 大环路接线（生产调用方 ≥1）：桩计数 + 缺省关 + 契约面零改动。
+  { file: 'bigloop-wiring.test.mjs', cases: 11 },
 ]
 
 const here = dirname(fileURLToPath(import.meta.url))
