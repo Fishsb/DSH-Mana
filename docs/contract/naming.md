@@ -22,6 +22,7 @@
 | `dsh-mana-metacognition` | `packages/metacognition` | `mana-metacognition` | `mana-metacognition` | P2 | `mana-core` |
 | `dsh-mana-user-model` | `packages/user-model` | `mana-user-model` | `mana-user-model` | P2 | `mana-core` |
 | `dsh-mana-ui` | `packages/ui` | `mana-ui` | `mana-ui` | P2 | `mana-core` |
+| `dsh-mana-prompts` | `packages/prompts` | `mana-prompts` | `mana-prompts` | P1 | —（无依赖；**纯数据包**：不注册监听器、不读服务、不写库，故装配位次无先后约束） |
 
 > ⚠ **本表必须与代码同步**（2026-09-24 修正）：本表**曾只列 P0 六个包**，而仓库实际有 **13 个包** ——
 > 7 个后建包（P1/P2）的名字**不在契约内**，且 `A0-5` 的目录清单是**硬编码 6 元素**
