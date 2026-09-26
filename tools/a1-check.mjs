@@ -51,7 +51,7 @@
  */
 import { copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
-import { dirname, join, relative } from 'node:path'
+import { basename, dirname, join, relative } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { createRequire } from 'node:module'
 import { execFileSync, spawnSync } from 'node:child_process'
@@ -316,8 +316,30 @@ const MUTATORS = {
   },
   'a1-5': {
     target: 'A1-5',
-    selfKernel: true,
-    why: 'A1-5 仓内无实现 ⇒ 变异注入到**判据内联核**（半衰期由 14 变 7）。这是判据自证，不是实现变异 —— 如实标注',
+    /**
+     * ⚠ **本项已从「判据自证」改为「实现变异」**（N3，2026-09-26）。
+     *
+     * 旧形态：`selfKernel: true` —— 变异打在**本脚本自己的内联核**上，因为「A1-5 仓内无实现」。
+     * 但该前提**早已失效**：仓内已有真实现者 `packages/long-term/src/decay.ts`，
+     * 而本块此前仍对自己内联核自证（挂账原文：「本项须改接真实现后再判；对闭式核自证不再是有效判据」）。
+     * ⇒ 现在改为：**真读 long-term 的 decay.ts，真替换，真写克隆副本**，走 `loadCloned()` 的既有通道。
+     *
+     * 变异内容：把定义式里的半衰期改用**硬编码 14**，从而**忽略传入的 halfLifeDays 参数**。
+     *   这是 c3 席实测点名的坏核形态①：「忽略 h 的死旋钮核」——它能把三条锚点**全过**
+     *   （锚点全用同一个 h=14），故它正是「三条锚点不充分」的活证据。
+     *   ⚠ 必须同时满足：A1-5 判红（咬得住坏核），且**其余项不误伤**。
+     *
+     * 锚点唯一性：`export function decay(t: number, halfLifeDays: number = HALF_LIFE_DAYS): number {`
+     *   在 decay.ts 里只出现一次（下面的 `edits` 由 `loadCloned` 强制「恰好命中 1 次」）。
+     */
+    file: 'packages/long-term/src/decay.ts',
+    why: '把衰减核的定义式改为硬编码 14（忽略 halfLifeDays 参数）—— 复现 c3 席点名的「死旋钮核」形态①；锚点须带上下文以唯一化',
+    edits: [
+      [
+        'export function decay(t: number, halfLifeDays: number = HALF_LIFE_DAYS): number {',
+        'export function decay(t: number, halfLifeDays: number = HALF_LIFE_DAYS): number {' + String.fromCharCode(10) + '  void halfLifeDays; halfLifeDays = HALF_LIFE_DAYS',
+      ],
+    ],
   },
 }
 
@@ -655,11 +677,25 @@ const mutOf = (checkId) => [...MUTATES].find((m) => MUTATORS[m]?.target === chec
 /** 本次运行创建过的临时克隆目录（收尾逐个删；不用通配，避免误删同名目录）。 */
 const createdDirs = []
 
-/** 克隆一份被测源文件到临时目录（可选注入变异），返回可 import 的模块。 */
+/**
+ * 克隆一份被测源文件到临时目录（可选注入变异），返回可 import 的模块。
+ *
+ * `file` 有两种形态：
+ *   · **仓根相对路径**（含 `/`，如 `packages/long-term/src/decay.ts`）⇒ 相对 `ROOT` 解析；
+ *   · **裸文件名**（如 `rrf.ts`，vector 包内的既有约定）⇒ 相对 `SRC` 解析。
+ * ⚠ 必须支持前者的理由（N3 实测踩到）：A1-5 的真实现者在 **long-term** 包，不在 vector；
+ *   旧实现把一切路径都拼到 `SRC` 上，于是 `packages/long-term/…` 被拼成
+ *   `packages/vector/src/packages/long-term/…` ⇒ ENOENT（**报错很响，是好事**：
+ *   若当时静默回落，A1-5 就会拿未变异的核跑绿，变成"判据无牙却报通过"）。
+ */
+function resolveMutTarget(file) {
+  return file.includes('/') ? P(file) : join(SRC, file)
+}
 async function loadCloned(file, mutId) {
   const dir = mkdtempSync(join(tmpdir(), 'mana-a1-'))
   createdDirs.push(dir)
-  let txt = readFileSync(join(SRC, file), 'utf8')
+  const target = resolveMutTarget(file)
+  let txt = readFileSync(target, 'utf8')
   if (mutId) {
     const m = MUTATORS[mutId]
     if (!m || m.file !== file) throw new Error(`变异器 ${mutId} 与被测文件 ${file} 不匹配`)
@@ -670,8 +706,12 @@ async function loadCloned(file, mutId) {
     }
   }
   // 相对 import 改写成绝对 file: URL —— 克隆体不在原目录，相对路径会失配。
-  txt = txt.replace(/from '\.\/([\w.-]+\.ts)'/g, (_all, f) => `from '${url(join(SRC, f))}'`)
-  const out = join(dir, file)
+  // ⚠ 基准目录必须取**被测文件自己所在的目录**（不是恒取 SRC）：跨包目标（long-term）下
+  //   它的 `./params.ts` 指的是 long-term/src/params.ts，不是 vector/src/params.ts。
+  const baseDir = dirname(target)
+  txt = txt.replace(/from '\.\/([\w.-]+\.ts)'/g, (_all, f) => `from '${url(join(baseDir, f))}'`)
+  // 落盘用 basename：克隆目录是新建的临时目录，不会有同名冲突（子目录结构不参与模块解析）。
+  const out = join(dir, basename(file))
   writeFileSync(out, txt)
   if (mutId) mutApplied.add(mutId)
   return { mod: await import(url(out)), dir }
@@ -994,6 +1034,10 @@ const fixed = (x, n = 6) => Number(x).toFixed(n)
    *   下面 `impls.length` 分支仍记 HANG，只是 detail 里追加**两条牙的实测读数**。
    *   这是**可观测性补强**，不是改档位；把「等级未变」读成「本轮没进展」或把「补了腿」读成「已 PASS」都是误读。
    */
+  /** 真核加载失败时的原因（非空 ⇒ 本项显式 FAIL，不得回落内置核）。 */
+  let kernelLoadError = null
+  /** 变异克隆体加载失败时的原因（非空 ⇒ 本项显式 FAIL，不得回落未变异真核）。 */
+  let decayMutError = null
   /** 带牙腿的真源模块（本包唯一的「齿」实现；绝对路径，不依赖跨包相对解析）。 */
   const TEETH_MODULE = 'file:///home/lk/Mana/packages/forgetting/src/retention.ts'
   /** 带牙腿要判的**真核**（仓内唯一的衰减核实现者；与下面 impls 扫描同源）。 */
@@ -1006,15 +1050,23 @@ const fixed = (x, n = 6) => Number(x).toFixed(n)
    */
   let teethText = ''
   let teethOk = null
+  /**
+   * ⚠ **牙齿必须咬在"被判的那个核"上**（N3 实测修正）：旧写法取 `kernel.decay`（真源文件），
+   *   于是 `--mutate a1-5` 时牙齿仍在检查**未变异的真核** ⇒ 变异跑绿（判据无牙）。
+   *   现改为咬 `decay`（= 变异时是克隆体、常态时是真核）——牙齿与锚点必须同源，
+   *   否则「咬谁」与「判谁」是两件事，而这正是最常见的假绿形态。
+   */
   try {
     const mod = await import(TEETH_MODULE)
-    const kernel = await import(KERNEL_MODULE)
     if (typeof mod.decayKernelTeeth !== 'function') {
       teethText = '带牙腿真源缺 decayKernelTeeth 导出（判据面被削）'
       teethOk = false
+    } else if (typeof decay !== 'function') {
+      teethText = '被判的核不可用（上方已记 FAIL）⇒ 牙齿未判定'
+      teethOk = null
     } else {
       const r = mod.decayKernelTeeth(
-        { decay: kernel.decay },
+        { decay },
         { frozenHalfLife: FROZEN_H, probeHalfLife: FROZEN_H / 2 },
       )
       teethOk = r.ok === true
@@ -1025,21 +1077,85 @@ const fixed = (x, n = 6) => Number(x).toFixed(n)
     teethText = '带牙腿**未判定**（' + String((error && error.message) || error).slice(0, 140) + '）'
     teethOk = null
   }
-  const decay = (t, h) => Math.exp((-t * Math.LN2) / h) // 半衰期定义式，与 docs/mana-v5-plan.md:533 逐字同形
-  /** `--mutate a1-5`：判据内联核的变异（本项无实现可变异，见上面 caveat；如实标注）。 */
-  const H = mutOf('A1-5') ? 7 : 14
-  const anchors = [
-    ['decay(0)', decay(0, H), 1.0],
-    ['decay(14)', decay(14, H), 0.5],
-    ['decay(90)', decay(90, H), 0.011609],
-  ]
   /**
-   * 自证变异的**注入证据**：核真的被换过时，`decay(14)` 会算成 0.25（半衰期 7 天）
-   * 而不是判据锚点的 0.5 —— 这里读的是**算出来的数**，不是"请求了变异"这个标志。
-   * 反例（本腿要抓的缺陷）：若哪天有人把锚点写成 `decay(14, 14)`（忽略 H）或换掉核，
-   *   变异仍是"请求过"的、A1-5 仍会绿，但本登记不会发生 ⇒ 自证腿报「变异未真正注入」。
+   * ── N3（2026-09-26）：**改接真实现** ────────────────────────────────────────────
+   * 三条锚点此前打在**本脚本自己的内联核**上。挂账原文即「本项须改接真实现后再判；
+   * 对闭式核自证不再是有效判据」—— 因为内联核**永远**会长成锚点想要的形状，
+   * 那样的绿证明的是「我会写指数式」，不是「仓里的核是对的」。
+   * ⇒ 现在三锚点打在**仓内真核** `long-term/src/decay.ts` 上（同一份 KERNEL_MODULE）。
+   *   ⚠ 半衰期 h 由**真源参数** `HALF_LIFE_DAYS` 提供（不是本脚本再写一个 14）：
+   *     否则「参数被改成 7」时本项仍会拿 14 去过锚点 ⇒ 判据与实现各说各话。
+   *     读不到参数 ⇒ 显式 FAIL（不得回退到内置 14，那会让"参数没了"变成静默通过）。
    */
-  if (mutOf('A1-5') && !near(anchors[1][1], 0.5)) selfApplied.add(mutOf('A1-5'))
+  let kernelDecay = null
+  let kernelHalfLife = null
+  try {
+    const km = await import(KERNEL_MODULE)
+    const pm = await import('file:///home/lk/Mana/packages/long-term/src/params.ts')
+    if (typeof km.decay !== 'function') throw new Error('decay.ts 未导出函数 decay')
+    kernelDecay = km.decay
+    kernelHalfLife = pm.HALF_LIFE_DAYS
+    if (!Number.isFinite(kernelHalfLife) || kernelHalfLife <= 0) {
+      throw new Error('HALF_LIFE_DAYS 非正有限数（实测 ' + String(kernelHalfLife) + '）')
+    }
+  } catch (error) {
+    kernelDecay = null
+    kernelHalfLife = null
+    kernelLoadError = String((error && error.message) || error).slice(0, 200)
+  }
+  // 变异本体：真读 decay.ts ⇒ 真替换 ⇒ 真写克隆副本（loadCloned 的既有通道）。
+  let decay = kernelDecay
+  if (mutOf('A1-5')) {
+    try {
+      const { mod } = await loadCloned('packages/long-term/src/decay.ts', mutOf('A1-5'))
+      decay = mod.decay
+    } catch (error) {
+      decayMutError = String((error && error.message) || error).slice(0, 200)
+    }
+    /**
+     * ⚠ 自证登记**必须落在"真注入了"上**，而不是「请求了变异」（旧形态的恒真缺陷）：
+     *   判定基准 = 克隆核在 h=14 与 h=7 上给出**相同**的数（= 参数真被忽略）。
+     *   这正是本变异要注入的缺陷形态；未注入时两值必然不同 ⇒ 登记不发生 ⇒ 自证腿报红。
+     */
+    if (typeof decay === 'function') {
+      try {
+        if (near(decay(14, 14), decay(14, 7), 1e-12)) selfApplied.add(mutOf('A1-5'))
+      } catch { /* 抛错的核 ⇒ 不登记，由下面的锚点腿照实报红 */ }
+    }
+  }
+  // 三锚点：h 取自**真源参数**（未变异时 = 14），调用**真核**。
+  const H = kernelHalfLife
+  /**
+   * 三锚点（判据表逐字口径，h = 真源参数）+ **一条参数敏感探针**。
+   *
+   * ⚠ 为什么必须补第四条（N3 实测）：三条锚点**全部用同一个 h** ⇒ 「忽略 halfLifeDays 的
+   *   死旋钮核」能把它们**全过**（这正是 c3 席点名的形态①，本次变异实测复现）。
+   *   探针用 `H/2` 求值，并要求它与 `decay(14, H)` **不等**——死旋钮核在此必红。
+   *   ⚠ 探针不写死期望数值：它判的是**参数有没有被消费**（关系），不是某个具体数
+   *     （写死数值会让判据表 h 与实现 h 各说各话）。
+   */
+  const anchors = decay === null || H === null
+    ? []
+    : [
+        ['decay(0)', decay(0, H), 1.0],
+        ['decay(14)', decay(14, H), 0.5],
+        ['decay(90)', decay(90, H), 0.011609],
+      ]
+  /**
+   * 死旋钮探针：同 t=14、h 减半 ⇒ 留存率必须**变小**（半衰期短 ⇒ 衰减快）。
+   * `null` = 核不可用（此时走 FAIL 分支，不在这里判）。
+   */
+  const knobProbe = decay === null || H === null
+    ? null
+    : (() => {
+        try {
+          const at14 = decay(14, H)
+          const at14HalfH = decay(14, H / 2)
+          return { at14, at14HalfH, consumed: at14HalfH < at14 - 1e-9 }
+        } catch (error) {
+          return { error: String((error && error.message) || error).slice(0, 120) }
+        }
+      })()
   const bad = anchors.filter(([, got, want]) => !near(got, want)).map(([n, got, want]) => `${n}=${got}（应 ${want}）`)
   // 实时扫描实现者：导出名像衰减核的函数/常量
   const impls = []
@@ -1052,7 +1168,9 @@ const fixed = (x, n = 6) => Number(x).toFixed(n)
       if (/export (?:function|const)\s+(?:decay|timeDecay|decayOf|retentionOf|halfLifeDecay)\b/.test(txt)) impls.push(`packages/${pkg}/src/${f}`)
     }
   }
-  const detail = anchors.map(([n, g, w]) => `${n}=${fixed(g)}（差 ${Math.abs(g - w).toExponential(2)}）`).join(' · ')
+  const detail = anchors.length
+    ? anchors.map(([n, g, w]) => `${n}=${fixed(g)}（差 ${Math.abs(g - w).toExponential(2)}）`).join(' · ')
+    : '（锚点未取数：真核或参数不可读）'
   /**
    * 牙读数的**唯一渲染口**（三处分支共用一份，避免「有的分支带、有的不带」的漂移）。
    * ⚠ 未判定（`null`）**不算过**：文案里显式写「未判定」——
@@ -1060,23 +1178,45 @@ const fixed = (x, n = 6) => Number(x).toFixed(n)
    */
   const teethNote =
     '带牙腿：' + (teethOk === true ? '两条牙全过' : teethOk === false ? '**有牙咬住**' : '**未判定**') + ' —— ' + teethText
-  if (bad.length) fail(id, title, `闭式核不符：${bad.join('；')}`, '回排序步骤（衰减核参数 h=14 天）')
-  else if (impls.length)
-    hang(id, title, `${detail}｜${teethNote}｜⚠ 仓内已出现衰减核实现者：${impls.join(', ')}`, '本项须改接真实现后再判；对闭式核自证不再是有效判据', {
-      token: 'A1-5',
-      crit: 'A1-5',
-      implBatch: 'B4.2',
-      note:
-        '原定验收阶段 = 阶段 3（B4.2 实现半衰期 14 天）；**而本项由阶段 1 的门读** ⇒ 阶段 1 的绿不构成它被验收' +
-        '；⚠ **等级本轮未改**（HANG→PASS 的定级属判据登记席，另派）：本块只补了两条带牙腿的实测读数',
-    })
-  else
-    none(
+  /**
+   * ── 四态判定（N3 改接真实现后的口径）────────────────────────────────────────
+   * ⚠ 与旧口径的关键差别：**不再有「无实现者 ⇒ NONE」这条路** —— 仓内已有真核，
+   *   读不到它就是**失败**（真核被删/被改名 ⇒ 必须报红，不是"挂账"）。
+   *   「读不到」与「读到了但不合格」分两个 detail，但**都是 FAIL**。
+   */
+  if (kernelLoadError !== null) {
+    fail(id, title, `真核不可读：${kernelLoadError}`, '回 long-term/src/decay.ts（A1-5 的实现者必须是仓内真核）')
+  } else if (decayMutError !== null) {
+    fail(id, title, `变异克隆体加载失败：${decayMutError}`, '回变异装置（锚点须恰好命中 1 次）')
+  } else if (bad.length) {
+    fail(id, title, `真核不符：${bad.join('；')}`, '回排序步骤（衰减核参数 h=14 天）')
+  } else if (knobProbe !== null && 'error' in knobProbe) {
+    fail(id, title, `死旋钮探针抛错：${knobProbe.error}`, '回 decay.ts（半衰期参数必须可被消费）')
+  } else if (knobProbe !== null && knobProbe.consumed !== true) {
+    /**
+     * ⚠ **本分支是 N3 的核心判据**：三条锚点全过**不足以**证明核正确 ——
+     *   本次实测复现：把定义式改成硬编码 14（忽略参数）后，三条锚点**照样全过**。
+     *   探针要求 h 减半时留存率必须变小；死旋钮核在此给出同一个数 ⇒ 红。
+     */
+    fail(
       id,
       title,
-      `${detail}｜${teethNote}｜仓内**无实现者**（依赖链：B4.2 前置于 B3.1，落地册:547 / :503）`,
-      '只此一处不合格：本项证明的是「判据锚点成立」，不是「实现正确」——实现落地时本项须改接真实现',
+      `死旋钮核：h=14 与 h=7 在 t=14 处给出同一个数（${fixed(knobProbe.at14)} vs ${fixed(knobProbe.at14HalfH)}）⇒ halfLifeDays 参数被忽略`,
+      '回 decay.ts（衰减核必须消费 halfLifeDays 参数，不得硬编码半衰期）',
     )
+  } else if (teethOk === false) {
+    // 带牙腿咬住 = 真核违反两条契约之一 ⇒ 实现不合格（不是判据问题）。
+    fail(id, title, `${detail}｜${teethNote}`, '回 decay.ts（核必须消费 halfLifeDays 且拒绝负时间）')
+  } else {
+    pass(
+      id,
+      title,
+      `${detail}｜${teethNote}｜真核 = ${KERNEL_MODULE.replace('file://', '')}（h 取自真源参数 HALF_LIFE_DAYS）` +
+        `｜死旋钮探针：✓（h 减半 ⇒ ${fixed(knobProbe.at14HalfH)} < ${fixed(knobProbe.at14)}）` +
+        `｜实现者扫描：${impls.length ? impls.join(', ') : '（无）'}`,
+      '三锚点打在**仓内真核**上（不是判据内联核）；负向由 --mutate a1-5 注入「死旋钮核」验证（须红）',
+    )
+  }
 }
 
 // ══ A1-11 降级可区分（可枚举字段断言）═══════════════════════════════════════
