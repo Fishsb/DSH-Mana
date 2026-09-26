@@ -19,6 +19,8 @@
  *                       `equivalentHalfLifeDays(S) = S·ln2`（与 long-term 的 decay 同一核的证据）
  *  · `archive.ts`   —— 四区间归档 `A>τ+1.0 / τ<A≤τ+1.0 / τ-0.5<A≤τ / A≤τ-0.5`（**B4.2 ②**）
  *  · `prune.ts`     —— 修剪**只读候选视图**（**B4.2 ④**；不写库、不触发归档）
+ *  · `renorm.ts`    —— **v10 §13.6 突触重归一化**（守恒式全局重缩放；纯函数、零 import）。
+ *                       ⚠ 守恒支点必须是**批次均值** μ（换支点则 Σ(S_i−μ)≠0，守恒立刻破）
  *  · `activity.ts`  —— **§16.3 记忆活性分级**（热/温/冷）：两轴合取（召回轴 + 只读 `classify()` 的激活轴），
  *                       无访问记录者激活轴记 ⊥ 不参与判级（防新记忆被静默判冷）；与 retirement 有对账面
  *  · `criteria.ts`  —— **包内阈值注册表**（形态参考 metacognition 的 criteria.json；
@@ -120,6 +122,16 @@ import {
 } from './retention.ts'
 import { strengthAfterRepeat, strengthAfterRepeats, strengthDelta, strengthDeltaRaw, type PavlikParams } from './strength.ts'
 import { pruneCandidates, pruneViewSummary, type PruneView, type PruneViewOptions } from './prune.ts'
+import {
+  renormalizeSynapses,
+  type RenormDirection,
+  type RenormNoopReason,
+  type RenormOutcome,
+  type RenormRank,
+  type RenormRecord,
+  type RenormSnapshot,
+  type RenormView,
+} from './renorm.ts'
 import { CRITERIA_REGISTRY, calibrationConsistency, uncalibratedIds } from './criteria.ts'
 import {
   ACTIVITY_LEVELS,
@@ -266,6 +278,16 @@ export interface ManaForgetting {
   pruneCandidates(items: readonly ActivationSnapshot[], tau?: number, options?: PruneViewOptions): PruneView
   /** 修剪视图的一行摘要（面板用）。 */
   pruneViewSummary(view: PruneView): string
+  /**
+   * **v10 §13.6 突触重归一化**（守恒式全局重缩放：弱关联降权、强关联保留、信噪比提升）。
+   *
+   * ⚠ `capacity` **必填、无缺省** —— 本包参数唯一出处是 `params.ts`，阈值登记在 `criteria.ts`；
+   *   这里若自带一个容量缺省值，就在注册表之外**新造第二个真源**。故容量一律由**调用方在调用点
+   *   显式给出**（口径同 `activity.ts` 的 `tau`、`prune.ts` 的 `scoreThreshold`）。
+   * ⚠ 非法入参**抛**（fail-closed），「没得做」走 `outcome.kind === 'no-op'` 并**各自点名成因**。
+   * ⚠ 本方法**不写任何存储**（`view.writes === false`）：它只回读数，落库与否由调用方决定。
+   */
+  renormalizeSynapses(items: readonly RenormSnapshot[], capacity: number): RenormView
   /** 装配读数（核/τ 来源 + 未校准项）。 */
   readings(): ForgettingReadings
   /** 包内阈值注册表快照（只读）。 */
@@ -377,6 +399,9 @@ function makeForgetting(ctx: Context): ManaForgetting {
     pruneCandidates: (items: readonly ActivationSnapshot[], t: number = tauEff, options?: PruneViewOptions) =>
       pruneCandidates(items, t, options),
     pruneViewSummary,
+    // §13.6：**同一个函数引用**挂上服务面（不是再包一层）—— 判据据此断言
+    // 「服务面入口 === 模块导出」的**同一性**，使「挂了个假的/另一份实现」变红。
+    renormalizeSynapses,
     readings,
     criteria: () => CRITERIA_REGISTRY,
     calibrationConsistency,
@@ -475,6 +500,23 @@ export { strengthDelta, strengthDeltaRaw, strengthAfterRepeat, strengthAfterRepe
 export type { PavlikParams } from './strength.ts'
 export { pruneCandidates, pruneViewSummary } from './prune.ts'
 export type { PruneCandidate, PruneView, PruneViewOptions } from './prune.ts'
+// ── v10 §13.6 突触重归一化（守恒式全局重缩放：弱关联降权 / 强关联保留 / 信噪比提升）──
+//   ⚠ 本段是**包外可达性**的唯一通道：在此之前 `renorm.ts` 无任何导出（`grep renormalizeSynapses`
+//     在包外命中 0）⇒ 判据再全也只是"函数可用"，不是"链在跑"。
+//   ⚠ `RENORM_EXPORT_FACE` 一并导出：它是该模块**自己报**的实现面清单，包外可据此对拍
+//     （口径同本文件对 A1-5 / §16.3 两张清单的处置）。
+//   ⚠ **不新增任何带缺省容量的包装**：容量是"逐次判定时必须由调用点给出"的参数，
+//     包一层缺省等于在 `params.ts` / `criteria.ts` 之外新造第二份真源（见 renorm.ts 文件头）。
+export { renormalizeSynapses, RENORM_EXPORT_FACE } from './renorm.ts'
+export type {
+  RenormDirection,
+  RenormNoopReason,
+  RenormOutcome,
+  RenormRank,
+  RenormRecord,
+  RenormSnapshot,
+  RenormView,
+} from './renorm.ts'
 // ── §16.3 记忆活性分级（热/温/冷）─────────────────────────────────────────────
 export {
   ACTIVITY_LEVELS,
