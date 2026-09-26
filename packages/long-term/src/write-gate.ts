@@ -77,6 +77,7 @@ import type { JevJudgeRequest, JevJudgeResult, ManaObservation, ManaCoreService 
 import { MIN_QUERY_CHARS } from 'dsh-mana-core'
 import { sha256Hex, selectLiveMemoryById } from './retirement.ts'
 import { encodeIdPart, traceWrittenOf } from './recall-gate.ts'
+import { resolveSummaryLegs, summarizeBeforeWrite, type SummarySkip } from './summarize.ts'
 
 /** source 标识（进 jev_log.source，使本门的判定行与别的门可分辨）。 */
 export const WRITE_GATE_SOURCE = 'mana-long-term' as const
@@ -172,6 +173,16 @@ export interface WriteGateConfig {
   prefilterEnabled: boolean
   /** 是否**真的落库**（false = 只判不写；判据拿它做「关掉 Write Gate ⇒ 不再产生新行」的反证）。 */
   write: boolean
+  /**
+   * 是否执行 v10 §12.1 第 ③ 步「摘要与标签」（落库前生成摘要）。
+   *
+   * ⚠ 缺省 **true**：本步是**编码链条的正规步骤**（不是可选优化），缺省关掉等于交付一个
+   *   不生效的步骤 —— 而那正是「`summary` 列建了却零写者」这一缺口的成因。
+   * ⚠ 关掉**不是静默**：outcome 的 `summarySkip='disabled'` + 非空 reason。
+   */
+  summarizeEnabled: boolean
+  /** 摘要字符上限（超出即截断；0 = 不截断）。与 §25.5 提示词里的「不超过 50 字」配合。 */
+  summaryMaxChars: number
 }
 
 /** 缺省配置（冻结；判据以此为准，避免第二份缺省值）。 */
@@ -180,6 +191,8 @@ export const WRITE_GATE_DEFAULTS: WriteGateConfig = Object.freeze({
   minChars: MIN_QUERY_CHARS,
   prefilterEnabled: true,
   write: true,
+  summarizeEnabled: true,
+  summaryMaxChars: 50,
 })
 
 /** 一条观察的写入结果 —— **每个字段都有「不可知」之外的确切取值**（无 undefined 状态位）。 */
@@ -206,6 +219,19 @@ export interface WriteGateOutcome {
   readonly wroteRow: boolean
   /** 覆盖的是既有**活行**（retired=0）—— overwritten 状态的取证位。 */
   readonly overwroteLiveRow: boolean
+  /**
+   * ── v10 §12.1 第 ③ 步「摘要与标签（LLM）」的读数（2026-09-26 补）──────────────────
+   * 本门在此之前恒写 `summary: null` ⇒ `memory_items.summary` 列**建了却零生产写者**，
+   * 而读侧（`core.recallLexical`）已在读它 ⇒「列白建了」形态（与"本就没有摘要"同形）。
+   */
+  /** 本次落库行是否**带摘要**（false 时看 `summarySkip` 知道为什么）。 */
+  readonly summaryWritten: boolean
+  /** 摘要字符数（未生成为 null）。 */
+  readonly summaryChars: number | null
+  /** 未生成摘要时的**可枚举**归类（生成了则为 null）。 */
+  readonly summarySkip: SummarySkip | null
+  /** 未生成摘要的原因（生成了则为 null）—— 与 `summarySkip` 配对，使"为什么没有"可读。 */
+  readonly summaryReason: string | null
   readonly latencyMs: number
 }
 
@@ -340,6 +366,10 @@ export async function writeGate(
     traceWritten: null as boolean | null,
     wroteRow: false,
     overwroteLiveRow: false,
+    summaryWritten: false,
+    summaryChars: null,
+    summarySkip: null,
+    summaryReason: null,
   }
   const done = (state: WriteGateState, patch: Partial<WriteGateOutcome> = {}): WriteGateOutcome => ({
     ...base,
@@ -477,8 +507,35 @@ export async function writeGate(
     return done('unavailable', { ...outcomeBase, reason: 'write=false：本门只判不写（反证用）' })
   }
 
+  /**
+   * ── v10 §12.1 第 ③ 步：**落库前生成摘要**（LLM）────────────────────────────────
+   *
+   * ⚠ **本步不阻断落库**：摘要缺失是"少一个优化"，不是"这条记忆不该记"。
+   *   故四种失败全部**照常落库**（`summary: null`），但把失败归类与原因写进 outcome
+   *   ⇒「列是空的」与「这一步没跑」在库/读数层面**可分辨**（本仓最忌的正是二者同形）。
+   * ⚠ **只在真要落库时才生成**：上面几道闸（过短/预过滤/retired/阈值）任一挡下就早已 return，
+   *   不会白花一次 LLM 往返 —— 这也是本步放在此处（而非入口）的理由。
+   * ⚠ `summarizeEnabled=false` 时不生成，但**不是静默**：`summarySkip='disabled'`。
+   */
+  let summary: string | null = null
+  let summarySkip: SummarySkip | null = null
+  let summaryReason: string | null = null
+  if (cfg.summarizeEnabled) {
+    const legs = resolveSummaryLegs(ctx)
+    const out = await summarizeBeforeWrite(legs.llm, legs.prompts, content, { maxChars: cfg.summaryMaxChars })
+    if (out.ok) {
+      summary = out.summary
+    } else {
+      summarySkip = out.skip
+      summaryReason = out.reason
+    }
+  } else {
+    summarySkip = 'disabled'
+    summaryReason = 'summarizeEnabled=false：本步未执行（不是"生成失败"）'
+  }
+
   try {
-    sink.write({ id: memoryId, type: 'observation', content, summary: null, at: obs.at })
+    sink.write({ id: memoryId, type: 'observation', content, summary, at: obs.at })
   } catch (error) {
     // 写失败**不得**被读成「判了不值得」：状态与 reason 都点名写失败。
     return done('unavailable', {
@@ -491,5 +548,12 @@ export async function writeGate(
   }
 
   const state: WriteGateState = degraded ? 'degraded_written' : retired === false ? 'overwritten' : 'written'
-  return done(state, { ...outcomeBase, wroteRow: true })
+  return done(state, {
+    ...outcomeBase,
+    wroteRow: true,
+    summaryWritten: summary !== null,
+    summaryChars: summary === null ? null : [...summary].length,
+    summarySkip,
+    summaryReason,
+  })
 }
