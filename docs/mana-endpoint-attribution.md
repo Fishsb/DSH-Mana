@@ -182,3 +182,32 @@ jev   : framework=23/23 · systemone=23/23 · w12-real-channel=9/9 · b12-jev=11
 
 `git diff --name-only 0684600..HEAD -- packages/jev/tests/gate.mjs packages/jev/tests/gate-checks.mjs packages/vector/tests/gate.mjs` ⇒ **空**（判据本体一字未动）。
 
+
+
+### 7.6 复验退回的修复（归因反向错位 · 2026-09-27）
+
+**现象（复验实测原文，非本席自述）**：他席并发时，`B1.2-1` 打出
+`[live-endpoint · behavior-wrong] …｜实测：latencyMs=30001 · reason=…aborted due to timeout｜下一步：查**被测代码**…（这一条不是环境问题，**别去重启服务**）`
+⇒ **一个 30 秒超时被标成"行为不对 ⇒ 去查代码"，还明说"别去重启服务"** —— 归因反向错位。
+
+**根因（两处，缺一不可）**：
+1. `b12-jev.test.mjs` 三处调用点**绕过了分类器**，直接用恒定文案的 `behaviorWrongText`；
+2. 我在那里写的理由「前置已过 ⇒ 这里的红只能是行为面」**前提不成立**：
+   端点层前置只证明**那一刻**可达，**本次真调用仍可能超时**（本次即 30s）。
+
+**修法**（不动被测读数、不放宽期望值）：`behaviorWrongText` 增第 3 参 `reading`，
+**先过分类器**；三处调用点改用 `assertLiveService`（内部已分类）。
+
+**受控对拍**（同一份「30s 超时」坏读数）：
+
+| | 文案 |
+|---|---|
+| 修复前 | `[live-endpoint · behavior-wrong] B1.2-1 正常路径｜环境可用但被测行为不对｜实测：latencyMs=30001 · reason=…aborted due to timeout｜下一步：查**被测代码**…（…别去重启服务）` |
+| 修复后 | `[live-endpoint · env-unavailable] B1.2-1 正常路径｜环境不可用：传输出错 / 端点不可达 / 超时（这一次调用没拿到可用应答）｜实测：端点=… · ms=30001 · reason=…aborted due to timeout｜下一步：查**测量环境**：宿主 Ollama 是否在跑…（这一条不是被测代码的问题，别去翻被测面）` |
+| 防回退（调用点仍误用 `behaviorWrongText`，但传了读数） | `[live-endpoint · env-unavailable] …｜**读数实为环境态，不是行为错**｜…｜下一步：查**测量环境**…` |
+
+**行为态对照**（真行为错 dim=768）⇒ 仍是 `behavior-wrong` + 查代码，两态**不同形**（文案逐字不同）。
+
+**红线自查**：`assert.equal(reading.degraded, false, …)` 期望值**恒为 false 未放宽**；
+`degraded=true` 喂进去仍**红**（受控实测）；零 skip 自查剥注释后命中 **0** 处。
+
