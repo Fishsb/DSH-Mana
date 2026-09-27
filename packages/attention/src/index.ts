@@ -221,6 +221,70 @@ function stageLabel(i: number): ManaStage {
 
 export const name = 'mana-attention'
 
+/**
+ * ── v10 §15.4 检索类型：**生产侧的唯一定档器**（本批新增）──────────────────────────────
+ *
+ * 判据：`inject_log` 里该 `memory_id` **是否已有** `gate='injected'` 行，**且排除本会话**。
+ *
+ * ⚠ **为什么必须排除本会话**：本包有 **I2 不变量**（每条记忆每会话最多注入一次，见
+ *   `injectedRequests`），而本包写 `inject_log` 与广播 `mana/injection` 是**同一段代码里的先后两步**
+ *   ⇒ 消费方（scheduler 开窗）查库时，**本次注入自己那行已经在表里** ⇒ 不排除则计数恒 ≥1
+ *   ⇒ **恒判「再认」**，这条轴等于死掉（本仓最防的恒真判据）。排除本会话后口径为
+ *   **跨会话累计**：别的会话曾经取出来过 ⇒ 再认；从没有过 ⇒ 回忆。
+ *
+ * ⚠ **推翻了「本会话是否见过」这一前提**（本批勘误）：正在被注入的记忆在本会话**必然没出现过**
+ *   ⇒ 该判据恒 false，区分不了任何东西。故只看跨会话历史。
+ *
+ * ⚠ **「精细提取」（elaboration，增益 0.25）当前无信号源 ⇒ 本探针不产出该档**：
+ *   它要求「提取时做了精细加工」，而本仓**没有任何地方记录这次提取有没有被加工过**。
+ *   编一个假信号比判不出来更坏 —— 故只吐两档，第三档留空。
+ *
+ * ⚠ **三种结果必须可分辨**（不得折成两态）：`'recognition'` / `'recall'` = 查得到；
+ *   `null` + `error` 非空 = **查不到**（库不可读 / 查询抛错）。「查不到」若被读成 `'recall'`，
+ *   一次库故障就会静默给记忆白送 0.15 增益 ⇒ 失败不可观测。
+ */
+export type RetrievalKind = 'recognition' | 'recall'
+
+export interface RetrievalKindProbe {
+  /** 定档结果；`null` = **查不到**（此时 `error` 必非空）。 */
+  readonly kind: RetrievalKind | null
+  /** 查不到时的具名原因；**空串 = 查得到**（此时 `kind` 必非 null）。 */
+  readonly error: string
+  /** 判定时看到的**其他会话**的既有注入行数（0 = 从没被别的会话取出来过 ⇒ 回忆）。查不到时为 -1。 */
+  readonly priorInjectedRows: number
+}
+
+/** `core.db` 的最小结构面（与 reconsolidation 的 `ColumnProbeDb` 同形：只声明真用到的那一个方法）。 */
+interface CountProbeDb {
+  prepare(sql: string): { get(...params: unknown[]): unknown }
+}
+
+/**
+ * 定档实现（**纯读**：不写任何行、不碰任何门控状态）。
+ *
+ * @param sessionId 本次注入所属会话 —— 见上文「为什么必须排除本会话」。
+ */
+export function probeRetrievalKind(core: ManaCoreService, memoryId: string, sessionId: string): RetrievalKindProbe {
+  try {
+    const db = core.db as unknown as CountProbeDb
+    const row = db
+      .prepare("SELECT COUNT(*) AS n FROM inject_log WHERE memory_id = ? AND gate = 'injected' AND session_id <> ?")
+      .get(memoryId, sessionId) as { n?: unknown } | undefined
+    const n = Number(row?.n ?? 0)
+    if (!Number.isFinite(n)) {
+      return { kind: null, error: 'inject_log 计数非有限数：' + String(row?.n), priorInjectedRows: -1 }
+    }
+    // ⚠ 0 行 ⇒ 'recall' 是**查到了「没有」**（不是「查不到」）—— 这两件事由 error 是否为空分辨。
+    return { kind: n > 0 ? 'recognition' : 'recall', error: '', priorInjectedRows: n }
+  } catch (error) {
+    return {
+      kind: null,
+      error: 'inject_log 查询失败：' + String((error as Error)?.message ?? error),
+      priorInjectedRows: -1,
+    }
+  }
+}
+
 /** 依赖 core（方案 §9.1：`core, jev`；jev 在阶段 1 接入判定链时再加）。 */
 export const inject: string[] = ['mana-core']
 
@@ -328,6 +392,12 @@ export interface ManaAttentionService {
    */
   buildBlock(): string
   status(): { plugin: string; wired: boolean; injections: number; lastGate: InjectionGate | null }
+  /**
+   * v10 §15.4：这条记忆**以前**被取出来过没有 ⇒ 再认 / 回忆（口径与可分辨性见 `probeRetrievalKind`）。
+   *
+   * ⚠ **纯读**：不改门控状态、不写任何行 —— 判据因此可以任意次调用它取读数。
+   */
+  retrievalKindFor(memoryId: string, sessionId: string): RetrievalKindProbe
 }
 
 declare module '@deepseek-ai/cordis' {
@@ -770,6 +840,8 @@ export function apply(ctx: Context, config: Config): void {
     plugin: name,
     ingest,
     buildBlock,
+    // v10 §15.4 定档（只读）：把 `core.db` 绑进闭包，调用方不必自己开库（core 是唯一开库器）。
+    retrievalKindFor: (memoryId: string, sessionId: string) => probeRetrievalKind(core, memoryId, sessionId),
     status: () => ({ plugin: name, wired: true, injections, lastGate, sessionStates: sessionStates.size, maxSessions: MAX_SESSION_STATES, evictions: evictionLog.length }),
     noSessionIdError: ERR_NO_SESSION_ID,
     upstreamSwallowedError: ERR_UPSTREAM_SWALLOWED,

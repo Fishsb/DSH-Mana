@@ -497,11 +497,19 @@ export interface ChainReconsolidation {
     trigger?: string | null
     sessionId?: string
     turnId?: number
+    /** v10 §15.4 检索类型（`undefined` = **未声明** ⇒ 增益 0；非法值由 reconsolidation 抛）。 */
+    retrievalKind?: string
   }): {
     readonly channel: string
     readonly degraded: boolean
     readonly reason: string | null
     readonly persisted: boolean
+    /** 本次声明的检索类型（未声明 ⇒ null）—— 「没定档」与「定档为某档」的分辨位。 */
+    readonly retrievalKind: 'recognition' | 'recall' | 'elaboration' | null
+    /** 本次施加的毫秒延长量（未声明 ⇒ 0，此时 `until === untilBase`）。 */
+    readonly retentionGainMs: number
+    /** 未经增益的基准终点 —— 令 `until = untilBase + retentionGainMs` 可逐字对拍。 */
+    readonly untilBase: number
   }
   closeDueWindows(req: {
     now: number
@@ -1194,7 +1202,26 @@ export function createChainDriver(deps: ChainDriverDeps): ChainDriver {
           v10Trigger: '记忆被检索',
         }
       }
-      const r = rc.openWindow({ memoryId, type, now, trigger: 'scheduler:mana/injection', sessionId, turnId })
+      // v10 §15.4 检索类型定档：只认「**以前**被取出来过」（排除本会话）⇒ 再认 / 回忆。
+      // ⚠ 定档失败（库不可读 / 服务未装配）⇒ **不传 kind**（= 未声明）⇒ 增益 0，并把具名原因
+      //   带回链行 —— 「没定档出来」**不许**静默读成「回忆」（那会白送 0.15 增益）。
+      const attention = svc<{
+        retrievalKindFor(memoryId: string, sessionId: string): { kind: string | null; error: string; priorInjectedRows: number }
+      }>('mana-attention')
+      const probe =
+        attention === undefined
+          ? { kind: null, error: '未装配的服务：mana-attention —— 本次未定档（不是「判为回忆」）', priorInjectedRows: -1 }
+          : attention.retrievalKindFor(memoryId, sessionId)
+      const r = rc.openWindow({
+        memoryId,
+        type,
+        now,
+        trigger: 'scheduler:mana/injection',
+        sessionId,
+        turnId,
+        // ⚠ 定档为 null（查不到）⇒ 显式走「未声明」这条既有路径（增益 0），不猜档。
+        retrievalKind: probe.kind ?? undefined,
+      })
       return {
         memoryId,
         memoryType: type,
@@ -1203,6 +1230,12 @@ export function createChainDriver(deps: ChainDriverDeps): ChainDriver {
         persisted: r.persisted,
         degraded: r.degraded,
         reason: r.reason,
+        // v10 §15.4：定档结果与三档读数**逐字回显**（判据按它取证；空 error = 定档成功）。
+        retrievalKind: r.retrievalKind,
+        retentionGainMs: r.retentionGainMs,
+        untilBase: r.untilBase,
+        kindProbe: probe.error === '' ? 'ok' : probe.error,
+        kindProbeRows: probe.priorInjectedRows,
         v10Trigger: '记忆被检索',
       }
     })
