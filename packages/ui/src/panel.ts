@@ -158,8 +158,14 @@ export const CHANNEL_DEFAULT = MODEL_CHANNELS.cloud
 
 /** 通道 → 路由形状（与 `packages/jev` 的 `Config` 逐字对应；**只做映射，不重复实现**）。 */
 export const CHANNEL_ROUTES = {
-  local: { jevChannel: 'ollama', base: 'http://127.0.0.1:11434', defaultModel: 'qwen3.5:0.8b' },
-  cloud: { jevChannel: 'systemone', base: 'https://nano-gpt.com', defaultModel: 'jev-1.13' },
+  local: { jevChannel: 'ollama', base: 'http://127.0.0.1:11434', defaultModel: 'qwen3.5:0.8b', keyEnv: '' },
+  /**
+   * ⚠ `base` **不带** `/api/v1`：`packages/jev/src/systemone.ts:58` 的
+   *   `SYSTEMONE_DEFAULT_PATH` 已经是 `/api/v1/systemone`，请求 URL 由 `{base} + path` 拼；
+   *   传用户给的 `https://nano-gpt.com/api/v1` 会拼成 `/api/v1/api/v1/systemone`（错）。
+   *   ⚠ `keyEnv` 存的是**变量名**（不是 key）：key 永不进仓库、不进配置文件、不进读数。
+   */
+  cloud: { jevChannel: 'systemone', base: 'https://nano-gpt.com', defaultModel: 'jev-1.13', keyEnv: 'NANOGPT_API_KEY' },
 } as const
 
 /** 通道来源（**必须可分辨**：用户设的与缺省兜底的在读数上不得同形）。 */
@@ -219,12 +225,6 @@ export interface ChannelAck {
   readonly reason: string
 }
 
-/** 存储端口上的通道读写口（由 `src/store.ts` 适配 `user_model`）。 */
-export interface ChannelPort {
-  readChannel(): string | null
-  writeChannel(value: string): void
-}
-
 function clampLimit(value: unknown, fallback: number): number {
   const n = typeof value === 'number' && Number.isFinite(value) ? Math.floor(value) : fallback
   if (n <= 0) return READ_LIMIT_DEFAULT
@@ -253,7 +253,7 @@ function degradedSnapshot(reason: string): PanelsSnapshot {
  * 每个 handler 都先做**形状校验**再落库 —— 跨界数据必须是无损 JSON，
  * 非 JSON 值（函数/Symbol/循环引用）在协议层就被拒绝，不让它污染数据面。
  */
-export function registerPanels(wire: PanelWire, store: PanelStore, channels?: ChannelPort): void {
+export function registerPanels(wire: PanelWire, store: PanelStore): void {
   wire.handle(METHODS.meta, () => ({
     panelId: PANEL_ID,
     methods: Object.values(METHODS),
@@ -263,22 +263,27 @@ export function registerPanels(wire: PanelWire, store: PanelStore, channels?: Ch
   /**
    * **模型通道端点**（读 / 写）。用户指令的落点：「切需要在 UI 让用户设定」「当前默认用云端」。
    *
-   * ⚠ 存储端口缺席（`channels === undefined`）时**不是**静默改成只读：读数里明确落
-   *   `readOnly:true` + `source:'default'`，使「UI 写不进去」与「用户还没设过」可分辨。
-   *   若静默吞掉，UI 上的选择框会照常显示选项却永远存不住 —— 那正是本仓最防的
-   *   「看着能用、失败不可观测」。
+   * ⚠ 读写都走 `PanelStore` 上那两个方法（**同一个适配器**，见 `src/store.ts`）：
+   *   写口缺席时 `writeChannel` **显式抛错**并被这里转成 `ok:false` + 可读 reason，
+   *   而不是静默丢弃 —— 静默丢弃会让 UI 上的选择框照常显示选项却永远存不住，
+   *   正是本仓最防的「看着能用、失败不可观测」。
    *
    * ⚠ 非法值**拒收**（`normalizeChannel` 返回 null ⇒ 落 `ok:false` + 可读 reason），
    *   **不**静默夹到缺省：悄悄改成 cloud 会让用户以为自己设的 local 生效了。
    */
-  const readChannel = (): ChannelResolution & { readOnly: boolean } => {
-    if (channels === undefined) return { ...resolveChannel(null), readOnly: true }
+  /**
+   * ⚠ `readOnly` 不再由「端口在不在」推 —— 本仓踩到的正是这个：
+   *   端口缺失时它落 true，界面把选择框置灰；而**端口为什么缺失**只有一条解释（装配没注入写口），
+   *   却会在读数上与「用户没设过」同形。⇒ 读失败**总是**落 `invalid-fallback` + 成因串，
+   *   不另设一个只有装配方看得懂的布尔位。
+   */
+  const readChannel = (): ChannelResolution => {
     try {
-      return { ...resolveChannel(channels.readChannel()), readOnly: false }
+      return resolveChannel(store.readChannel())
     } catch (error) {
       // 读偏好失败同样显式：落缺省通道但把成因带出（不伪装成「用户没设过」）。
       const base = resolveChannel(null)
-      return { ...base, readOnly: false, source: 'invalid-fallback', storedValue: error instanceof Error ? error.message : 'read-failed' }
+      return { ...base, source: CHANNEL_SOURCES.invalid, storedValue: error instanceof Error ? error.message : 'read-failed' }
     }
   }
 
@@ -300,14 +305,13 @@ export function registerPanels(wire: PanelWire, store: PanelStore, channels?: Ch
     const write = a.channel
     // 无参 = 读（UI 装载时拉一次）。
     if (write === undefined) return channelState()
-    if (channels === undefined) return channelAck(false, false, '通道写入端口未挂载（本次为只读）')
     const wanted = normalizeChannel(write)
     // 非法值拒收：回显原始输入，便于在 UI 上直接看到「你传了什么」。
     if (wanted === null) {
       return channelAck(false, false, '非法通道值（允许：' + CHANNEL_VALUES.join(' / ') + '），实测 ' + JSON.stringify(write))
     }
     try {
-      channels.writeChannel(wanted)
+      store.writeChannel(wanted)
       return channelAck(true, true, '')
     } catch (error) {
       return channelAck(false, false, error instanceof Error ? error.message : 'unknown channel write failure')

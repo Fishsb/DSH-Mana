@@ -15,7 +15,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-agent'
 import type { ManaCoreService } from 'dsh-mana-core'
-import { METHODS, registerPanels, type ChannelPort, type PanelStore, type PanelWire } from './panel.ts'
+import { METHODS, registerPanels, type PanelStore, type PanelWire } from './panel.ts'
 import { createPanelStore } from './store.ts'
 
 export const name = 'mana-ui'
@@ -68,19 +68,10 @@ export function apply(ctx: Context, config: Config = DEFAULT_CONFIG): void {
       ? (key, value) => void updateUserModel.call(core, { key, value })
       : undefined,
   )
-  /**
-   * 「模型通道」偏好的读写面 = `PanelStore` 上的两个方法（`store.ts` 适配 `user_model`）。
-   * ⚠ **不另开存储**：与面板数据共用同一个 `createPanelStore` 适配器（用户指令：
-   *   「照抄既有 PanelStore 适配」）；写路径走 core 的 `updateUserModel`（带历史行）。
-   */
-  const channels: ChannelPort = {
-    readChannel: () => store.readChannel(),
-    writeChannel: (value: string) => store.writeChannel(value),
-  }
   /** 方法名 → handler；通道挂载时统一分发（通道是**分包**的，不是一方法一通道）。 */
   const table = new Map<string, (args: unknown) => unknown | Promise<unknown>>()
   const wire: PanelWire = { handle: (method, handler) => table.set(method, handler) }
-  registerPanels(rendered ? wire : { handle: (m, h) => { if (m !== METHODS.render) table.set(m, h) } }, store, channels)
+  registerPanels(rendered ? wire : { handle: (m, h) => { if (m !== METHODS.render) table.set(m, h) } }, store)
 
   let channel = false
   // 分包路由：`rpc.handle(channel, handler)` 收的是**整条通道**的分发函数。
