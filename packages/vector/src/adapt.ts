@@ -21,6 +21,29 @@ export const QUERY_MAX_CHARS = 512
 export const DEFAULT_EMBED_BASE_URL = 'http://127.0.0.1:11434/v1'
 export const DEFAULT_EMBED_MODEL = 'bge-m3'
 
+/**
+ * 嵌入失败的**可枚举归类**（与 `WRITE_GATE_FAILURE_KINDS` / `RECALL_GATE_FAILURE_KINDS` 同形）。
+ *
+ * **为什么需要它**（本仓最忌的形态 · 本卡的由来）：「服务端没开嵌入能力」（环境配置问题）与
+ * 「请求本身出错」（调用问题）**原先在读数上同形** —— 两者都落进同一段 reason 通用串
+ * 「嵌入请求失败（…）」/「嵌入端点返回 HTTP N」。后果有二：
+ *   ① 真因不可见（失败不可观测）；
+ *   ② **排查方向被带偏**：读「嵌入请求失败」会去查网络/模型名，而真因是**服务端启动参数**。
+ *
+ * 取值口径（**只增取值、不改既有取值含义**）：
+ * · `'degraded'` —— **通用失败兜底**：网络不可达 / 超时 / 任何非 2xx / 响应格式 / 维度契约…
+ *   （这些**不得**被新归类吞掉，故它们仍全部落这里）。
+ * · `'unsupported-by-server'` —— 服务端**明确回**「本服务不支持嵌入」。识别按**语义特征**
+ *   （见 `embed.ts` 的 `isUnsupportedByServer`），**不按状态码、不按全串相等**。
+ */
+export const EMBED_FAILURE_KINDS = [
+  /** 通用失败兜底（未细分的降级全部在此，**不得用 null 冒充**）。 */
+  'degraded',
+  /** 服务端明确回「不支持嵌入」⇒ 处置方向是**服务端启动参数**，不是网络/模型名。 */
+  'unsupported-by-server',
+] as const
+export type EmbedFailureKind = (typeof EMBED_FAILURE_KINDS)[number]
+
 /** 一次嵌入调用的**结果信封**：成功与失败都是**同一个形状**，失败不靠"缺字段"表达。 */
 export interface EmbedOutcome {
   /** 成功时的向量；失败时**为空数组**（不是 `undefined` —— 空数组是"确实没有"，`undefined` 会被 JSON 静默丢键）。 */
@@ -31,6 +54,11 @@ export interface EmbedOutcome {
   readonly baseUrl: string
   /** 是否降级。 */
   readonly degraded: boolean
+  /**
+   * 降级**归类**（可枚举、可断言）；**未降级时为 `null`**。
+   * ⚠ **只增取值**：既有字段语义与本字段既有取值含义均冻结（本卡不改 Events 契约）。
+   */
+  readonly failureKind: EmbedFailureKind | null
   /** 降级原因；未降级时为 `null`（**不空串、不 undefined**）。 */
   readonly reason: string | null
   /** 本次耗时（B 档浮动量：**只进测量条件说明，不得进阈值列**）。 */
@@ -50,8 +78,15 @@ export interface RecallOutcome {
 }
 
 /** 把任意失败折叠成显式降级信封（**唯一**构造失败信封的出口，避免各处手写漏字段）。 */
-export function degradedOutcomeQuery(model: string, baseUrl: string, reason: string, ms: number): EmbedOutcome {
-  return { vectors: [], model, baseUrl, degraded: true, reason: reason || '未给出原因（调用方漏填）', ms }
+export function degradedOutcomeQuery(
+  model: string,
+  baseUrl: string,
+  reason: string,
+  ms: number,
+  /** 归类；**缺省 = 通用失败**（既有调用点不传即保持原含义，不必逐个改）。 */
+  failureKind: EmbedFailureKind = 'degraded',
+): EmbedOutcome {
+  return { vectors: [], model, baseUrl, degraded: true, failureKind, reason: reason || '未给出原因（调用方漏填）', ms }
 }
 
 /**
