@@ -26,6 +26,11 @@ export const METHODS = {
    *   不是"暂时没调"，是**协议面上不存在**。分流对照表见 Host 侧 `src/replay.ts`。
    */
   replay: 'mana-ui/replay',
+  /**
+   * **模型通道**（读 / 写）。⚠ 写的是**偏好表**（`user_model`），不是记忆表：
+   *   本半区的「不写记忆」纪律（G10）不受影响，见 `src/client/index.ts` 的说明。
+   */
+  channel: 'mana-ui/channel',
 } as const
 
 /** Host 侧 `host.call` 的最小面（结构性声明，不 import 任何包）。 */

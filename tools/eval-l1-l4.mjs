@@ -29,7 +29,11 @@
  *   ⑥ **只读仓内真源**：不改 packages/** 一个字节、不建仓内产物（临时库在 mkdtemp）。
  *
  * ── 退出码语义（判据要求"自己定义语义并在文件头写清"）──────────────────────────
- *   · 0 = 四层**全部 MEASURED**（各自 n>0 且不变式成立）
+ * ⚠ 本卡新增 **L0（模型通道可用性）**，故"全部 MEASURED"现在是 **L0–L4 五层**：
+ *   云端不可用时 L0 落 **NO_DATA**（不是 FAIL）⇒ 退出码是 2 而**不是** 5 ——
+ *   这正是用户指令「不得默认红到底」在退出码上的落点（"没测成"≠"行为不对"）。
+ *
+ *   · 0 = 各层**全部 MEASURED**（各自 n>0 且不变式成立）
  *   · 2 = 有层 **NO_DATA**（n=0）—— 这不是失败，是**本仓现状**（如仓内无历史库）
  *   · 4 = 有层 **NOT_IMPLEMENTED** —— 该层在本仓无落点（v10 有、本仓无）
  *   · 3 = **harness 自身失败**（装配失败 / 库读不出 / 自检腿报红）
@@ -41,9 +45,20 @@
  *   node tools/eval-l1-l4.mjs --json           # 只出 JSON（给人看的那段不打）
  *   node tools/eval-l1-l4.mjs --self-check     # 只跑 harness 自检（约 2s，不装配）
  *   node tools/eval-l1-l4.mjs --mutate <id>    # 负向对拍（见 MUTATORS）
+ *
+ * ── 模型通道（本卡新增：本地 / 云端，缺省**云端**）──────────────────────────────
+ *   node tools/eval-l1-l4.mjs --online-judge                  # 缺省走 **cloud**（即使没有 key）
+ *   node tools/eval-l1-l4.mjs --online-judge --channel local  # **不改代码**切回本机 Ollama
+ *
+ * ⚠ 通道的判定归属地**不在这里**：它是 `packages/ui/src/panel.ts` 的 `resolveChannel`
+ *   （UI 端点 `mana-ui/channel` 与本文件读的是**同一个函数**）。优先级：
+ *     `--channel` 旗标 > UI 里设的偏好（`user_model` 的 `mana.eval.modelChannel`）> 缺省 cloud。
+ *   把判定复制一份到这里，就会出现"UI 存了 A、评估器走 B 而读数只看得到一个通道名"的分叉。
+ * ⚠ 云端凭据**只从环境变量读**（变量名见 CHANNEL_ROUTES.cloud.keyEnv，缺省 `NANOGPT_API_KEY`）：
+ *   本文件不写 key、不落 key、不回显 key（**连前缀都不回显**）。
  */
-import { mkdtempSync, rmSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { homedir, tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { performance } from 'node:perf_hooks'
@@ -67,6 +82,174 @@ const has = (f) => argv.includes(f)
 const opt = (f) => {
   const i = argv.indexOf(f)
   return i >= 0 ? argv[i + 1] : undefined
+}
+
+// ══ 模型通道：local / cloud（用户指令：两条都要有 · UI 可设 · 缺省云端）══════════
+/**
+ * ── 判定归属地（**本文件不自己判**）─────────────────────────────────────────────
+ * 用户指令原文：「评估器的模型通道**本地与云端都要有**，**切需要在 UI 让用户设定**，
+ *   **当前默认用云端**」。
+ * ⇒ 「哪条通道生效」的判定与持久化**只存在于一处**：packages/ui/src/panel.ts 的
+ *   resolveChannel（UI 端点 mana-ui/channel 与评估器读的是**同一个函数**）。
+ *   若评估器在这里再判一遍（例如「环境变量优先」），就会出现**两个判定点**：
+ *   UI 里存了 local、评估器却走 cloud，而两者在读数上**完全同形**（都只印一个通道名）。
+ * ⚠ 故本文件只做三件事：**读偏好 → 交给那个函数 → 按结果驱动 jev**（并**回显**通道+模型）。
+ *
+ * ⚠ 按**路径**动态 import 该函数（而非包名）：仓库根不是宿主 profile，解析不到 dsh-mana-ui；
+ *   路径直指**源文件**，与仓内其它工具的装载口径一致。
+ */
+const resolveChannelPath = pathToFileURL(join(REPO, 'packages', 'ui', 'src', 'panel.ts')).href
+
+/**
+ * 偏好读侧：core 的库（user_model 单键），路径解析与 packages/core/src/index.ts:446 同口径。
+ *
+ * ⚠ **只读**：本文件**从不写**偏好（那是 UI 端点的动作）—— 评估器改用户设置会违反
+ *   「用户设置优先」这条指令本身（等于替用户拍板）。
+ * ⚠ 两处路径口径必须**逐字一致**；不一致会让「读不到偏好」伪装成「用户没设过」。
+ * ⚠ 读不到（库不存在 / 老库无该表 / 打不开）⇒ 返回 null（= 没设过 ⇒ 走缺省）且**记下原因**，
+ *   不抛错（首次运行时库不存在是常态），也**不把读失败说成没设过**。
+ */
+function readStoredChannel(prefKey) {
+  /**
+   * ⚠ 库路径口径与 `packages/core/src/index.ts` 的 `resolveStorePath` **逐字一致**
+   *   （同 `DSH_HOME`、同 `memory/mana.db`）。**不另加环境变量**：
+   *   多一个 core 不认的变量 ⇒ 评估器读库 A、core 写库 B，而症状是「用户设置不生效」。
+   * ⚠ 键名 `prefKey` 由**调用方从归属模块取**（`mod.CHANNEL_PREFERENCE_KEY`），
+   *   本文件不写第二份字面量。⚠ 本席实测踩到：第一版直接引用了那个常量名 ⇒
+   *   `ReferenceError` 被 catch 吞成 reason ⇒ **偏好读路整条死掉**，而外层看起来"只是读失败"。
+   *   故这里把 key 作**显式入参**，让"忘了传"在类型/调用面上就暴露。
+   */
+  if (typeof prefKey !== 'string' || prefKey === '') {
+    return { value: null, storePath: '', reason: 'bad-key: 偏好键名未从归属模块取到' }
+  }
+  const home = process.env.DSH_HOME?.trim() || join(homedir(), '.dsh')
+  const storePath = join(home, 'memory', 'mana.db')
+  let db = null
+  try {
+    if (!existsSync(storePath)) return { value: null, storePath, reason: 'no-store' }
+    db = new DatabaseSync(storePath, { readOnly: true })
+    const row = db.prepare('SELECT value FROM user_model WHERE key = ?').get(prefKey)
+    return { value: typeof row?.value === 'string' ? row.value : null, storePath, reason: 'ok' }
+  } catch (error) {
+    return { value: null, storePath, reason: 'read-failed: ' + String((error && error.message) || error).slice(0, 120) }
+  } finally {
+    if (db) { try { db.close() } catch { /* 关不掉不影响读数 */ } }
+  }
+}
+
+/**
+ * 通道解析（含**覆盖**与**成对校验**）。
+ *
+ * · --channel local|cloud：本次跑哪条通道（**不改代码**即可切回 local 的开关）；
+ * · --base / --model：只在与 --channel **成对**给出时才覆盖 —— 单独给会把「cloud 的模型」
+ *   配到「local 的端点」上，产出**看着跑通了**的错读数（本仓点名的形态）。
+ */
+async function resolveChannelDecision() {
+  const mod = await import(resolveChannelPath)
+  /**
+   * ⚠ 键名从**归属模块**取（同一个 import 面）：本文件不得再写一份字面量 ——
+   *   两份会漂移，而漂移的症状是「UI 设了但评估器读不到」，读数上只表现为"用户没设过"。
+   */
+  const stored = readStoredChannel(mod.CHANNEL_PREFERENCE_KEY)
+  const explicit = opt('--channel')
+  let decision
+  let source
+  if (explicit !== undefined) {
+    const wanted = mod.normalizeChannel(explicit)
+    if (wanted === null) throw new Error('--channel 取值必须是 ' + mod.CHANNEL_VALUES.join('|') + '，实测 ' + JSON.stringify(explicit))
+    decision = mod.resolveChannel(wanted)
+    source = 'flag'
+  } else if (typeof stored.value === 'string' && stored.value !== '') {
+    // **用户设置优先**（UI 里设的）—— 这正是「用户设置优先于缺省」的落点。
+    decision = mod.resolveChannel(stored.value)
+    source = 'preference'
+  } else {
+    decision = mod.resolveChannel(null)
+    source = 'default'
+  }
+  const route = mod.CHANNEL_ROUTES[decision.channel]
+  const baseOverride = opt('--base')
+  const modelOverride = opt('--model')
+  if ((baseOverride === undefined) !== (modelOverride === undefined)) {
+    throw new Error('--base 与 --model 必须成对给出（单独给会把一条通道的模型配到另一条的端点上，产出看着跑通的错读数）')
+  }
+  return {
+    channel: decision.channel,
+    jevChannel: route.jevChannel,
+    base: baseOverride ?? route.base,
+    model: modelOverride ?? decision.model,
+    source,
+    preferenceKey: mod.CHANNEL_PREFERENCE_KEY,
+    storedValue: stored.value,
+    storePath: stored.storePath,
+    storeRead: stored.reason,
+    overridden: baseOverride !== undefined,
+    keyEnv: mod.CHANNEL_ROUTES.cloud.keyEnv,
+  }
+}
+
+/**
+ * 云端凭据**在场性**：只回布尔，**绝不回 key（连前缀都不回）** —— 用户指令 C 项。
+ * ⚠ 判据是「变量有没有值」，不是「值好不好」：值好不好交给真调用自己报。
+ */
+const cloudCredentialPresent = () => typeof process.env[CHANNEL.keyEnv] === 'string' && process.env[CHANNEL.keyEnv].trim() !== ''
+
+/**
+ * 三态归因文案（照抄 docs/mana-endpoint-attribution.md 的 §2 口径：类别名 / 判定语 /
+ * **互斥的下一步动作** 三者齐备，且与环境态**不同形**）。
+ *
+ * ⚠ 用户指令原文：「云端不可用不得『默认红到底』」⇒ 环境态**不落 FAIL**，落 NO_DATA +
+ *   本段文案（「这一次没测成」≠「被测行为不对」，两者不得同形）。
+ */
+function channelAttribution(text, reading) {
+  const head = '[通道 · ' + CHANNEL.channel + '] ' + text
+  if (CHANNEL.channel === 'cloud') {
+    const missing = !cloudCredentialPresent()
+    return head + '｜**环境不可用（env-unavailable）**：' +
+      (missing
+        ? '环境变量 ' + CHANNEL.keyEnv + ' 未设置（**只报变量名，Key 本身本程序从不读取**）'
+        : '凭据在场但这一次调用没拿到可用应答（网络 / 端点 / 服务端）') +
+      '｜实测：端点=' + CHANNEL.base + ' · 模型=' + CHANNEL.model + ' · ' + reading +
+      '｜下一步：查**测量环境** —— ①查 ' + CHANNEL.keyEnv + '（source ~/.dsh/secrets/nanogpt.env）②查网络能否到达 ' + CHANNEL.base +
+      '（**这一条不是被测代码的问题**，别去翻 packages/**）'
+  }
+  return head + '｜**环境不可用（env-unavailable）**：本机 Ollama 不可达或未启动' +
+    '｜实测：端点=' + CHANNEL.base + ' · 模型=' + CHANNEL.model + ' · ' + reading +
+    '｜下一步：查**测量环境** —— ①宿主 Ollama 是否在跑（ollama list · ' + CHANNEL.base + '）②该模型是否已 pull' +
+    '（**这一条不是被测代码的问题**）'
+}
+
+/**
+ * 通道环境**真探**（不是「看看配置对不对」）。⚠ **选得中才探**：探针的代价是网络往返，
+ * 而缺省腿是云端 ⇒ 没选中的那条腿不该产生流量。
+ */
+async function detectChannelEnv() {
+  if (CHANNEL.channel !== 'cloud') {
+    try {
+      const res = await fetch(CHANNEL.base.replace(/[/]$/, '') + '/api/tags', { signal: AbortSignal.timeout(3000) })
+      const body = await res.text()
+      return { ok: res.ok, kind: res.ok ? 'ok' : 'http-error', detail: 'HTTP ' + res.status + ' · ' + body.slice(0, 80) }
+    } catch (error) {
+      return { ok: false, kind: 'unreachable', detail: String((error && error.message) || error).slice(0, 120) }
+    }
+  }
+  if (!cloudCredentialPresent()) return { ok: false, kind: 'no-credential', detail: '变量 ' + CHANNEL.keyEnv + ' 未设置' }
+  return { ok: true, kind: 'credential-present', detail: '凭据在场（判据只看在场性，校验交给真调用）' }
+}
+
+/**
+ * 云端 URL 拼接**预检**（本卡实测到的那个坑，机器化拦住）。
+ *
+ * 用户给的端点串是 https://nano-gpt.com/api/v1，而代码是 {base} + SYSTEMONE_DEFAULT_PATH
+ * （/api/v1/systemone）⇒ 传用户原串会拼成 /api/v1/api/v1/systemone（错）。
+ * ⚠ 该常量**必须读源码**而不是在本文件再写一份（副本一旦漂移，「预检通过」就与真调用无关了）。
+ */
+function probeCloudUrlShape() {
+  const src = readFileSync(join(REPO, 'packages', 'jev', 'src', 'systemone.ts'), 'utf8')
+  const m = src.match(/SYSTEMONE_DEFAULT_PATH\s*=\s*'([^']+)'/)
+  const path = m ? m[1] : null
+  const url = CHANNEL.base.replace(/[/]$/, '') + (path ?? '')
+  return { ok: path !== null && !url.includes('/api/v1/api/v1'), path, url }
 }
 const JSON_ONLY = has('--json')
 const SELF_CHECK = has('--self-check')
@@ -213,11 +396,20 @@ async function boot() {
      *
      *   ⚠ 缺省仍**离线**（死端点）⇒ 评估可复现，且**降级本身**是被判据钉住的既有行为。
      */
+    /**
+     * ── 三态（--online-judge 时）────────────────────────────────────────────────
+     *  ⚠ 端点 / 模型 / 通道全部取自 CHANNEL（**唯一归属地**在 packages/ui/src/panel.ts）；
+     *    本文件不写第二份副本 —— 副本一漂移，读数里的通道与真调用的通道就会不一致。
+     *  ⚠ key **只从环境变量读**（systemoneApiKeyEnv 传的是**变量名**）：
+     *    本文件从头到尾不接触 key 的值，更不会打印它。
+     *  ⚠ 环境不可用时**仍指向真通道**（让「没拿到应答」由真调用如实报出），
+     *    而不是换成一个必然失败的假端点 —— 后者会把「环境问题」伪装成「端点连不上」。
+     */
     ['jev', has('--online-judge')
       ? {
-          channel: 'ollama',
-          endpoint: process.env.MANA_JEV_ENDPOINT ?? 'http://127.0.0.1:11434',
-          model: process.env.MANA_JEV_MODEL ?? 'qwen3.5:0.8b',
+          channel: CHANNEL.jevChannel,
+          endpoint: CHANNEL.base,
+          model: CHANNEL.model,
         }
       : { channel: 'ollama', endpoint: 'http://127.0.0.1:1', model: 'eval-offline' }],
     ['reconsolidation', {}],
@@ -354,6 +546,31 @@ if (SELF_CHECK) {
 }
 
 // ══ 主流程：一次真装配，四层共用同一批痕迹 ═══════════════════════════════════
+/**
+ * 通道解析**前置**（自检之后、装配之前）：装配要拿它决定 jev 指向哪条通道。
+ * ⚠ 必须在 boot() 之前 —— 通道解析失败要让装配**根本不开始**，
+ *   而不是装到一半再回退（那会产出「用着 A 通道、读数说 B」的最坏形态）。
+ */
+let CHANNEL
+try {
+  CHANNEL = await resolveChannelDecision()
+} catch (error) {
+  console.error('通道解析失败（评估无法进行）：' + String((error && error.message) || error))
+  process.exit(EXIT.HARNESS_FAILED)
+}
+/**
+ * 云端 URL 拼接预检：不对**当场停**。⚠ 这条不是「更严格」，是**本卡实测踩到的坑**：
+ *   base 传成 https://nano-gpt.com/api/v1 ⇒ 拼出 /api/v1/api/v1/systemone ⇒ 404，
+ *   而表面现象是「云端不可用」（会被归因成 KEY / 网络问题）—— 归因**反向错位**。
+ */
+const URL_SHAPE = CHANNEL.channel === 'cloud' ? probeCloudUrlShape() : null
+if (URL_SHAPE !== null && !URL_SHAPE.ok) {
+  console.error('云端 URL 拼接预检不通过：拼出 ' + String(URL_SHAPE.url) + '（应形如 {base}' + String(URL_SHAPE.path) + '）')
+  process.exit(EXIT.HARNESS_FAILED)
+}
+/** 通道环境真探（选得中才探，见 detectChannelEnv）。 */
+const CHANNEL_ENV = await detectChannelEnv()
+
 const selfProblems = selfCheck()
 if (selfProblems.length > 0) {
   console.error('harness 自检不通过：' + selfProblems.join('；'))
@@ -634,7 +851,7 @@ await layer('L1', '任务有效性（链上节点真跑通且可数）', async (
  * ⚠ **不硬凑**：绝不为了让读数好看而造与问法重叠的种子语料（本仓点名的假绿形态）。
  *   写入侧若仍被挡，就**如实报「记忆未形成」**——那是诚实且有用的读数。
  */
-await layer('L2', '记忆质量（召回命中率，分母=真查询数）', async () => {
+await layer('L2', '记忆质量（召回命中率，分母=真查询数）· 通道=' + CHANNEL.channel, async () => {
   /**
    * ── ⚠ 本层的**测量口径**（本席 2026-09-27 实测后修正，含一次自我否定）────────────────
    *
@@ -726,7 +943,13 @@ await layer('L2', '记忆质量（召回命中率，分母=真查询数）', asy
       ' 含信号词（逐条 ' + JSON.stringify(cLegacy) + '，**期望全 0**' + (legacyOk ? ' ✓' : ' ✗') + '）· ' +
       '词表 ' + String(SEED_SIGNAL_CHECK.tableSize) + ' 词'
   })()
-  const pre = '前置读数：记忆条数(memory_items 活行)=' + String(memoryCount) +
+  /**
+   * ⚠ **通道 + 模型必须回显**（用户指令 A.4：「读数里回显用的是哪条通道 + 哪个模型」，
+   *   否则"用了哪条"不可见）。本串挂在 `pre` 上 ⇒ **无论落哪一态都会印**，
+   *   不挂在某个分支里（分支内打印 = 那一态才可见，其余态下"用了哪条"重新变成不可见）。
+   */
+  const channelNote = '通道=' + CHANNEL.channel + '（模型 ' + CHANNEL.model + '·来源 ' + CHANNEL.source + '）'
+  const pre = channelNote + '｜前置读数：记忆条数(memory_items 活行)=' + String(memoryCount) +
     '／全表 ' + String(memoryRows) +
     ' · 检索候选数=' + String(candidates) +
     ' · status=ran 检索行=' + String(ranRows) +
@@ -772,7 +995,18 @@ await layer('L2', '记忆质量（召回命中率，分母=真查询数）', asy
     } else if (obs === 0) {
       parts.push('⇒ 真因=源头未发（perception 未 emit mana/observation）')
     } else if (jev === 0) {
-      parts.push('⇒ 真因=未进判定链（观察发了但 jev_log 无行，上游在预过滤/装配面断）')
+      /**
+       * ⚠ **三态归因接在这里**（用户指令 A.3：云端不可用不得让评估器"默认红到底"）。
+       *   条件写死成「cloud 且无凭据」而不写成 `!CHANNEL_ENV.ok` 泛化：
+       *   有凭据却不通（DNS/网络）时判定链**真的会落行**（降级行），走不到本支 ——
+       *   真到本支的无行态，只有"没凭据 ⇒ 根本没发请求"这一种解释。写成泛化会把
+       *   两种成因读成一件事（本仓最忌的同形）。
+       */
+      if (CHANNEL.channel === 'cloud' && CHANNEL_ENV.kind === 'no-credential') {
+        parts.push(channelAttribution('判定链无行（观察发了但 jev_log 0 行）', 'jev_log=0 行 · ' + CHANNEL_ENV.detail))
+      } else {
+        parts.push('⇒ 真因=未进判定链（观察发了但 jev_log 无行，上游在预过滤/装配面断）')
+      }
     } else {
       parts.push('⇒ 真因在判定侧（观察与 jev 都有行，但无一条放行落库）')
     }
@@ -1091,10 +1325,19 @@ await layer('L4', '认知仿真（认知痕迹的增长曲线须非平凡）', a
         '⚠ 该环非缺陷而是**设计行为**，但它使"记忆形成曲线"在**任意不含信号词的评测语料**上不可测' +
         '⇒ 这是**要交给用户的结论**，不是评估器能自行绕过的'
       : '⇒ 上表逐环读数即真因（不在本评估器能归因的已知形态内，如实列出）'
+    /**
+     * 环境态判定与 (b) 同一口径（见那里的长注）：**只有一种解释能走到这里** ——
+     * 云端没凭据 ⇒ 判定链根本没发请求 ⇒ 记忆写不进去 ⇒ 曲线无源。
+     * ⚠ 这一态**不落 FAIL**（那是"被测行为不对"的位置）：它是**这一次没测成**。
+     */
+    const envGap = CHANNEL.channel === 'cloud' && CHANNEL_ENV.kind === 'no-credential'
     return {
       state: 'NO_DATA',
-      detail: 'n=0 —— memory_items 无行。**逐环归因（实测）**：' + chain.join(' · ') + '｜' + conclusion,
-      evidence: { n: 0, jevLog: jevRows.length, degraded, observationRows: obsRows.length, writeGate: wgStatus },
+      detail: 'n=0 —— memory_items 无行。**逐环归因（实测）**：' + chain.join(' · ') + '｜' +
+        (envGap
+          ? channelAttribution('记忆形成曲线的源头断了', 'jev_log=' + String(jevRows.length) + ' 行 · observation=' + String(obsRows.length) + ' 行')
+          : conclusion),
+      evidence: { n: 0, jevLog: jevRows.length, degraded, observationRows: obsRows.length, writeGate: wgStatus, channel: CHANNEL.channel, channelEnv: CHANNEL_ENV.kind },
     }
   }
   const distinctPoints = new Set(curve).size
@@ -1109,6 +1352,116 @@ await layer('L4', '认知仿真（认知痕迹的增长曲线须非平凡）', a
     state: 'MEASURED',
     detail: '曲线源=' + source + ' · n=' + String(n) + ' 点 · ' + String(distinctPoints) + ' 个不同取值 · ' + String(distinctTypes.size) + ' 种类型（曲线非平凡）',
     evidence: { n, distinctPoints, source, types: distinctTypes.size },
+  }
+})
+
+/**
+ * ══ 第 0 层：**模型通道**（本卡新增）══════════════════════════════════════════
+ *
+ * ── 它在量什么（以及**不**量什么）────────────────────────────────────────────
+ *   · 量「这一次评估到底跑的哪条通道、哪个模型、端点是哪个、预期 URL 长什么样」
+ *     —— 用户指令 A.4「读数回显哪条通道 + 哪个模型」的机读落点；
+ *   · 量「该通道**现在**能不能真判」（一枪真调用：是/否 + 耗时）。
+ *
+ * ⚠ 它**不是** L3（效率）的替代：L3 量的是**链内**往返，本层量的是一次**通道可达性**。
+ *   两者不得互相冒充（读数分列，读者不会把「通道通」读成「链快」）。
+ *
+ * ⚠ 三态落法（照抄 docs/mana-endpoint-attribution.md §2）：
+ *   · 真调用拿到应答          ⇒ MEASURED（ok）；
+ *   · **环境不可用**（无凭据 / 连不上 / 超时）⇒ **NO_DATA** + env-unavailable 文案。
+ *     **不落 FAIL** —— 用户指令原文：「云端不可用不得『默认红到底』」。
+ *     「这一次没测成」与「被测行为不对」是两件事，同形即归因错位。
+ *   · 环境在场、应答也拿到，但**形状不对**（无答案 / 概率越界）⇒ FAIL：那才是被测面的问题。
+ */
+await layer('L0', '模型通道可用性（' + CHANNEL.channel + ' · ' + CHANNEL.model + '）', async () => {
+  const reading = '通道=' + CHANNEL.channel + ' · 模型=' + CHANNEL.model + ' · jev channel=' + CHANNEL.jevChannel +
+    ' · 端点=' + CHANNEL.base + ' · 来源=' + CHANNEL.source +
+    (CHANNEL.source === 'preference' ? '(user_model 里 UI 设的)' : CHANNEL.source === 'default' ? '(缺省：无人设过)' : '(命令行)')
+  const urlNote = URL_SHAPE === null ? '' : ' · 预期 URL=' + String(URL_SHAPE.url)
+  const budget = opt('--channel-probe-ms') ?? '20000'
+  const timeoutMs = Number.isFinite(Number(budget)) ? Number(budget) : 20000
+  /**
+   * ⚠ **选得中才真调用**：local 腿在云端缺省下不该被网卡碰到（同一探针纪律见 detectChannelEnv）。
+   *   非选中腿的读数落 NO_DATA + 本跑未选中，而**不是**落个假的 MEASURED。
+   */
+  /**
+   * ⚠ **两条腿都要落到「真调用」上**（本席第一版只探了 local 的 `/api/tags`，是**弱判据**）：
+   *   环境探针只证明"服务在跑"，证明不了"这条通道真能判" —— 而后者才是本层的论点。
+   *   只探环境的写法会让 local 腿平凡通过（Ollama 一起就是绿），与 cloud 腿的读数**强度不对等**。
+   */
+  if (CHANNEL.channel !== 'cloud') {
+    const probe = await detectChannelEnv()
+    if (!probe.ok) {
+      return { state: 'NO_DATA', detail: channelAttribution('未测（本跑走本地通道，环境探针未通过）', probe.detail) + '｜' + reading, evidence: { channel: CHANNEL.channel, probe: probe.kind } }
+    }
+  } else if (!cloudCredentialPresent()) {
+    return {
+      state: 'NO_DATA',
+      detail: channelAttribution('未测（凭据不在场 ⇒ 不发请求）', '不发请求 · ' + CHANNEL_ENV.detail) + '｜' + reading + urlNote,
+      evidence: { channel: CHANNEL.channel, credentialPresent: false, envKind: CHANNEL_ENV.kind },
+    }
+  }
+  /** 真调用（一枪）：走**生产同一条链** —— jev 服务的 judge()，不另写一个 fetch。 */
+  const svc = ctx.get('mana-jev')
+  if (svc === undefined) {
+    return { state: 'FAIL', detail: 'mana-jev 服务不可读（装配面异常，与本通道无关）· ' + reading, evidence: {} }
+  }
+  const t0 = performance.now()
+  try {
+    /**
+     * ⚠ **必须用 `judgeGuarded`，不能用 `judge`**（本席实测踩到，如实记）：
+     *   `judge()` 是 **Ollama 专用**的薄封装（实现里判据原文："本方法刻意不加护栏"），
+     *   它**不跟 `config.channel` 走** —— 于是探针在 cloud 通道下把
+     *   `https://nano-gpt.com` 当 Ollama 端点去 POST，拿到 **401**，
+     *   而读数把这一次 401 归因成「云端凭据不对」⇒ **归因反向错位**
+     *   （真因是探针走错了腿，端点是对的、key 也没被发出去）。
+     *   `judgeGuarded` 才是"通道跟 config.channel 走"的那一个入口（见 index.ts:401）。
+     * 🔎 判据：本层读数里的 `reason` 若出现 `ollama-` 前缀，就是又走回了错腿
+     *   （cloud 腿的降级原因一律是 `systemone-` 前缀，见 systemone.ts 的常量表）。
+     */
+    const out = await svc.judgeGuarded({
+      state: '评估器通道探针：验证该通道能否返回一次判定',
+      question: 'Is the statement true? yes or no',
+      timeoutMs,
+      sessionId: 'eval-channel',
+      turnId: 0,
+    })
+    const ms = Math.round((performance.now() - t0) * 10) / 10
+    /**
+     * ⚠ 「凭据在场」由这里再确认一次：单测「变量有没有值」只能证否；
+     *   只有真调用拿到 degraded=false 才证成（两者读数均不出现在下面的文案里）。
+     * ⚠ 下面只印 reason / 统计量，**不印请求头**：key 连前缀都不进日志。
+     */
+    if (out.degraded === true) {
+      /**
+       * ⚠ **前缀即归因**（本席实测踩的那个坑的机检）：cloud 腿的降级原因一律 `systemone-`
+       *   前缀（见 `systemone.ts` 的 `SYSTEMONE_DEGRADED_REASONS`）。出现 `ollama-`
+       *   ⇒ 探针走了替身腿 ⇒ 该读数是**探针缺陷**，不是云端不可用 —— 两者不得同形，
+       *   否则一个自造的 401 会被读成「你的 key 不对」（本轮实测正是如此）。
+       */
+      const legWrong = CHANNEL.channel === 'cloud' && String(out.reason ?? '').startsWith('ollama-')
+      return {
+        state: legWrong ? 'FAIL' : 'NO_DATA',
+        detail: (legWrong
+          ? '[通道 · cloud] **探针走错了腿**（reason 是 ' + String(out.reason) + ' 前缀 ⇒ 探针在 cloud 通道下调了 Ollama 那条路）' +
+            '｜这是**评估器自身的缺陷**，不是云端不可用，也不是被测代码的问题｜'
+          : channelAttribution('判定的结果是降级（这一次没拿到可用应答）', 'reason=' + String(out.reason ?? '').slice(0, 160) + ' · ms=' + String(ms)) + '｜') + reading + urlNote,
+        evidence: { channel: CHANNEL.channel, degraded: true, reason: String(out.reason ?? '').slice(0, 160), ms, legWrong },
+      }
+    }
+    return {
+      state: 'MEASURED',
+      detail: '真调用拿到判定：value=' + String(out.value) + ' · probability=' + String(out.probability) + ' · ms=' + String(ms) +
+        ' · servedModel=' + String(out.servedModel ?? '(未回)') + '｜' + reading + urlNote,
+      evidence: { channel: CHANNEL.channel, value: out.value, probability: out.probability, ms, servedModel: out.servedModel ?? null },
+    }
+  } catch (error) {
+    /** 抛错 ⇒ 环境不可用（传输层）。⚠ 错误串只截前 200 字符且来自 message：不会有请求头。 */
+    return {
+      state: 'NO_DATA',
+      detail: channelAttribution('真调用抛错（传输层没走通）', 'error=' + String((error && error.message) || error).slice(0, 200)) + '｜' + reading + urlNote,
+      evidence: { channel: CHANNEL.channel, ms: Math.round((performance.now() - t0) * 10) / 10 },
+    }
   }
 })
 
@@ -1130,6 +1483,19 @@ const report = {
   at: new Date().toISOString(),
   argv: argv,
   exitCode: FINAL_EXIT,
+  /** ⚠ 通道读数随报告一起出（**机器可读**）：否则"这一跑用的哪条通道"只活在 stdout 文案里。 */
+  channel: {
+    channel: CHANNEL.channel,
+    model: CHANNEL.model,
+    source: CHANNEL.source,
+    base: CHANNEL.base,
+    keyEnv: CHANNEL.keyEnv,
+    /** **只回布尔**：key 本身（含前缀）永不进读数。 */
+    credentialPresent: CHANNEL.channel === 'cloud' ? cloudCredentialPresent() : null,
+    envKind: CHANNEL_ENV.kind,
+    storePath: CHANNEL.storePath,
+    storeRead: CHANNEL.storeRead,
+  },
   counts: { measured: byState('MEASURED'), noData: byState('NO_DATA'), notImplemented: byState('NOT_IMPLEMENTED'), fail: byState('FAIL') },
   layers: results,
 }
@@ -1137,6 +1503,14 @@ if (JSON_ONLY) console.log(JSON.stringify(report, null, 2))
 else {
   console.log('══════ Mana L1–L4 四层评估（v10 §39.1）══════')
   console.log('真装配 + 真事件链；读数回读真库（' + store + '）')
+  /**
+   * ⚠ **通道与模型印在最上面**（用户指令 A.4）：放在逐层读数之前，
+   *   使"这一跑用的哪条通道"在**读第一个数字之前**就是已知条件，而不是事后推断。
+   * ⚠ `credentialPresent` 只印**有无**（true/false），**不印 key、连前缀都不印**。
+   */
+  console.log('模型通道：' + CHANNEL.channel + ' · 模型 ' + CHANNEL.model + ' · 端点 ' + CHANNEL.base +
+    ' · 来源 ' + CHANNEL.source + (CHANNEL.source === 'preference' ? '(UI 里设的)' : CHANNEL.source === 'default' ? '(缺省)' : '(命令行 --channel)') +
+    (CHANNEL.channel === 'cloud' ? ' · 凭据(' + CHANNEL.keyEnv + ')=' + String(cloudCredentialPresent()) : ''))
   console.log('')
   for (const r of results) {
     const mark = r.state === 'MEASURED' ? '✓' : r.state === 'FAIL' ? '✗' : '·'

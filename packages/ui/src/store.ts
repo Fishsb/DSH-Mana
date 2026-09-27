@@ -18,8 +18,17 @@
  *   在类型与语句两个面上都成立，不靠注释自律。
  */
 import type { DatabaseSync } from 'node:sqlite'
-import type { GoalNode, HeatCell, PanelStore, TraceItem } from './panel.ts'
+import { CHANNEL_PREFERENCE_KEY, type GoalNode, type HeatCell, type PanelStore, type TraceItem } from './panel.ts'
 import type { TraceRow } from './replay.ts'
+
+/**
+ * core 的**偏好写入口**（`updateUserModel` 的结构性声明）。
+ *
+ * ⚠ 只声明本适配器用到的那一个方法，**不 import `dsh-mana-core` 的类型**：
+ *   `store.ts` 的既有纪律是「不认识 cordis、只面向端口」，把 core 的类型拖进来
+ *   会让这个适配器与具体宿主耦上（本文件头注第 1 条的同一理由）。
+ */
+export type UserModelWriter = (key: string, value: string) => void
 
 /** 结构化行视图：`node:sqlite` 的 `get()`/`all()` 返回 `Record<string, unknown>`。 */
 type Row = Record<string, unknown>
@@ -61,8 +70,13 @@ export function flattenGoals(rows: readonly Row[], limit: number): GoalNode[] {
   return out
 }
 
-/** 用一条独立只读连接造 `PanelStore`。 */
-export function createPanelStore(db: DatabaseSync): PanelStore {
+/**
+ * 用一条独立只读连接造 `PanelStore`。
+ *
+ * `writeUserModel` = 入口注入的 core 偏好写入口（**可缺省**：缺省时 `writeChannel` 显式抛错，
+ * 不静默丢弃 —— 静默丢弃会让 UI 上的选择看着存住了、其实没有）。
+ */
+export function createPanelStore(db: DatabaseSync, writeUserModel?: UserModelWriter): PanelStore {
   return {
     heatmap(limit: number): readonly HeatCell[] {
       const rows = db
@@ -151,6 +165,41 @@ export function createPanelStore(db: DatabaseSync): PanelStore {
         entry.at,
       )
       return Number(info.lastInsertRowid)
+    },
+
+    /**
+     * 「模型通道」偏好读侧：`user_model` 的单键（键名见 `panel.ts` 的
+     * `CHANNEL_PREFERENCE_KEY` —— **不在本文件重写一遍字面量**，免得两处漂移）。
+     *
+     * ⚠ 语义：**键不存在** ⇒ `null`（=「用户没设过」，消费侧据此走缺省 cloud）；
+     *   **值为空串** ⇒ 也归 `null`（空串不是合法通道，且它与"有值"不同义）。
+     *   这两种态在本文件里**同形**是有意的（都不是用户的有效设置），但"存了非法值"
+     *   那一种**不在这里吞掉** —— 它由 `panel.ts` 的 `resolveChannel` 判成
+     *   `invalid-fallback` 并把原值回显。
+     */
+    readChannel(): string | null {
+      const row = db.prepare('SELECT value FROM user_model WHERE key = ?').get(CHANNEL_PREFERENCE_KEY) as
+        | { value?: unknown }
+        | undefined
+      const value = row?.value
+      return typeof value === 'string' && value.trim() !== '' ? value : null
+    },
+
+    /**
+     * 「模型通道」偏好写侧。
+     *
+     * ⚠ **本适配器自己不发 INSERT**：它与面板的其它面一样**只读已冻结的表**，
+     *   写偏好的唯一合法入口是 core 的 `UserModelWriter`（`index.ts` 注入的
+     *   `core.updateUserModel`），它把主表覆盖与历史行绑在同一事务里。
+     *   若此处自造 INSERT，就出现**第二个写入者**：core 那条入口要么变死代码、
+     *   要么两处语义漂移（一处有历史、一处没有）—— 正是本仓点名的拆东墙补西墙。
+     *   ⇒ 端口上的这个方法由入口在装配时**绑定**到 core 的写入口（见 `index.ts`）。
+     */
+    writeChannel(value: string): void {
+      if (writeUserModel === undefined) {
+        throw new Error('ui: 偏好写入口未注入（装配面缺 core.updateUserModel）')
+      }
+      writeUserModel(CHANNEL_PREFERENCE_KEY, value)
     },
   }
 }

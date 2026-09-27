@@ -56,7 +56,18 @@ export function apply(ctx: Context, config: Config = DEFAULT_CONFIG): void {
   if (!core) throw new Error('mana-ui: 缺少 mana-core 服务（inject 未满足）')
 
   const rendered = config.renderTrace !== false
-  const store: PanelStore = createPanelStore(core.db)
+  /**
+   * 偏好写入口取自 core 服务面（`updateUserModel`）—— 主表覆盖与历史行由它绑在同一事务里，
+   * 本包**不自造 SQL**（见 `src/store.ts` 的 `writeChannel` 注释）。
+   * ⚠ 旧版 core（无此方法）下退化为只读：`writeChannel` 会**显式抛错**而不是静默丢弃。
+   */
+  const updateUserModel = (core as { updateUserModel?: (u: { key: string; value: string }) => unknown }).updateUserModel
+  const store: PanelStore = createPanelStore(
+    core.db,
+    typeof updateUserModel === 'function'
+      ? (key, value) => void updateUserModel.call(core, { key, value })
+      : undefined,
+  )
   /** 方法名 → handler；通道挂载时统一分发（通道是**分包**的，不是一方法一通道）。 */
   const table = new Map<string, (args: unknown) => unknown | Promise<unknown>>()
   const wire: PanelWire = { handle: (method, handler) => table.set(method, handler) }
