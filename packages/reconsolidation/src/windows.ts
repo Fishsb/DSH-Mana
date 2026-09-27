@@ -19,6 +19,7 @@ import type { ManaCoreService } from 'dsh-mana-core'
 import { columnsPresent, missingColumnsReason, type ColumnProbeDb } from './columns.ts'
 import { TRACE_EVENTS } from './trace.ts'
 import { isoAt, windowMs, windowOpen, windowUntil, type WindowReading } from './window.ts'
+import { resolveRetrievalKind, retentionGainMs, type RetrievalKind } from './params.ts'
 
 export interface WindowRequest {
   memoryId: string
@@ -30,6 +31,15 @@ export interface WindowRequest {
   trigger?: string | null
   sessionId?: string
   turnId?: number
+  /**
+   * **v10 §15.4 测试效应**：这次检索属于哪一档（再认 / 回忆 / 精细提取）。
+   *
+   * ⚠ **可选，且缺省即「未声明」**：省略 ⇒ 窗体行为与加这一轴之前**逐字相同**
+   *   （`until === now + windowMs(type)`）—— 既有生产调用方（'scheduler' 的注入链）
+   *   目前只知道「发生了一次检索」，还不知道「是哪种检索」，故本项**不改它的行为**。
+   * ⚠ 非法值**抛**（`RangeError`），不读成「未声明」：拼错类型不得静默变成零增益。
+   */
+  retrievalKind?: string
 }
 
 export interface WindowResult extends WindowReading {
@@ -40,6 +50,17 @@ export interface WindowResult extends WindowReading {
   degraded: boolean
   /** 是否真落了 trace 行。 */
   traced: boolean
+  /**
+   * 本次声明的检索类型（**未声明时为 `null`**）—— v10 §15.4。
+   *
+   * ⚠ 它是「没发生检索」与「发生了但增益为 0」的**分辨位**：
+   *   `null` + 增益 0 = **没有声明检索**；'recognition' + 增益 0 = **声明了、这一档算出来就是 0**。
+   */
+  retrievalKind: RetrievalKind | null
+  /** 本次由测试效应施加的**毫秒**延长量（未声明时为 0，此时 `until === untilBase`）。 */
+  retentionGainMs: number
+  /** 未经增益的基准窗长终点 `now + windowMs(type)` —— 令 `until = untilBase + retentionGainMs` 可逐字对拍。 */
+  untilBase: number
 }
 
 export interface CloseRequest {
@@ -99,7 +120,12 @@ export function openWindow(core: ManaCoreService, req: WindowRequest): WindowRes
   const probe = columnsPresent(db)
   // 先算窗长：未知类型在此抛（**不吞**，见 window.ts 的口径）。
   const lenMs = windowMs(req.type)
-  const until = windowUntil(req.now, req.type)
+  const untilBase = windowUntil(req.now, req.type)
+  // v10 §15.4 测试效应：**未声明** ⇒ null ⇒ 增益 0（既有一律走这条，行为逐字不变）；
+  // 非法值在**写库之前**抛（同窗长的处置：不产生半开窗，也不静默当零增益）。
+  const kind = resolveRetrievalKind(req.retrievalKind)
+  const gainMs = kind === null ? 0 : retentionGainMs(lenMs, kind)
+  const until = untilBase + gainMs
 
   if (!probe.ok) {
     const reason = missingColumnsReason(probe.missing)
@@ -121,6 +147,9 @@ export function openWindow(core: ManaCoreService, req: WindowRequest): WindowRes
       degraded: true,
       reason,
       traced,
+      retrievalKind: kind,
+      retentionGainMs: gainMs,
+      untilBase,
     }
   }
 
@@ -140,6 +169,9 @@ export function openWindow(core: ManaCoreService, req: WindowRequest): WindowRes
       degraded: false,
       reason: `memory-not-found:${req.memoryId}`,
       traced: false,
+      retrievalKind: kind,
+      retentionGainMs: gainMs,
+      untilBase,
     }
   }
 
@@ -162,6 +194,10 @@ export function openWindow(core: ManaCoreService, req: WindowRequest): WindowRes
       windowMs: lenMs,
       persisted,
       trigger: req.trigger ?? null,
+      // v10 §15.4：把「这次是哪一档、延长了多少」落进既有留痕（未声明时 kind=null、gain=0 ⇒ 可分辨）。
+      retrievalKind: kind,
+      retentionGainMs: gainMs,
+      untilBase: isoAt(untilBase),
     },
     { sessionId: req.sessionId, turnId: req.turnId, at: atIso },
   )
@@ -178,6 +214,9 @@ export function openWindow(core: ManaCoreService, req: WindowRequest): WindowRes
     degraded: false,
     reason: null,
     traced,
+    retrievalKind: kind,
+    retentionGainMs: gainMs,
+    untilBase,
   }
 }
 
