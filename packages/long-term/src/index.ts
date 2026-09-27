@@ -156,6 +156,7 @@ import {
   prefilterWorthKeeping,
   // ⚠ `traceWrittenOf` **不在此重复 import**：它已由上面 recall-gate 的 import 带进来
   //   （同一个实现，两处 import 会 TS2300 duplicate —— 也正是"别立第二份"的编译期证据）。
+  vectorizeMemory,
   writeGate,
   writeJudgeIdFor,
   WRITE_GATE_DEFAULTS,
@@ -288,6 +289,13 @@ export const IMPLEMENTED_WRITE_GATE_EXPORTS = [
   'WRITE_GATE_DEFAULT_THRESHOLD',
   'PREFILTER_BANK',
   'PREFILTER_MIN_OVERLAP',
+  // ⚠ 第 ⑤ 步「向量化」的接线面同样登记为**被判据点名的实现面**：
+  //   四个符号任一被搬走/改名，判据即红（反"实现被挖空"的同一条腿）。
+  'VECTOR_SERVICE',
+  'VECTOR_WRITE_SKIPS',
+  'resolveVectorLegs',
+  'vectorizeMemory',
+  'vectorizeSkipReason',
 ] as const
 
 /** ACT-R 纯函数面（只读）。**派生量唯一写者**在此：`A`/`B`/`decay` 只在本包计算。 */
@@ -678,6 +686,7 @@ export {
   coreSink,
   deriveMemoryId,
   prefilterWorthKeeping,
+  vectorizeMemory,
   writeGate,
   writeJudgeIdFor,
   PREFILTER_BANK,
@@ -692,6 +701,9 @@ export {
   // ⚠ 留痕标签是**被判据点名的字面量面**：它是否冒充 S1 五类必须可断言（故与实现同源导出）。
   WRITE_GATE_TRACE_EVENT,
 } from './write-gate.ts'
+// ── 第 ⑤ 步「向量化」的接线面（2026-09-27）——复用 vector 包既有面前的唯一落点，判据按名点名 ──
+export { VECTOR_SERVICE, VECTOR_WRITE_SKIPS, resolveVectorLegs, vectorizeSkipReason } from './write-gate.ts'
+export type { VectorEmbedLike, VectorLegs, VectorWriteSkip, VectorWriterLike } from './write-gate.ts'
 export type {
   PrefilterResult,
   WriteGateConfig,

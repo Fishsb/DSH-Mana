@@ -214,6 +214,265 @@ export const WRITE_GATE_FAILURE_KINDS = [
 ] as const
 export type WriteGateFailureKind = (typeof WRITE_GATE_FAILURE_KINDS)[number]
 
+/**
+ * ── v10 §12.1 第 ⑤ 步「向量化」的**接线面**（2026-09-27 补）──────────────────────────
+ *
+ * **本次修的缺口（本席 2026-09-27 亲跑取证的原文，不是推测）**：
+ *   · `memory_items` **有 vector 列**（PRAGMA 实测在册）；
+ *   · `vector` 包的 `putMemoryVector` **存在且可用**（packages/vector/src/index.ts:184/440）；
+ *   · 而**全仓生产侧零调用方**（`grep putMemoryVector` 只命中 4 处**测试**）⇒ 库里所有行
+ *     `vector` 恒为 NULL ⇒ 召回走降级，读数为
+ *     `"候选常驻向量全未命中（1/1 条）：k1(memory_items.vector 为 NULL（该行尚未嵌入）)"`。
+ *   · 而**嵌入通道本身完全正常**（`embedOne` ⇒ `degraded:false` + 1024 维）。
+ *   ⇒ 性质与 `summary` 列、`prefilter` 零消费方**完全同形**：**列/能力在，生产不产**。
+ *     修法因此只有一条：把落库路径**接到**既有面上（**不新写一份向量化逻辑** —— 那会长出
+ *     第二个真源：编码器、维度契约、落库点各会漂）。
+ *
+ * ── 结构镜像而非跨包 import 类型（与 `summarize.ts` 的 `SummaryLlmLike` 同一取舍）──
+ *   本包 package.json 的 peerDependencies 里**没有** `dsh-mana-vector`（本席写面不含 package.json）
+ *   ⇒ 类型 import 会让"声明面与真依赖不一致"；且它把 long-term 的**编译**绑到 vector 的
+ *   构建产物上（lib/ 是 gitignore 的派生物，全新克隆里构建顺序将变成隐含前置）。
+ *   故此处只镜像**用到的两个方法**的结构面 —— 镜像一旦漂开，是**编译期**红（index.ts 传参处）。
+ *
+ * ── 与判定链/摘要步同一条**可选依赖**取舍：**运行期解析、解析不到不算故障** ──────────────
+ *   `resolveVectorLegs` 取不到服务 ⇒ `vectorSkip='no-service'`（**具名**，见下），
+ *   落库照常。绝不把"向量没接上"升级成"long-term 起不来"，也绝不静默成"这条本来就没向量"。
+ */
+export interface VectorEmbedLike {
+  /** 取嵌入（显式降级信封：成功与失败同形，见 vector/adapt.ts 的 `EmbedOutcome`）。 */
+  embed(texts: readonly string[]): Promise<{
+    readonly vectors: readonly Float32Array[]
+    readonly degraded: boolean
+    /** 降级归类（`unsupported-by-server` 与通用 `degraded` 必须可分辨）。 */
+    readonly failureKind: string | null
+    readonly reason: string | null
+    readonly model: string
+    readonly baseUrl: string
+  }>
+}
+
+/** 向量**写库**面（只取本步用到的唯一写点）。 */
+export interface VectorWriterLike {
+  putMemoryVector(
+    memoryId: string,
+    vec: Float32Array,
+    meta?: { type?: string; content?: string },
+  ): Promise<{ written: boolean; reason: string | null }>
+}
+
+/** 向量腿（运行期解析得到；`null` = 取不到 ⇒ 具名跳过，不是故障）。 */
+export interface VectorLegs {
+  readonly embed: VectorEmbedLike['embed']
+  /** ⚠ 必须是 vector 包的 `putMemoryVector` —— 本包**不自己写** vector 列（唯一写库点那条纪律）。 */
+  readonly put: VectorWriterLike['putMemoryVector']
+  /** 解析来源（进读数，使"用的哪份实现"可分辨）。 */
+  readonly source: string
+}
+
+/**
+ * 本步的**服务名**（与 vector 包的 `apply` 注册名同值）。
+ * ⚠ 不 import vector 的常量：跨包值 import 会把可选依赖变成装配期前置（同 `PREFILTER_SERVICE`）。
+ */
+export const VECTOR_SERVICE = 'mana-vector' as const
+
+/**
+ * 向量步的**跳过归类**（可枚举、可断言）—— 「列是空的」与「这一步没跑」必须可分辨。
+ *
+ * ⚠ 六态**互不冒充**，尤其前两态：
+ *   · `disabled`    本步被开关关掉（**不是**失败）；
+ *   · `no-service`  向量腿**根本没装配/没取到**（**不是**"嵌入了但失败"—— 两者的排查方向
+ *                      完全不同：一个是装配面，一个是端点/模型面）；
+ *   · `generate-failed` 嵌入调用失败（带上游归类：端点不通 / 模型不支持 / 服务端不支持嵌入）；
+ *   · `empty-vector` 上游"成功"但没给出向量（第三种事实：既非失败也非有效产出）；
+ *   · `empty-content` 无文本可嵌（**不是**"嵌入失败"）；
+ *   · `put-failed`   嵌入成功但**写库失败**（维度不符 / 事务失败）—— 与"没嵌入"完全不同。
+ */
+export const VECTOR_WRITE_SKIPS = [
+  'disabled',
+  'no-service',
+  'empty-content',
+  'generate-failed',
+  'empty-vector',
+  'put-failed',
+] as const
+export type VectorWriteSkip = (typeof VECTOR_WRITE_SKIPS)[number]
+
+/**
+ * 跳过原因的**唯一构造出口**（纯函数）。
+ *
+ * ⚠ 为什么收成一处、且是**纯函数**：本仓头号形态是「让失败不可观测」——
+ *   若各分支各自拼一句 `reason`，则「原因具名可读」就成了**每个分支自觉**的产物，
+ *   少写一处即静默。收成一处后，判据可以**逐态**喂进去断言原因非空且互不相同
+ *   （见 tests/write-vector.test.mjs 的逐态腿）；生产路径上它保证 `vectorReason`
+ *   与 `vectorSkip` **永不成对出现一半**。
+ */
+export function vectorizeSkipReason(
+  skip: VectorWriteSkip,
+  detail: {
+    /** 上游自报的原因（generate-failed / put-failed 用）。 */
+    upstream?: string | null
+    /** 上游降级归类（generate-failed 用）。 */
+    failureKind?: string | null
+    model?: string | null
+    baseUrl?: string | null
+  } = {},
+): string {
+  const up = detail.upstream === null || detail.upstream === undefined ? '' : String(detail.upstream)
+  switch (skip) {
+    case 'disabled':
+      return 'vectorizeEnabled=false：本步未执行（不是"生成失败"）'
+    case 'no-service':
+      return (
+        'ctx 上取不到 ' + VECTOR_SERVICE + ' 服务（未装配 / 已卸载 / ctx 不提供 get）' +
+        '⇒ 未发起嵌入（不是"嵌入了但失败"：一个是装配面，一个是端点/模型面）'
+      )
+    case 'empty-content':
+      return '无可嵌入文本（内容为空串）⇒ 未发起嵌入（不是"嵌入失败"）'
+    case 'generate-failed':
+      return (
+        '嵌入调用失败[' + String(detail.failureKind === null || detail.failureKind === undefined ? 'degraded' : detail.failureKind) + ']：' +
+        (up === '' ? '（上游未给出原因）' : up) +
+        '（模型 ' + String(detail.model ?? '?') + '，端点 ' + String(detail.baseUrl ?? '?') + '）'
+      )
+    case 'empty-vector':
+      return '上游未降级但未给出向量（既非失败也非有效产出）' + (up === '' ? '' : '：' + up)
+    case 'put-failed':
+      return '向量**写库失败**：' + (up === '' ? '（上游未给出原因）' : up) + '（与"没嵌入"是两件事）'
+  }
+}
+
+/**
+ * 落库路径上的**向量化执行**（v10 §12.1 第 ⑤ 步）。
+ *
+ * ⚠ 本函数**不抛**（与 `summarizeBeforeWrite` 同口径）：一切失败折进返回值里的具名归类，
+ *   由调用方写进 outcome ⇒ 落库**永不**因向量腿故障而失败（本仓硬要求：少个派生优化
+ *   ≠ 丢一条记忆）。写进 `memory_items.vector` 的**唯一**动作是 `legs.put`
+ *   （= vector 包的 `putMemoryVector`：走 core 的 withTransaction + 常驻缓存），
+ *   本包既不自己编码 BLOB、也不自己拼 SQL。
+ *
+ * @param legs 向量腿（`null` = 取不到 ⇒ `no-service`）
+ * @param memoryId 落库用的记忆 id（**就是刚写进去的那一行**）
+ * @param content 待嵌入文本（= 落库的 content；摘要**不**参与嵌入 —— 摘要可能是 null）
+ */
+export async function vectorizeMemory(
+  legs: VectorLegs | null,
+  memoryId: string,
+  content: string,
+): Promise<{
+  readonly ok: boolean
+  readonly skip: VectorWriteSkip | null
+  readonly reason: string | null
+  /** 写入的向量维度（未写入时 null）。 */
+  readonly dim: number | null
+  /** 写入的 BLOB 字节数（= dim×4，与库里 `length(vector)` 相等；未写入时 null）。 */
+  readonly bytes: number | null
+  readonly model: string | null
+}> {
+  if (legs === null) {
+    return { ok: false, skip: 'no-service', reason: vectorizeSkipReason('no-service'), dim: null, bytes: null, model: null }
+  }
+  if (String(content ?? '').trim().length === 0) {
+    return { ok: false, skip: 'empty-content', reason: vectorizeSkipReason('empty-content'), dim: null, bytes: null, model: null }
+  }
+  let embedded: Awaited<ReturnType<VectorEmbedLike['embed']>>
+  try {
+    embedded = await legs.embed([content])
+  } catch (error) {
+    // 腿**声明**"绝不抛"（vector/embed.ts 的入口注释），但它抛了 ⇒ 照样归成 generate-failed
+    // 并带上真因：把"腿不守约"读成"嵌入不可用"会掩盖接口违约。
+    return {
+      ok: false,
+      skip: 'generate-failed',
+      reason: vectorizeSkipReason('generate-failed', {
+        failureKind: 'threw',
+        upstream: error instanceof Error ? error.message : String(error),
+      }),
+      dim: null,
+      bytes: null,
+      model: null,
+    }
+  }
+  const model = embedded.model
+  if (embedded.degraded) {
+    return {
+      ok: false,
+      skip: 'generate-failed',
+      reason: vectorizeSkipReason('generate-failed', {
+        failureKind: embedded.failureKind,
+        upstream: embedded.reason,
+        model,
+        baseUrl: embedded.baseUrl,
+      }),
+      dim: null,
+      bytes: null,
+      model,
+    }
+  }
+  const vec = embedded.vectors[0]
+  if (!vec || vec.length === 0) {
+    return {
+      ok: false,
+      skip: 'empty-vector',
+      reason: vectorizeSkipReason('empty-vector', { upstream: 'vectors[0] 缺失或长度为 0' }),
+      dim: null,
+      bytes: null,
+      model,
+    }
+  }
+  let written: { written: boolean; reason: string | null }
+  try {
+    written = await legs.put(memoryId, vec, { type: 'observation', content })
+  } catch (error) {
+    return {
+      ok: false,
+      skip: 'put-failed',
+      reason: vectorizeSkipReason('put-failed', { upstream: error instanceof Error ? error.message : String(error) }),
+      dim: null,
+      bytes: null,
+      model,
+    }
+  }
+  if (!written.written) {
+    return {
+      ok: false,
+      skip: 'put-failed',
+      reason: vectorizeSkipReason('put-failed', { upstream: written.reason }),
+      dim: null,
+      bytes: null,
+      model,
+    }
+  }
+  return { ok: true, skip: null, reason: null, dim: vec.length, bytes: vec.length * 4, model }
+}
+
+/**
+ * 向量腿的**运行期解析**（`ctx.get('mana-vector')`）。
+ *
+ * ⚠ **每次现解析、不缓存**：与 `resolveSummaryLegs` / `resolveSignalLegs` 同一条既有取舍
+ *   （常驻进程里后装配的包必须能被接上；缓存 null 会让"后来装上了"永远不生效）。
+ * ⚠ 取不到返回 `null`、**不抛**：向量腿缺席是**合法且可分辨**的状态
+ *   （`vectorSkip='no-service'`），不是"long-term 起不来"。
+ */
+export function resolveVectorLegs(ctx: Context): VectorLegs | null {
+  /**
+   * ⚠ **能力探测，不是直接 `ctx.get`**（本席实测踩到，逐条记下）：
+   *   既有两个判据（`write-gate-prefilter.test.mjs` ⑤/⑥）喂进来的是**最小桩 ctx**
+   *   —— 只实现 `waterfall` 的对象。直接 `ctx.get(...)` 会 `TypeError: ctx.get is not a function`，
+   *   把"没装向量腿"升级成**整条落库链抛错**：那正是本仓最忌的"可选依赖缺席 ⇒ 主链炸"。
+   *   探测失败与"服务不存在"归成**同一个具名状态** `no-service`（对调用方而言都是"这条腿取不到"），
+   *   但 reason 里把两种可能都写出来，不冒充。
+   */
+  const probe = ctx as unknown as { get?: (key: string) => unknown }
+  if (typeof probe.get !== 'function') return null
+  const svc = probe.get(VECTOR_SERVICE) as (VectorEmbedLike & VectorWriterLike) | undefined
+  if (!svc || typeof svc.embed !== 'function' || typeof svc.putMemoryVector !== 'function') return null
+  return {
+    embed: svc.embed.bind(svc),
+    put: svc.putMemoryVector.bind(svc),
+    source: VECTOR_SERVICE,
+  }
+}
+
 // ⚠ 「本层是否已落痕」的读取原语**复用** recall-gate.ts 的同名实现（traceWrittenOf /
 //   JEVD_TRACE_WRITTEN_KEY），**不在此另立第二份**：同一个 Symbol.for 串若有两处定义，
 //   改一处不会改另一处 —— 那正是「同一事实两个真源」的形态。
@@ -248,6 +507,15 @@ export interface WriteGateConfig {
   summarizeEnabled: boolean
   /** 摘要字符上限（超出即截断；0 = 不截断）。与 §25.5 提示词里的「不超过 50 字」配合。 */
   summaryMaxChars: number
+  /**
+   * 是否执行 v10 §12.1 第 ⑤ 步「向量化」（落库后把向量写进 `memory_items.vector`）。
+   *
+   * ⚠ 缺省 **true**：本步是**编码链条的正规步骤**（不是可选优化）。缺省关掉等于交付一个
+   *   不生效的步骤 —— 那正是本次修的那个缺口的成因（`vector` 列建了却零生产写者）。
+   * ⚠ 关掉**不是静默**：outcome 的 `vectorSkip='disabled'` + 非空 reason。
+   * ⚠ 它也**不**是"重试/回填"旋钮：回填存量行是另一件事（本包本批**不做**）。
+   */
+  vectorizeEnabled: boolean
 }
 
 /** 缺省配置（冻结；判据以此为准，避免第二份缺省值）。 */
@@ -259,6 +527,7 @@ export const WRITE_GATE_DEFAULTS: WriteGateConfig = Object.freeze({
   write: true,
   summarizeEnabled: true,
   summaryMaxChars: 50,
+  vectorizeEnabled: true,
 })
 
 /** 一条观察的写入结果 —— **每个字段都有「不可知」之外的确切取值**（无 undefined 状态位）。 */
@@ -305,6 +574,26 @@ export interface WriteGateOutcome {
   readonly summarySkip: SummarySkip | null
   /** 未生成摘要的原因（生成了则为 null）—— 与 `summarySkip` 配对，使"为什么没有"可读。 */
   readonly summaryReason: string | null
+  /**
+   * ── v10 §12.1 第 ⑤ 步「向量化（vector）」的读数（2026-09-27 补）────────────────────
+   *
+   * 本门在此之前**从不**生成向量 ⇒ `memory_items.vector` 在生产侧**恒为 NULL**
+   * ⇒ 召回恒走降级（`"…vector 为 NULL（该行尚未嵌入）"`）。这一组读数就是让
+   * **「列是空的」与「这一步没跑」可分辨**的落点（本仓头号形态）。
+   */
+  /** 本次落库行是否**带向量**（false 时看 `vectorSkip` 知道为什么）。 */
+  readonly vectorWritten: boolean
+  /** 写入的向量维度（未写入为 null）。 */
+  readonly vectorDim: number | null
+  /**
+   * 写入的 BLOB 字节数（= dim×4）—— 它**应当等于**库里 `length(memory_items.vector)`
+   * （判据按这个等式取证，而不是只信"调用了 putMemoryVector"）。
+   */
+  readonly vectorBytes: number | null
+  /** 未写向量时的**可枚举**归类（写入了则为 null）。 */
+  readonly vectorSkip: VectorWriteSkip | null
+  /** 未写向量的原因（写入了则为 null）—— 与 `vectorSkip` 配对，使"为什么没有"可读。 */
+  readonly vectorReason: string | null
   readonly latencyMs: number
 }
 
@@ -557,6 +846,11 @@ export async function writeGate(
     summaryChars: null,
     summarySkip: null,
     summaryReason: null,
+    vectorWritten: false,
+    vectorDim: null,
+    vectorBytes: null,
+    vectorSkip: null,
+    vectorReason: null,
   }
   const done = (state: WriteGateState, patch: Partial<WriteGateOutcome> = {}): WriteGateOutcome => ({
     ...base,
@@ -757,6 +1051,39 @@ export async function writeGate(
     })
   }
 
+  /**
+   * ── v10 §12.1 第 ⑤ 步：**向量化**（落库后把向量写进 `memory_items.vector`）────────────
+   *
+   * ⚠ **为什么放在落库之后**（而不是像摘要那样放在之前）：
+   *   本步的产出**不是** `sink.write` 的入参 —— 它由 vector 包的 `putMemoryVector` 直接写进
+   *   **同一个 memoryId 的那一行**（`ON CONFLICT(id) DO UPDATE SET vector=…`，见 vector/src/index.ts:254-262）。
+   *   若放在之前，core 的 `INSERT OR REPLACE`（未列出 vector 列 ⇒ 重置为 NULL，见本文件头那张实测表）
+   *   会把刚写好的向量**当场清掉** —— 那正是"看起来接上了、实际库里恒 NULL"的形态。
+   *   放在之后 ⇒ 即便将来 core 改成白名单更新，本步的写入也仍然落在正确的行上。
+   * ⚠ **只在真的写了行之后才做**：上面 `sink.write` 抛错即已 return（没有行 ⇒ 没有可写向量的目标，
+   *   此时 `vectorSkip` 保持 null —— 它如实表示"这一步**没跑**"，而不是"跑了但跳过"）。
+   * ⚠ **不阻断落库**（与摘要步同口径）：六种失败全部**照常**留着刚写好的记忆行（vector 保持 NULL），
+   *   但把归类与原因写进 outcome ⇒「列是空的」与「这一步没跑」可分辨。
+   * ⚠ 本步**复用** vector 包的既有唯一写库点 `putMemoryVector`：本包不编码 BLOB、不拼 SQL、
+   *   不碰 `packages/vector/src/**` —— 自己再写一份即会长出第二个真源（编码/维度/落库点三处会漂）。
+   */
+  let vectorWritten = false
+  let vectorDim: number | null = null
+  let vectorBytes: number | null = null
+  let vectorSkip: VectorWriteSkip | null = null
+  let vectorReason: string | null = null
+  if (cfg.vectorizeEnabled) {
+    const vec = await vectorizeMemory(resolveVectorLegs(ctx), memoryId, content)
+    vectorWritten = vec.ok
+    vectorDim = vec.dim
+    vectorBytes = vec.bytes
+    vectorSkip = vec.skip
+    vectorReason = vec.reason
+  } else {
+    vectorSkip = 'disabled'
+    vectorReason = vectorizeSkipReason('disabled')
+  }
+
   const state: WriteGateState = degraded ? 'degraded_written' : retired === false ? 'overwritten' : 'written'
   return done(state, {
     ...outcomeBase,
@@ -765,5 +1092,10 @@ export async function writeGate(
     summaryChars: summary === null ? null : [...summary].length,
     summarySkip,
     summaryReason,
+    vectorWritten,
+    vectorDim,
+    vectorBytes,
+    vectorSkip,
+    vectorReason,
   })
 }
