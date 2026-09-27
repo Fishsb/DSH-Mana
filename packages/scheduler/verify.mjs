@@ -36,6 +36,9 @@ import { fileURLToPath } from 'node:url'
 const EXPECTED = [
   { file: 'tests/scheduler.test.mjs', declared: 14, counted: 14 },
   { file: 'tests/chains-e2e.test.mjs', declared: 13, counted: 12 },
+  // ⚠ 新增（VERIFYING 第一刀）：**不登记就等于没判据** —— 外部防线压根不看它，
+  //   文件被清空/截断时没有任何东西会报（本包已实测该形态：generation-chain.test.mjs 就漏登记过）。
+  { file: 'tests/verify-row.test.mjs', declared: 7, counted: 6 },
 ]
 const HERE = fileURLToPath(new URL('.', import.meta.url))
 

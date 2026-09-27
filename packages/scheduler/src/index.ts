@@ -37,6 +37,7 @@ import {
   DRIVER_NAMESPACE,
   SEVEN_CHAIN_TABLE,
   TRACE_EVENTS as CHAIN_TRACE_EVENTS,
+  VERIFICATION_STATUSES,
   createChainDriver,
   type ChainCoverageRow,
   type ChainDriver,
@@ -74,6 +75,20 @@ export interface Config {
   generationEnabled: boolean
   /** 送给生成链的素材上限（字符）；实际长度**原样**进 payload，截断不会被藏起来。 */
   generationMaterialMaxChars: number
+  /**
+   * 验证链（VERIFYING 第一刀）是否发起。
+   *
+   * ⚠ 缺省 **true**（与 `generationEnabled` 同源理由）：本刀的交付物就是"验证行会一直存在"，
+   *   缺省关掉等于交付一个不生效的开关。
+   * ⚠ 与蒸馏链那四个**装配层**旋钮**刻意不同**：本项是**生产可调项**，故必须在下面
+   *   `createChainDriver` 的实参里**真转发**（设计档 §2.3 第 ③ 点已具名的坑：
+   *   蒸馏链的四个旋钮不转发，其后果被登记在 `chains.ts` 的 `DriverConfig.distillationEnabled`
+   *   注释里 —— 验证链不得复制它）。
+   * ⚠ 关掉**不是静默**：仍落一行 `verification` + `status='disabled'` + 非空 reason。
+   */
+  verificationEnabled: boolean
+  /** 本回合最多扫多少条 session log 事件（有界；被夹住时 `capped:true` 进 payload）。 */
+  verificationMaxEvents: number
 }
 
 export const Config: Schema<Config> = Schema.object({
@@ -90,6 +105,12 @@ export const Config: Schema<Config> = Schema.object({
   maxChainItems: Schema.number().default(200),
   generationEnabled: Schema.boolean().default(true),
   generationMaterialMaxChars: Schema.number().default(4000),
+  /**
+   * 验证链缺省 **true**：与 `generationEnabled` 同源理由（缺省关掉 = 交付一个不生效的开关）。
+   * 可观测差异由 `tests/verify-row.test.mjs` 钉住（false ⇒ 零 verified/unverified 行）。
+   */
+  verificationEnabled: Schema.boolean().default(true),
+  verificationMaxEvents: Schema.number().default(2000),
 })
 
 /** 本插件对外服务面。 */
@@ -175,6 +196,12 @@ export function apply(ctx: Context, config: Config): void {
       maxChainItems: config.maxChainItems,
       generationEnabled: config.generationEnabled,
       generationMaterialMaxChars: config.generationMaterialMaxChars,
+      // ⚠ **真转发**（设计档 §2.3 第 ③ 点）：验证链的开关是**生产可调项** ——
+      //   缺了这两行就会复制蒸馏链的坑（在 profile 配置里写它不会生效，见 chains.ts 的
+      //   DriverConfig.distillationEnabled 注释）。判据 verify-row.test.mjs 直接断言
+      //   "经 Config 关掉 ⇒ 落 disabled 行"，使"转发断了"变成可读的失败而不是静默。
+      verificationEnabled: config.verificationEnabled,
+      verificationMaxEvents: config.verificationMaxEvents,
     },
     goals,
     takeRuns,
@@ -305,6 +332,6 @@ export function apply(ctx: Context, config: Config): void {
 }
 
 // ── W1-1 的机检面（导出给判据与探针：**不在别处再写一套**）────────────────────
-export { DRIVER_NAMESPACE, SEVEN_CHAIN_TABLE, CHAIN_TRACE_EVENTS, CHAIN_SERVICES }
+export { DRIVER_NAMESPACE, SEVEN_CHAIN_TABLE, CHAIN_TRACE_EVENTS, CHAIN_SERVICES, VERIFICATION_STATUSES }
 export type { ChainCoverageRow, DriverReadings }
 export { createChainDriver } from './chains.ts'

@@ -107,6 +107,16 @@ export const TRACE_EVENTS = Object.freeze({
    *   （触发源、材料、写回落点都不同）。混在一行里，「蒸馏跑了」与「归纳跑了」不可分辨。
    */
   distillation: `${DRIVER_NAMESPACE}/distillation`,
+  /**
+   * **验证链（VERIFYING 第一刀）**：回合边界 ⇒ 读**本回合**的 session log
+   * （\`agent.session.snapshotEvents()\`），按 v10 §19.4 \`#6\`「任务完成 → VERIFYING」
+   * 落一行**可数**的验证行。本刀**不接 LLM、不做退回**（边界见文件末 \`VERIFICATION_PHASE_TABLE\`）。
+   *
+   * ⚠ 与上面十条**分开一条事件名**：本刀的交付物就是让「本仓没有任何东西在追踪执行结果」
+   *   从**不可见**变**可数**。混进 \`coverage\` 行里，它会随覆盖率行一起被读成一个整体，
+   *   「验证缺口」与「七行覆盖情况」就同形了（本仓首位缺陷类）。
+   */
+  verification: `${DRIVER_NAMESPACE}/verification`,
   /** 覆盖面：每个回合边界把 §18.2 七行的**当下**状态落一行（含 not-driven 的行）。 */
   coverage: `${DRIVER_NAMESPACE}/coverage`,
   /** 链任务抛错（**绝不静默**：`catch` 里不写行就等于把故障吃掉）。 */
@@ -168,6 +178,136 @@ export function resolveDistillConfig(config: Pick<DriverConfig, 'distillationEna
     distillCandidatesMax: config.distillCandidatesMax ?? DISTILL_DEFAULTS.distillCandidatesMax,
     distillationSessionsMax: config.distillationSessionsMax ?? DISTILL_DEFAULTS.distillationSessionsMax,
   }
+}
+
+/**
+ * 验证链（VERIFYING 第一刀）的**装配层缺省值唯一出处**。
+ *
+ * ⚠ 与 `DISTILL_DEFAULTS` **刻意的差别**（这条是设计档点名的坑，不是口味）：
+ *   蒸馏链那四个旋钮**生产装配不转发**（`index.ts` 不传），后果是「在 profile 配置里写它们
+ *   不会生效」——那条边界被显式登记在 `chains.ts:593-602` 并由 `distill-wiring.test.mjs` ⑥ 断言。
+ *   **验证链的开关不得复制这个坑**：它是"生产可调项"，故 `index.ts` 的 `createChainDriver`
+ *   实参**必须转发**（设计档 §2.3 第 ③ 点）。这里只放**缺省值**，不改变"可调"这件事。
+ */
+export const VERIFICATION_DEFAULTS = Object.freeze({
+  verificationEnabled: true,
+  verificationMaxEvents: 2000,
+})
+
+/** 解析后的验证链旋钮（内部使用）。 */
+interface ResolvedVerificationConfig {
+  readonly verificationEnabled: boolean
+  readonly verificationMaxEvents: number
+}
+
+/** 把可选旋钮折成确定值（缺省取 `VERIFICATION_DEFAULTS`；同 `resolveDistillConfig` 的写法）。 */
+export function resolveVerificationConfig(
+  config: Pick<DriverConfig, 'verificationEnabled' | 'verificationMaxEvents'>,
+): ResolvedVerificationConfig {
+  return {
+    verificationEnabled: config.verificationEnabled ?? VERIFICATION_DEFAULTS.verificationEnabled,
+    verificationMaxEvents: config.verificationMaxEvents ?? VERIFICATION_DEFAULTS.verificationMaxEvents,
+  }
+}
+
+/**
+ * **本回合的验证证据读数**（结构读取的返回值；三态由 `VERIFICATION_RULES` 判）。
+ *
+ * ⚠ 四个数**分列**，因为它们各自是一件事：
+ *   · `verifications` —— 本回合**可作验证证据**的事件数（工具结果 + 助手消息）。
+ *     **0 是显式记 0**，不是"没跑"（见 `status`）—— 这是本仓 "n=0 显式记 0" 的落点。
+ *   · `failures` —— 其中带**明确失败证据**的条数（`isError` 或 `error` 字段）。
+ *   · `scannedEvents` —— 日志里**总共**看了多少条事件（含不属于本回合的）。
+ *   · `turnEvents` —— 其中属于**本回合**的条数。`scannedEvents>0 且 turnEvents===0`
+ *     与 `scannedEvents===0` 是两件事（后者 = 日志压根读不到）。
+ */
+export interface TurnVerificationReading {
+  readonly verifications: number
+  readonly failures: number
+  readonly scannedEvents: number
+  readonly turnEvents: number
+  readonly capped: boolean
+  /** 取不到会话日志时的**具名**原因（非空 = 本次是"读不到"，不是"没有证据"）。 */
+  readonly unreadable: string | null
+}
+
+/**
+ * 从宿主 `Session` 上读**本回合**的验证证据（结构读取，**不 import dsh-session 的运行期**）。
+ *
+ * ⚠ 硬约束①（不 import 各包实现）在这里的落法：只做**结构读取**，形状按宿主声明逐字对齐
+ *   （`dsh-session/lib/types/types.d.ts:489` 的 `SessionEvent` = `{ type, seq, time, data }`；
+ *   `tool/result` 见 `:374`、`assistant/message` 见 `:330`，`isError` 见
+ *   `dsh-llm/lib/types/message.d.ts:159`）。宿主改形状 ⇒ 本函数读不到 ⇒ 落 `tool-call`
+ *   路径之外的 `unreadable` 具名 reason，**不会**静默变成"没有失败证据"。
+ *
+ * ⚠ `session.snapshotEvents()` **本刀未在真宿主上跑过**（设计档 §6 U3 明列的未验证项）。
+ *   它的可用性因此**不被假设**：取不到（无 session / 无 snapshotEvents / 抛错）一律走
+ *   `unreadable` 具名原因，不影响其余链路。
+ */
+export function readTurnVerification(
+  agent: unknown,
+  turnId: number,
+  maxEvents: number,
+): TurnVerificationReading {
+  const a = agent as { session?: { snapshotEvents?: unknown } } | undefined
+  const snapshot = a?.session?.snapshotEvents
+  if (typeof snapshot !== 'function') {
+    return {
+      verifications: 0,
+      failures: 0,
+      scannedEvents: 0,
+      turnEvents: 0,
+      capped: false,
+      unreadable: 'agent.session.snapshotEvents 不可用 ⇒ 本回合的验证证据**读不到**（不是「没有失败证据」）',
+    }
+  }
+  let events: unknown
+  try {
+    events = (snapshot as (this: unknown) => unknown).call(a?.session)
+  } catch (error) {
+    return {
+      verifications: 0,
+      failures: 0,
+      scannedEvents: 0,
+      turnEvents: 0,
+      capped: false,
+      unreadable: 'session.snapshotEvents() 抛错 ⇒ 验证证据**读不到**：' + String((error as Error)?.message ?? error),
+    }
+  }
+  if (!Array.isArray(events)) {
+    return {
+      verifications: 0,
+      failures: 0,
+      scannedEvents: 0,
+      turnEvents: 0,
+      capped: false,
+      unreadable: 'session.snapshotEvents() 未返回数组（形状与 dsh-session 声明不符）⇒ 验证证据**读不到**',
+    }
+  }
+  const cap = Math.max(1, Math.floor(maxEvents))
+  let scannedEvents = 0
+  let turnEvents = 0
+  let verifications = 0
+  let failures = 0
+  let capped = false
+  for (const event of events) {
+    scannedEvents += 1
+    const e = event as { type?: unknown; data?: { turn?: unknown; message?: { isError?: unknown } ; error?: unknown } } | undefined
+    if (e?.data?.turn !== turnId) continue
+    turnEvents += 1
+    if (turnEvents > cap) {
+      // 有界：超出只**记**不猜 —— 把"没看完"与"看完了没失败"折成一个数是本仓最防的假读数。
+      capped = true
+      break
+    }
+    if (e.type === 'tool/result') {
+      verifications += 1
+      if (e.data?.message?.isError === true || e.data?.error !== undefined) failures += 1
+    } else if (e.type === 'assistant/message') {
+      verifications += 1
+    }
+  }
+  return { verifications, failures, scannedEvents, turnEvents, capped, unreadable: null }
 }
 
 /** 一次蒸馏请求（结构面；实现归 `packages/consolidation/src/distill.ts`，本包不 import）。 */
@@ -407,6 +547,66 @@ export const DISTILL_CHAIN_ROW: SevenChainRow = Object.freeze({
   requires: [CHAIN_SERVICES.consolidation],
 })
 
+/**
+ * **验证链的触发声明（VERIFYING 第一刀）** —— 与 `DISTILL_CHAIN_ROW` **同一先例**：
+ * 同形状、独立声明、**不并进 `SEVEN_CHAIN_TABLE`、不进 `coverage()`**。
+ *
+ * ⚠ 为什么独立而不是并进七行表：那张表是 **§18.2「七链条触发时机」的唯一口径表**，
+ *   既有判据 T10 逐条钉死它「恰好七行 + id 与顺序逐字」(`chains-e2e.test.mjs:489/491/508/514`)。
+ *   并进去 = 篡改那张表的口径并让 T10 变红 —— 那是**拆东墙补西墙**（弄坏既有判据给自己的改动腾位置）。
+ *   `DISTILL_CHAIN_ROW` 已为同一情形立过先例（`chains.ts:381-408`），本行**照抄它的形状**。
+ *
+ * ⚠ 本刀**不接 LLM、不做退回**：只落一条**可数**的验证行，把「本仓没有任何东西在追踪执行结果」
+ *   从**不可见**变**可数**。退回通道（`agent.steer`）的代价含「改变用户可观测的回合形态」
+ *   ⇒ 见设计档 §3.2.4，不在本刀。
+ */
+export const VERIFICATION_CHAIN_ROW: SevenChainRow = Object.freeze({
+  id: 'turn-verification',
+  /** v10 §19.4 转移 `#6`「任务完成 → VERIFYING」的原文口径。 */
+  v10Trigger: '任务完成',
+  v10Chains: ['验证'],
+  /**
+   * ⚠ **替代，不是 v10 原文**：宿主无「任务完成」事件面（与七行表 `goal-done` 行同一条事实）
+   *   ⇒ 由回合边界代替，读**本回合**的 session log。
+   */
+  hostTrigger: 'agent/turn-stopping',
+  substitution:
+    '宿主无「任务完成」事件面 ⇒ 回合边界读本回合 session log（agent.session.snapshotEvents()）判三态',
+  requires: [],
+})
+
+/**
+ * **验证行的三态口径表（本仓硬要求：三态不得同形）**。
+ *
+ * 「验证了且通过」/「验证了但不通过」/「压根没验证」必须**各自可分辨**；`n=0` **显式记 0**。
+ * 这张表就是那句要求的机检面：每条链判据按它核 `status` 集合，而不是在落行处硬写一个字面量。
+ *
+ * ⚠ 表里**只列**"本回合有（或没有）可验材料"时的三态。**开关关着**与**会话身份取不到**
+ *   各有自己的 `status`（见 `onTurnBoundary` 的分支），**不得**被折进
+ *   `not-attempted` —— 那会让「压根没接」与「接了但没材料」在库里同形（本仓首位缺陷类）。
+ */
+export const VERIFICATION_STATUSES = Object.freeze({
+  /** 有材料且**没有任何失败证据** ⇒ 验证了且通过。 */
+  verified: 'verified',
+  /** 有材料且**有**失败证据 ⇒ 验证了但不通过。 */
+  unverified: 'unverified',
+  /** 本回合**压根没验证**（无可验材料）⇒ 与上两态**不同形**，且 `verifications=0` 显式记 0。 */
+  notAttempted: 'not-attempted',
+})
+
+/**
+ * 三态的**判定表**：证据 ⇒ 状态。判据按它核「三态真的可达且互不相等」，不重算一套。
+ *
+ * 判据是**结构读数**，不是模型判断：本回合的 session log 里有几条失败证据
+ * （`tool/result.message.isError===true`，或带 `error` 字段的 `tool/result`）。
+ * ⚠ 只认**明确失败**，不认「没有成功证据」—— 后者会把「工具没报错」读成「验证不通过」。
+ */
+export const VERIFICATION_RULES: readonly { readonly evidence: string; readonly status: string }[] = Object.freeze([
+  { evidence: 'failures > 0', status: VERIFICATION_STATUSES.unverified },
+  { evidence: 'failures === 0 且 verifications > 0', status: VERIFICATION_STATUSES.verified },
+  { evidence: 'verifications === 0', status: VERIFICATION_STATUSES.notAttempted },
+])
+
 // ── 运行期解析出来的**结构接口**（不 import 各包；只管本文件真正调到的那几个成员）────
 export interface ChainPerception {
   perceive(input: {
@@ -616,6 +816,18 @@ export interface DriverConfig {
   readonly distillCandidatesMax?: number
   /** 记住多少会话的最近活动时刻（有界；超出按最久未活动逐出且丢弃可数）。 */
   readonly distillationSessionsMax?: number
+  // ── 验证链（VERIFYING 第一刀）的两个旋钮 ─────────────────────────────────────
+  /**
+   * 验证链是否发起。缺省 true（`VERIFICATION_DEFAULTS`）。关掉**不是静默**：
+   * 仍落一行 `verification/skipped` + `status='disabled'` + 非空 reason。
+   *
+   * ⚠ 与蒸馏链的四个旋钮**不同**：本项**必须**由生产装配转发（`index.ts` 的
+   *   `createChainDriver` 实参），否则就是复制 `chains.ts:593-602` 已登记的坑。
+   *   可观测差异由 `tests/verify-row.test.mjs` ④ 钉住（false ⇒ 零 `verified`/`unverified` 行）。
+   */
+  readonly verificationEnabled?: boolean
+  /** 本回合最多扫多少条 session log 事件（有界；被夹住时 `capped:true` 进 payload）。 */
+  readonly verificationMaxEvents?: number
 }
 
 // ── 运行期状态读数（供 status()/chains() 与判据读）───────────────────────────
@@ -646,6 +858,33 @@ export interface DriverReadings {
   readonly distillationSessions: number
   /** 因超上界被逐出的会话数（**丢弃可数**，同 `bufferDropped`）。 */
   readonly distillationSessionsDropped: number
+  /**
+   * 验证链（VERIFYING 第一刀）的**分列读数**。
+   *
+   * ⚠ 「扫了几次」与「验证了几次」必须**分列**（同 `distillationScanned`/`distillationDispatched`
+   *   的原文理由）：合成一个计数会让「链在跑但一直没有可验材料」与「链压根没接」同形。
+   * ⚠ 三态**各占一列**，不得合成一个"验证率"：合计值会让「0 次验证」与「验证了但全不通过」
+   *   在读数上互相抵消（本仓首位缺陷类）。
+   */
+  readonly verificationScanned: number
+  /** 有可验材料（`verifications>0`）的回合数 —— 与 `verificationScanned` 的差就是「扫了但没材料」。 */
+  readonly verificationAttempted: number
+  /** 三态各自的**累计回合数**（和 === `verificationScanned`；任一项为 0 时**显式记 0**）。 */
+  readonly verificationVerified: number
+  readonly verificationUnverified: number
+  readonly verificationNotAttempted: number
+  /** 验证链自身抛错的次数（照写 `chain/error` 行；不算进别的链的 `errors` 会漏账）。 */
+  readonly verificationErrors: number
+  /** 最近一次验证的读数（无 = null；**不折成"全 0"**，那会让"没跑过"看起来像"跑了没材料"）。 */
+  readonly lastVerification: {
+    readonly sessionId: string
+    readonly turnId: number
+    readonly at: string
+    readonly status: string
+    readonly verifications: number
+    readonly failures: number
+    readonly reason: string
+  } | null
   /** 最近一次蒸馏的回报（无 = null；**不折成"全 0"**，那会让"没跑过"看起来像"跑了没产出"）。 */
   readonly lastDistillation: {
     readonly sessionId: string
@@ -797,6 +1036,8 @@ export function createChainDriver(deps: ChainDriverDeps): ChainDriver {
    *   `config.distillationEnabled` 都会在"未传"时得到 `undefined`（假绿温床）。
    */
   const distillCfg = resolveDistillConfig(config)
+  /** 验证链的两个旋钮同样在此**折成确定值**（缺省归 `VERIFICATION_DEFAULTS`）。 */
+  const verificationCfg = resolveVerificationConfig(config)
 
   /** 共激活激活流（有界；消费式清空）。 */
   let activationBuffer: { id: string; at: number }[] = []
@@ -812,6 +1053,21 @@ export function createChainDriver(deps: ChainDriverDeps): ChainDriver {
     distillSettled: 0,
     distillErrors: 0,
     distillSessionsDropped: 0,
+    verificationScanned: 0,
+    verificationAttempted: 0,
+    verificationVerified: 0,
+    verificationUnverified: 0,
+    verificationNotAttempted: 0,
+    verificationErrors: 0,
+    lastVerification: null as {
+      sessionId: string
+      turnId: number
+      at: string
+      status: string
+      verifications: number
+      failures: number
+      reason: string
+    } | null,
     lastDistillation: null as {
       sessionId: string
       idleMs: number
@@ -1343,6 +1599,134 @@ export function createChainDriver(deps: ChainDriverDeps): ChainDriver {
     })
   }
 
+  /**
+   * **验证链（VERIFYING 第一刀）**：把「本回合的执行结果验证了没有」落成一条**可数**的行。
+   *
+   * ── 边界（逐条引自本卡，不是注释承诺）────────────────────────────────────────────
+   *   ⛔ **不接 LLM**：本刀只做**结构读数**（session log 里有没有失败证据），不做结果分类。
+   *      v10 §19.4 的 5 路分类要走 `mana/jev/judge`，而 `JevJudgeResult.value` 只有三值 ⇒
+   *      答案回到调用方时已被折成 `'unknown'`（设计档 §3.3 / G8）。那是**另一刀**的事。
+   *   ⛔ **不做退回**：改回执类型三条路全堵死（宿主声明 `Promise<void>`、本仓包装层不 return、
+   *      `dispatch.serial` 返回值不被消费）；真通道 `payload.agent.steer(...)` 的代价含
+   *      「改变用户可观测的回合形态」⇒ 不在本刀（设计档 §3.2.4）。
+   *   ⛔ **不 await**：`turn-stopping` 由宿主 `await`（`runtime-types.d.ts:385-391` `@mode serial`）
+   *      ⇒ 在监听器里等会阻塞整条回合边界。本函数**同步完成**（只做一次内存里的数组扫描），
+   *      调用处仍写 `void`：将来若接了异步判定，形态不用改。
+   *
+   * ── 三态与"每个 skip 分支给自己的 status"（本仓硬要求）──────────────────────────
+   *   `verified` / `unverified` / `not-attempted` **三者不同形**，且 `n=0` **显式记 0**。
+   *   开关关着 / 会话身份缺失各自**另有**自己的 status，**不得**折进 `not-attempted` ——
+   *   硬写一个状态会让「压根没接」与「接了但没材料」同形（`distill-wiring.test.mjs` ⑥ 的实测教训）。
+   */
+  const runVerification = (payload: unknown, sessionId: string, turnId: number): void => {
+    const at = new Date().toISOString()
+    const base = {
+      chain: 'verification',
+      phase: 'settled',
+      service: 'host:session-log',
+      v10Trigger: '任务完成',
+      substitution: '宿主无「任务完成」事件面 ⇒ 回合边界读本回合 session log（agent.session.snapshotEvents()）',
+      notInSevenChainTable: true,
+    }
+    /** 落一行 + 记一次读数（两件事同处一屏 ⇒ 不可能漂开）。 */
+    const emit = (
+      status: string,
+      reason: string,
+      sample: { verifications: number; failures: number },
+      extra: Record<string, unknown>,
+    ): void => {
+      trace(TRACE_EVENTS.verification, sessionId, turnId, {
+        ...base,
+        status,
+        reason,
+        // ── 分列读数（三态各占一列，不相加成一个"验证率"）──
+        verifications: sample.verifications,
+        failures: sample.failures,
+        // ⚠ 这四个字段**每一态都写全**（含 disabled / no-session-identity）：
+        //   缺字段会让"压根没扫"与"扫了但读不出"在机检面上同形 ——
+        //   本仓对"缺字段 vs 显式 0"的既有纪律（见 forgetting 的 `retiredWritten: 0`）。
+        scannedEvents: 0,
+        turnEvents: 0,
+        capped: false,
+        unreadable: null,
+        ...extra,
+      })
+      state.verificationScanned += 1
+      if (status === VERIFICATION_STATUSES.verified) state.verificationVerified += 1
+      else if (status === VERIFICATION_STATUSES.unverified) state.verificationUnverified += 1
+      else if (status === VERIFICATION_STATUSES.notAttempted) state.verificationNotAttempted += 1
+      if (sample.verifications > 0) state.verificationAttempted += 1
+      state.lastVerification = { sessionId, turnId, at, status, verifications: sample.verifications, failures: sample.failures, reason }
+    }
+    try {
+      if (!verificationCfg.verificationEnabled) {
+        emit(
+          'disabled',
+          'verificationEnabled=false ⇒ 本回合**未发起**验证（这是开关事实，不是「没有结果可验」）',
+          { verifications: 0, failures: 0 },
+          {},
+        )
+        return
+      }
+      if (sessionId === '') {
+        emit(
+          'no-session-identity',
+          'no-session-identity：agent 上取不到 sessionId / session.id ⇒ 不落虚构分区，也不假装验过',
+          { verifications: 0, failures: 0 },
+          {},
+        )
+        return
+      }
+      const reading = readTurnVerification((payload as { agent?: unknown } | undefined)?.agent, turnId, verificationCfg.verificationMaxEvents)
+      const sample = { verifications: reading.verifications, failures: reading.failures }
+      const extra = {
+        scannedEvents: reading.scannedEvents,
+        turnEvents: reading.turnEvents,
+        capped: reading.capped,
+        maxEvents: verificationCfg.verificationMaxEvents,
+        unreadable: reading.unreadable,
+      }
+      /**
+       * ⚠ `读不到` 有**它自己的** status，**不得**折进 `not-attempted`：
+       *   「读不到日志」与「读了、本回合没材料」是两件事，折一起就等于把本仓最防的
+       *   「失败不可观测」重新引入一遍。
+       */
+      if (reading.unreadable !== null) {
+        emit('unreadable', reading.unreadable, sample, extra)
+        return
+      }
+      // 三态由**判定表**给出（`VERIFICATION_RULES`），不是在落行处硬写一个字面量。
+      if (reading.verifications === 0) {
+        emit(
+          VERIFICATION_STATUSES.notAttempted,
+          '本回合 session log 里**没有可验的执行结果**（工具结果/助手消息 0 条）⇒ 压根没验证；n=0 显式记 0',
+          sample,
+          extra,
+        )
+        return
+      }
+      if (reading.failures > 0) {
+        emit(
+          VERIFICATION_STATUSES.unverified,
+          '验证了但**不通过**：本回合 ' + String(reading.failures) + ' 条执行结果是失败证据（tool/result.isError）',
+          sample,
+          extra,
+        )
+        return
+      }
+      emit(
+        VERIFICATION_STATUSES.verified,
+        '验证了且通过：本回合 ' + String(reading.verifications) + ' 条执行结果**没有**失败证据',
+        sample,
+        extra,
+      )
+    } catch (error) {
+      // 本链自己抛错 ⇒ 照写 error 行（catch 里不写行 = 把故障吃掉）。
+      state.verificationErrors += 1
+      recordError('verification', sessionId, turnId, error)
+    }
+  }
+
   // ── 链 3/4/5/6 + 覆盖面：回合边界 ─────────────────────────────────────────
   const onTurnBoundary = async (payload: unknown): Promise<void> => {
     if (!config.driverEnabled) return
@@ -1592,6 +1976,15 @@ export function createChainDriver(deps: ChainDriverDeps): ChainDriver {
      */
     if (sessionId !== '') noteActivity(sessionId, Date.now())
 
+    /**
+     * ── 验证链（VERIFYING 第一刀）：**在 `noteActivity` 之后**、覆盖面之前 ──────────────
+     * 位置理由与蒸馏链**同源**（见本文件蒸馏段那条顺序注释）：`turn-stopping` 是 serial 型、
+     * 监听器按注册序依次跑；本行只读**本回合**的 session log、不改活动时刻，放在打点之后
+     * 不会把同一轮的活动算进空闲判定。
+     * **不 await**：与 `runGeneration`/`runDistillation` 同一条取舍 —— 宿主 `await` 这个事件。
+     */
+    void runVerification(payload, sessionId, turnId)
+
     // ── 覆盖面：§18.2 七行的**当下**状态（含 not-driven / not-ported 的行）──
     // 每 tick 一行：不落行的话，「某行从未被驱动」在库里与「驱动者没跑」同形。
     const rows = coverage()
@@ -1628,6 +2021,13 @@ export function createChainDriver(deps: ChainDriverDeps): ChainDriver {
     distillationSessions: lastActivityAt.size,
     distillationSessionsDropped: state.distillSessionsDropped,
     lastDistillation: state.lastDistillation,
+    verificationScanned: state.verificationScanned,
+    verificationAttempted: state.verificationAttempted,
+    verificationVerified: state.verificationVerified,
+    verificationUnverified: state.verificationUnverified,
+    verificationNotAttempted: state.verificationNotAttempted,
+    verificationErrors: state.verificationErrors,
+    lastVerification: state.lastVerification,
   })
 
   return { onUserMessage, onInjection, onTurnBoundary, coverage, readings }
