@@ -678,26 +678,53 @@ await layer('L2', '记忆质量（召回命中率，分母=真查询数）', asy
    */
   const PROBE_ID = 'mem_eval_l2_probe'
   const PROBE_TEXT = '记住：这个项目的根目录在 /home/lk/Mana，跑测试用 npm test'
-  const PROBE_QUERY = '项目根目录在哪里'
+  /**
+   * ⚠ **两条查询，必须都跑**（本席 2026-09-27 实测后修正，含一次自我否定）：
+   *
+   *   我第一版只用了 `项目根目录在哪里`，它**未命中**，我一度当成召回缺陷去追。
+   *   实测否定了这个判断 —— 目标记忆里是「**项目的根目录在**」，而该查询是「项目的**根目录在哪里**」，
+   *   二者**不是连续子串**。FTS5 trigram 的**短语查询要求连续子串** ⇒ 0 命中是**正确语义**。
+   *   证据（直查真表，目标 = 上面 PROBE_TEXT）：
+   *     连续子串「根目录」→ 1 条 · 「/home/lk/Mana」→ 1 条 · 「跑测试用 npm test」→ 1 条
+   *     换词序「项目根目录在哪里」→ 0 条 · 「根目录在哪里」→ 0 条
+   *   ⚠ 换词序查不到，正是 v10 里**向量检索腿**存在的理由（词法腿天然做不到语义泛化）。
+   *     把它读成"召回坏了"，就会去"修"一个不坏的词法腿 —— 典型的归因错位。
+   *
+   * ⇒ 两条查询**分列报**：
+   *   · `hitContiguous`：连续子串查询 —— **词法腿应当命中**（这是它的能力面，不命中才是缺陷）；
+   *   · `hitReordered`：换词序查询 —— **词法腿本就做不到**（如实报，**不指控为缺陷**），
+   *     它标出的是"语义泛化"这一缺口，须由向量腿补（当前评估器刻意离线 ⇒ 向量腿未启用）。
+   */
+  const PROBE_QUERY = '根目录'                                  // 连续子串 ⇒ 词法腿应命中
+  const PROBE_QUERY_REORDERED = '项目根目录在哪里'              // 换词序 ⇒ 词法腿做不到（非缺陷）
   const probe = (() => {
     try {
       const core = ctx.get('mana-core')
       core.writeMemoryItem({ id: PROBE_ID, type: 'observation', content: PROBE_TEXT, at: new Date().toISOString() })
-      const r = core.recallLexical(PROBE_QUERY, 10)
-      const hit = r.hits.some((h) => h.id === PROBE_ID)
-      return { ok: true, hit, hits: r.hits.map((h) => h.id), reason: r.reason, librarySize: r.librarySize }
+      const r1 = core.recallLexical(PROBE_QUERY, 10)
+      const r2 = core.recallLexical(PROBE_QUERY_REORDERED, 10)
+      return {
+        ok: true,
+        hitContiguous: r1.hits.some((h) => h.id === PROBE_ID),
+        hitReordered: r2.hits.some((h) => h.id === PROBE_ID),
+        hits: r1.hits.map((h) => h.id),
+        reason: r1.reason,
+        librarySize: r1.librarySize,
+      }
     } catch (error) {
-      return { ok: false, hit: false, hits: [], reason: 'ERR ' + String((error && error.message) || error).slice(0, 100), librarySize: null }
+      return { ok: false, hitContiguous: false, hitReordered: false, hits: [], reason: 'ERR ' + String((error && error.message) || error).slice(0, 100), librarySize: null }
     }
   })()
   /** 受控实验的一句话读数（**与端到端读数分列**，见上面的口径说明）。 */
   const probeNote = probe.ok
-    ? '｜**受控召回实验**（先写一条已知记忆，再用**与它相关**的查询检索）：' +
-      (probe.hit ? '命中 ✓' : '**未命中 ✗**') +
-      '（查询「' + PROBE_QUERY + '」→ 命中集 ' + JSON.stringify(probe.hits.slice(0, 3)) +
-      '，词法 reason=' + String(probe.reason) + '，库 ' + String(probe.librarySize) + ' 条）' +
-      '⚠ 这一条才是"记忆质量"的判据：查询与目标**相关**是对照实验的前提；' +
-      '上面那个端到端命中率受"顺序输入互不相关"影响，两者**不得互相冒充**'
+    ? '｜**受控召回实验**（先经生产写面写一条已知记忆，再用同一目标的两种查询检索）：' +
+      '① **连续子串查询**「' + PROBE_QUERY + '」→ ' + (probe.hitContiguous ? '命中 ✓' : '**未命中 ✗（这才是缺陷）**') +
+      '（命中集 ' + JSON.stringify(probe.hits.slice(0, 3)) + '，词法 reason=' + String(probe.reason) +
+      '，库 ' + String(probe.librarySize) + ' 条）· ' +
+      '② **换词序查询**「' + PROBE_QUERY_REORDERED + '」→ ' + (probe.hitReordered ? '命中' : '未命中') +
+      '（⚠ **非缺陷**：FTS5 trigram 短语要求**连续子串**，换词序本就查不到 ⇒ ' +
+      '这正是 v10 里**向量腿**存在的理由；离线评估下向量腿未启用，故如实报缺口而不指控词法腿）' +
+      '｜⚠ ①才是"词法腿有没有坏"的判据；上面那个端到端命中率受"顺序输入互不相关"影响，三者**不得互相冒充**'
     : '｜**受控召回实验**：未判定（' + String(probe.reason) + '）'
   const { state, tri: triTag, rate } = l2Verdict(memoryCount, hits, n, memoryRows)
   const ev = { ...tri(triTag), n, hits, rate, probe }
