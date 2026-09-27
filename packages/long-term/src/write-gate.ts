@@ -4,6 +4,8 @@
  * 真源：docs/mana-rollout-plan.md:103（三道门控语义表）——
  *   **Write Gate：bigram 预过滤 → 一次 fan-out（worth_keeping noul + supersedes choice + none），
  *   失败 fail-open 仍写入、标 gate=unavailable|budget**。
+ * ⚠ 上面这句是**真源原文**（不改）。其中第一段「bigram 预过滤」在本文件中已于 2026-09-26
+ *   **换靶**为「信号词预过滤」—— 闸保留、靶位归位，逐条理由与新旧对照见下面「预过滤」一节。
  * 与 Recall Gate（读侧，recall-gate.ts）**同构但不同面**：本文件是**生产者**，它真的落库。
  *
  * ── 为什么本文件存在（W1-3 的现象）────────────────────────────────────────────
@@ -61,19 +63,52 @@
  * —— 本包能做的只有把它**记成可分辨状态** overwritten（「这次写覆盖了一条既有行」），
  * 使「新建」与「覆盖」不再同形，而不是假装没发生。
  *
- * ── bigram 预过滤：它是**优化**，且是**唯一会静默产 0 行**的那一步 ──────────────
- * rollout:103 的第一段是 bigram 预过滤 ⇒ 本实现**保留**该段，但把它的失效模式显式化：
+ * ── 预过滤：它是**优化**，且是**唯一会静默产 0 行**的那一步（**2026-09-26 换靶**）────
+ * rollout:103 的第一段是预过滤 ⇒ 本实现**保留**该段，但把它的失效模式显式化：
  * 命中与否由**纯函数**返回（prefilterWorthKeeping），并在 outcome 上带 prefilterOverlap
  * ⇒「被预过滤挡下」与「判了不值得」**可分辨**（前者不进判定、不落 jev_log）。
- * ⚠ 词表**不另立**：bank 由**问法本身**（WRITE_GATE_QUESTION）的 bigram 集派生
- * ⇒ 问法改了词表跟着变，不会出现「两份词表各说各话」的漂移。
+ *
+ * ⚠⚠ **换靶：旧口径 → 新口径（这是"归位"，不是"放宽"）** ⚠⚠
+ *
+ * | | 旧口径（本文件 2026-09-26 之前） | 新口径（本文件现值） |
+ * |---|---|---|
+ * | 比对靶 | **观察文本** vs **问法本身** `'这条观察值得长期记住吗'` 的 bigram 交集 | **观察文本是否含信号词** |
+ * | 词表真源 | `WRITE_GATE_QUESTION` 的 bigram 集（`PREFILTER_BANK`） | `dsh-mana-perception` 的 `signal-words.ts`（**唯一真源，本文件不另立第二份**） |
+ * | 阈值语义 | 最小 **bigram 交集数** | 最小 **信号词命中数** |
+ * | 命中即 | 该文本"像那句问法" | 该文本"含跨会话可复用的语义信号" |
+ *
+ * **为什么换**（三条都是可复核的事实，不是偏好）：
+ *   ① **v10 里没有"与问法比 bigram"这个东西**：v10 全文 `bigram` 命中数 = **0**；
+ *      v10 §12.3 的信号词预筛比的是**信号词**，而本仓**已实现**于 `perception/src/signal.ts`。
+ *   ② **本仓这道闸的出处被认错了**：它来自上游对照项目，而那里的 `prefilterLimit: 40` 是
+ *      **候选条数上限**（见 `docs/mana-rollout-plan.md` §1.2 同构表：它与 `injectLimit: 3`、
+ *      `supersedeCandidates: 12` 并列，三个都是**个数**语义），实现时走样成了"与问法比 bigram"。
+ *   ③ **旧口径的实测后果是恒 0 行**：观察文本与那句问法的 bigram 交集恒 < 阈值
+ *      ⇒ 恒 `skipped_prefilter` ⇒ `memory_items` 恒空 —— 而它**看起来像"系统效果差"**，
+ *      实为**靶位错位**。实测（16 条真实风格语料，判据见 tests/write-gate-prefilter.test.mjs）：
+ *      旧口径放行 **1/16**（唯一样例还是"这条观察值得长期记住…"这种**为过闸而写**的串），
+ *      新口径放行 **7/16**；而 4 条寒暄/命令类**在新旧两口径下都被挡**（不是"全放过去"）。
+ *
+ * ⚠ **不撤闸**：它真有作用（省一次 LLM 往返）⇒ **只换靶**。删掉它 = 每条观察都进判定。
+ * ⚠ **不在本文件另立词表**：词表与判据函数一律从 perception 运行期取（`resolveSignalLegs`），
+ *   本文件**零词表字面量**。两份词表会长出第二个真源，本仓明令禁止（改一处不会改另一处）。
  * ⚠ 允许 prefilterEnabled:false 关掉它：那会让**每一条**观察都进判定（多花模型往返），
  * 但**不会**改变「判了之后写不写」的结果 —— 该开关的可观测差异 = skipped_prefilter 归零，
  * 由判据断言（本仓纪律：声明了的开关必须产生可观测差异，否则即「死开关」）。
+ * ⚠ **预筛实现不可解析时 fail-open**（放行、进判定），且**可分辨**（`prefilterTable='unavailable'`）：
+ *   让"少了词表"退化成"什么都记不下"是本仓最忌的静默 0 行形态，也正是旧口径踩过的坑。
  */
+import { createRequire } from 'node:module'
+import { fileURLToPath } from 'node:url'
+import { dirname, join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import type { DatabaseSync } from 'node:sqlite'
 import type { JevJudgeRequest, JevJudgeResult, ManaObservation, ManaCoreService } from 'dsh-mana-core'
+// ⚠ **只 import 类型**（值一律走运行期解析，见 resolveSignalLegs）：
+//   值 import 会把"perception 没装配"升级成"long-term 起不来"，而前者是合法且可分辨的状态。
+//   静态类型 import 同时把「复用真源、不另立第二份词表」做成**编译期**约束：
+//   词表形状若在 perception 侧改名，本文件 typecheck 直接红。
+import type { SignalVerdict, SignalWordTable } from 'dsh-mana-perception'
 import { MIN_QUERY_CHARS } from 'dsh-mana-core'
 import { sha256Hex, selectLiveMemoryById } from './retirement.ts'
 import { encodeIdPart, traceWrittenOf } from './recall-gate.ts'
@@ -108,14 +143,34 @@ export const WRITE_GATE_DEFAULT_THRESHOLD = 0.7
 export const WRITE_GATE_TRACE_EVENT = 'mana/long-term/write-gate-degraded' as const
 
 /**
- * 预过滤所需的最小 bigram 重叠数。
+ * 预过滤所需的最小 **bigram 交集数** —— **旧口径的阈值，保留为可机检的对照件**。
  *
- * ⚠ 取值 2 的理由（实测）：bank 只有 8 个 bigram（问法短），取 1 会把「这条」「值得」这类
- *   通用词当命中 ⇒ 预过滤形同虚设（每次都进判定，退化成「没有预过滤」）；
- *   取 3 以上则中文长句也常为 0 命中 ⇒ 把大部分输入挡在判定之外（**静默 0 行**，本仓最忌）。
- *   2 是「两字交集」口径：既真挡下无关句，又不致把有效输入挡掉。判据用**成对样本**钉住该取值。
+ * ⚠⚠ **它已不再是预过滤生效的阈值**（那现在是 `PREFILTER_MIN_SIGNAL_HITS`）——
+ *   预过滤的比对靶已从"与问法比 bigram"换为"含信号词"（逐条理由见文件头）。
+ *   **保留而非删除**的理由（这是一条实证腿，不是怀旧）：
+ *     · 它使「旧口径」**可被逐字复算** ⇒ 新旧对照是**可机检**的，而不是注释里的一句自述；
+ *     · 判据用同一批语料在两口径下各跑一次并断言两个读数（见 tests/write-gate-prefilter.test.mjs）。
+ *   删除它 = 让"换靶前后差多少"从此不可复算，那正是本仓禁止的"让失败不可观测"。
+ * ⚠ 它与 `PREFILTER_BANK` **成对**表达旧口径，二者不得只留一半。
  */
 export const PREFILTER_MIN_OVERLAP = 2
+
+/**
+ * 预过滤所需的最小**信号词命中数**（**新口径**，= 现行生效阈值）。
+ *
+ * ⚠ 取值 1 的理由（实测）：信号词表本身已按准入判据筛过（`signal-words.ts` 文件的「准入判据」一节
+ *   逐词写明，并**刻意不收**"我/问题/任务/代码/帮我/请"这类不指示"值得长期记住"的高频通用词），
+ *   ⇒ 命中 1 个已经是"像信号"。取 2 会挡掉「记住：项目根目录在 /home/lk/Mana」这类
+ *   **单信号词的持久事实**（实测命中数 = 1）—— 而它恰是本门最该记的一类。
+ * ⚠ 它与 `prefilterMinHits` 配置项同源：改配置即改生效阈值，本常量只是**缺省值**的出处。
+ */
+export const PREFILTER_MIN_SIGNAL_HITS = 1
+
+/**
+ * 预筛实现的**缺省服务名**（与 consolidation/distill.ts 的 `DISTILL_PREFILTER_SERVICE` 同值，
+ * 但**不 import 它的常量**：跨包值 import 会把可选依赖变成装配期前置 —— 见 `resolveSignalLegs`）。
+ */
+export const PREFILTER_SERVICE = 'dsh-mana-perception' as const
 
 /**
  * 本门的状态枚举 —— **每一态都必须与其余各态可分辨**（A1-13/A1-14 的同族纪律）。
@@ -127,7 +182,7 @@ export const PREFILTER_MIN_OVERLAP = 2
  * | rejected | 判了：概率 < 阈值 | 否 | 否 |
  * | degraded_written | 判定降级但按 **fail-open** 仍写入 | 是 | 是 |
  * | skipped_retired | 既有行**已软删除** ⇒ **拒绝覆盖**（不复活） | 否 | 否 |
- * | skipped_prefilter | bigram 预过滤未命中 ⇒ **未进判定** | 否 | 否 |
+ * | skipped_prefilter | **信号词**预过滤未命中 ⇒ **未进判定** | 否 | 否 |
  * | unavailable | 判定/写面不可用（只判不写，或写失败） | 否 | 是 |
  * | not_attempted | 输入本身不构成一次可编码的观察（空串/过短） | 否 | 否 |
  *
@@ -169,8 +224,18 @@ export interface WriteGateConfig {
   threshold: number
   /** 可编码的最小字符数（**短于 core 的 MIN_QUERY_CHARS 时，写进去也检索不到** ⇒ 显式不写）。 */
   minChars: number
-  /** 是否启用 bigram 预过滤（关掉 = 每条都进判定；可观测差异见头注）。 */
+  /** 是否启用**信号词**预过滤（关掉 = 每条都进判定；可观测差异见头注）。 */
   prefilterEnabled: boolean
+  /**
+   * 预过滤所需的最小**信号词命中数**（新口径；旧口径的"最小 bigram 交集数"见 `PREFILTER_MIN_OVERLAP`）。
+   *
+   * ⚠ 取 1 的理由：信号词表本身已是**准入过的**高精度词表（`signal-words.ts` 逐词写了准入判据，
+   *   并**刻意不收**"我/问题/任务/代码/帮我/请"这类通用词）⇒ 命中 1 个即已是"像信号"。
+   *   取 2 会把「记住：项目根目录在 /home/lk/Mana」这类**单信号词的持久事实**挡掉 ——
+   *   而它恰恰是本门最该记的一类（实测：该串信号词命中数 = 1）。
+   * ⚠ 它是**可覆盖**配置项（不是硬编码）：判据按它复算，并断言"调高阈值 ⇒ 该挡的确实被挡"。
+   */
+  prefilterMinHits: number
   /** 是否**真的落库**（false = 只判不写；判据拿它做「关掉 Write Gate ⇒ 不再产生新行」的反证）。 */
   write: boolean
   /**
@@ -190,6 +255,7 @@ export const WRITE_GATE_DEFAULTS: WriteGateConfig = Object.freeze({
   threshold: WRITE_GATE_DEFAULT_THRESHOLD,
   minChars: MIN_QUERY_CHARS,
   prefilterEnabled: true,
+  prefilterMinHits: PREFILTER_MIN_SIGNAL_HITS,
   write: true,
   summarizeEnabled: true,
   summaryMaxChars: 50,
@@ -207,8 +273,15 @@ export interface WriteGateOutcome {
   readonly failureKind: WriteGateFailureKind | null
   /** 是否在进入判定**之前**被挡下（预过滤 / 过短 / 已退休）。 */
   readonly skipped: boolean
-  /** 预过滤的 bigram 重叠数（未启用时为 null）。 */
+  /** 预过滤的**命中数**（新口径 = 信号词命中数；未启用时为 null）。字段名沿用，语义见文件头换靶说明。 */
   readonly prefilterOverlap: number | null
+  /**
+   * 预过滤实际用的**词表名**（未启用时为 null）—— "用的哪张表"必须可分辨。
+   * `unavailable` = 预筛实现不可解析 ⇒ **fail-open 放行**（与"文本不含信号词"的 `miss` 不同形）。
+   */
+  readonly prefilterTable: string | null
+  /** 命中的信号词（未启用/旧口径下为空数组）—— 使「为什么放行」逐条可读。 */
+  readonly prefilterHits: readonly string[]
   /** 落库用的记忆 id（未落库时为 null）。 */
   readonly memoryId: string | null
   /** 本次判定在 jev_log 里的键（= 判定链的 requestId）。 */
@@ -235,12 +308,24 @@ export interface WriteGateOutcome {
   readonly latencyMs: number
 }
 
-/** 预过滤读数（纯函数返回，使「被挡下」可断言）。 */
+/**
+ * 预过滤读数（纯函数返回，使「被挡下」可断言）。
+ *
+ * ⚠ 字段名沿用旧口径的 `overlap`/`bankSize`，**语义已换靶**（见文件头）：
+ *   · `overlap` = **信号词命中数**（旧口径 = 与问法的 bigram 交集数）；
+ *   · `bankSize` = **信号词表词数**（旧口径 = 问法的 bigram 集大小）；
+ *   · 新增 `hits` / `table` 把"命中了哪些词、用的哪张表"变成**逐条可解释**的读数 ——
+ *     这是换靶带来的直接收益：旧口径只能说"交集 2"，说不出"因为哪两个字"。
+ */
 export interface PrefilterResult {
   readonly hit: boolean
   readonly overlap: number
   readonly threshold: number
   readonly bankSize: number
+  /** 命中的信号词（旧口径下恒空 —— 它没有"词"这个概念，如实记空而不是编一个）。 */
+  readonly hits: readonly string[]
+  /** 实际使用的词表名（`unavailable` = 预筛实现不可解析，此时 fail-open 放行）。 */
+  readonly table: string
 }
 
 /** 抽取 bigram（按 **Unicode 码点**切，不按 UTF-16 码元 —— 否则 emoji/代理对会被切成半个字符）。 */
@@ -258,23 +343,123 @@ export function bigrams(text: string): string[] {
 }
 
 /**
- * 预过滤词表 —— **由问法本身派生**（见文件头：不另立词表，避免两份词表漂移）。
- * 模块加载时算一次并冻结。
+ * 预过滤词表（**旧口径**）—— 由问法本身派生，模块加载时算一次并冻结。
+ *
+ * ⚠ **它不再是生效词表**（生效词表 = perception 的 `DEFAULT_SIGNAL_WORDS`，经 `resolveSignalLegs`）。
+ *   保留理由与 `PREFILTER_MIN_OVERLAP` 同：让旧口径**可逐字复算**，使新旧对照可机检。
  */
 export const PREFILTER_BANK: readonly string[] = Object.freeze([...new Set(bigrams(WRITE_GATE_QUESTION))])
 
 /**
- * bigram 预过滤（**纯函数**）：观察文本与问法的 bigram 交集是否达到 PREFILTER_MIN_OVERLAP。
+ * 预过滤（**纯函数 · 新口径：信号词**）：文本是否含 ≥ `minHits` 个**信号词**。
  *
  * ⚠ 它**不能**用来判「不值得」：未命中只意味着「没进判定」，不意味着「判过且不通过」
  *   —— 两者在库里都表现为「没有新行」，故调用方必须把本结果记进 outcome（见 skipped）。
+ *
+ * ⚠ **零词表字面量**：词表与匹配逻辑全部取自 `legs.table`（= perception 的
+ *   `BUILTIN_SIGNAL_TABLE`，**唯一真源**）。本函数只做「阈值比较」这一件新事
+ *   —— 匹配本身不重写（重写就是第二份词表/第二个真源）。
+ * ⚠ `legs` 为 null（perception 不可解析）⇒ **fail-open 放行**且 `table='unavailable'`：
+ *   少一个词表不得退化成"什么都记不下"（那正是旧口径的静默 0 行形态）。
  */
-export function prefilterWorthKeeping(text: string, overlapThreshold: number = PREFILTER_MIN_OVERLAP): PrefilterResult {
+export function prefilterWorthKeeping(
+  text: string,
+  minHits: number = PREFILTER_MIN_SIGNAL_HITS,
+  legs: PrefilterLegs | null = signalLegs(),
+): PrefilterResult {
+  if (legs === null) {
+    return { hit: true, overlap: 0, threshold: minHits, bankSize: 0, table: 'unavailable', hits: [] }
+  }
+  const verdict = legs.prefilter(text, legs.table)
+  const hits = [...verdict.hits]
+  return {
+    hit: hits.length >= minHits,
+    overlap: hits.length,
+    threshold: minHits,
+    bankSize: legs.table.words.length,
+    table: legs.table.name,
+    hits,
+  }
+}
+
+/**
+ * **旧口径**预过滤（**纯函数**）：观察文本与问法的 bigram 交集是否达到 `PREFILTER_MIN_OVERLAP`。
+ *
+ * ⚠ 它**不是**生效判据（`writeGate()` 不再调用它）。它为两件事存在，缺一不可：
+ *   ① 让"换靶前后差多少"**可复算**（判据用同一批语料跑两口径并断言两个读数）；
+ *   ② 它是**负控**：若新口径与它恒同结论，说明换靶没发生（或两者都退化成了全放行）。
+ * ⚠ 有意保留 `overlapThreshold` 形参（既有判据的调用形状不变）。
+ */
+export function prefilterByBigramOverlap(text: string, overlapThreshold: number = PREFILTER_MIN_OVERLAP): PrefilterResult {
   const bank = new Set(PREFILTER_BANK)
   const seen = new Set(bigrams(text))
   let overlap = 0
   for (const g of seen) if (bank.has(g)) overlap += 1
-  return { hit: overlap >= overlapThreshold, overlap, threshold: overlapThreshold, bankSize: bank.size }
+  return { hit: overlap >= overlapThreshold, overlap, threshold: overlapThreshold, bankSize: bank.size, table: 'bigram-of-question', hits: [] }
+}
+
+/** 预筛的两条腿（**运行期解析**，见 `resolveSignalLegs`）。 */
+export interface PrefilterLegs {
+  /** perception 的真匹配函数（**本文件不重写匹配**）。 */
+  readonly prefilter: (text: string, table?: SignalWordTable) => SignalVerdict
+  /** 词表（**唯一真源** = perception 的 `signal-words.ts`）。 */
+  readonly table: SignalWordTable
+  /** 解析来源（进读数，使"用的哪份实现"可分辨）。 */
+  readonly source: string
+}
+
+/**
+ * 预筛实现的**运行期解析**（perception ⇒ long-term 的依赖是**可选**的）。
+ *
+ * ⚠ **为什么不值 import**（与 consolidation/distill.ts 同一条既有取舍，不另发明第二套）：
+ *   · 本包 package.json 的 peerDependencies 里**没有** `dsh-mana-perception`（本席写面不含
+ *     package.json）⇒ 值 import 会让**依赖声明与真依赖不一致**；
+ *   · 更要紧的是：值 import 会把"perception 没装配"升级成"long-term 起不来"，
+ *     而前者是**合法且可分辨**的状态（本包只经契约事件面工作，判定链缺席都不算故障）。
+ * ⚠ **解析失败返回 null，不抛、不冒充** ⇒ `writeGate()` 记 `prefilterTable='unavailable'`
+ *   并 **fail-open 放行**：使「词表没接上」与「文本不含信号词」**永不同形**
+ *   （前者进判定、后者不进；两者都"没写新行"时靠本读数分辨）。
+ * ⚠ 每次调用**现解析**（不缓存模块对象）：与 `resolveSignalPrefilter`/`resolveVectorCosine`/
+ *   `svc()` 同一条既有取舍（常驻进程里后装配的包必须能被接上）。判据据此可拦截解析做失败腿。
+ */
+export function resolveSignalLegs(specifier: string = PREFILTER_SERVICE): PrefilterLegs | null {
+  try {
+    const entryUrl = import.meta.resolve(specifier)
+    const req = createRequire(import.meta.url)
+    const mod = req(join(dirname(fileURLToPath(entryUrl)), 'index.js')) as {
+      prefilterBySignalWords?: unknown
+      BUILTIN_SIGNAL_TABLE?: unknown
+    }
+    if (typeof mod.prefilterBySignalWords !== 'function') return null
+    const table = mod.BUILTIN_SIGNAL_TABLE as SignalWordTable | undefined
+    if (!table || !Array.isArray(table.words) || typeof table.name !== 'string') return null
+    return {
+      prefilter: mod.prefilterBySignalWords as PrefilterLegs['prefilter'],
+      table,
+      source: join(dirname(fileURLToPath(entryUrl)), 'index.js'),
+    }
+  } catch {
+    // 吞错是**刻意的**：返回 null 是显式的"取不到"，调用方据此 fail-open 并落可分辨读数。
+    // 若在此抛出，"perception 未装配"会变成"整条写入链不可用"（两者处置完全不同）。
+    return null
+  }
+}
+
+/**
+ * 预筛腿的**进程内缓存**（只缓存成功解析的结果；null **不缓存** —— 见下）。
+ *
+ * ⚠ 为什么缓存：`writeGate()` 每条观察都要用腿，而 `import.meta.resolve` + `createRequire`
+ *   在热路径上重复执行是纯浪费。缓存的是**同一份模块对象**，不产生第二个真源。
+ * ⚠ 为什么 **null 不缓存**：解析失败的最常见成因是"perception 还没装配/产物还没构建"——
+ *   那是**启动期**的暂时态。缓存 null 会让"后来装上了"永远不生效（本仓点名的静默失效形态）。
+ *   ⇒ 只缓存成功、失败每次都重试；判据可据此拦截解析造失败腿并看到 fail-open 读数。
+ */
+let cachedLegs: PrefilterLegs | null = null
+export function signalLegs(specifier: string = PREFILTER_SERVICE): PrefilterLegs | null {
+  if (cachedLegs !== null) return cachedLegs
+  const legs = resolveSignalLegs(specifier)
+  if (legs !== null) cachedLegs = legs
+  return legs
 }
 
 /**
@@ -335,7 +520,7 @@ export function coreSink(core: ManaCoreService): WriteGateSink {
 /**
  * 走一次 Write Gate（**本门的主入口**）。
  *
- * 流程（对应 rollout:103）：① 可编码性闸 → ② bigram 预过滤 → ③ retired 闸 →
+ * 流程（对应 rollout:103）：① 可编码性闸 → ② 信号词预过滤（**换靶**，见文件头）→ ③ retired 闸 →
  * ④ 一次 mana/jev/judge fan-out（worth_keeping）→ ⑤ 按阈值 / fail-open 决定落库。
  *
  * @param ctx 显式入参（与 recallGate 同形态：本函数不持有 ctx）。
@@ -361,6 +546,8 @@ export async function writeGate(
     failureKind: null as WriteGateFailureKind | null,
     skipped: false,
     prefilterOverlap: null as number | null,
+    prefilterTable: null as string | null,
+    prefilterHits: [] as readonly string[],
     memoryId: null as string | null,
     judgeId: null as string | null,
     traceWritten: null as boolean | null,
@@ -390,16 +577,19 @@ export async function writeGate(
     })
   }
 
-  // ② bigram 预过滤（rollout:103 的第一段）：未命中 ⇒ **未进判定**（不落 jev_log）。
+  // ② 预过滤（rollout:103 的第一段 ⇒ **换靶后的信号词口径**，见文件头）：
+  //    未命中 ⇒ **未进判定**（不落 jev_log）。预筛实现不可解析 ⇒ fail-open 放行但记号。
   if (cfg.prefilterEnabled) {
-    const pre = prefilterWorthKeeping(content)
+    const pre = prefilterWorthKeeping(content, cfg.prefilterMinHits)
     if (!pre.hit) {
       return done('skipped_prefilter', {
         skipped: true,
         prefilterOverlap: pre.overlap,
+        prefilterTable: pre.table,
+        prefilterHits: pre.hits,
         reason:
-          'bigram 预过滤未命中：重叠 ' + pre.overlap + ' < ' + pre.threshold +
-          '（词表 ' + pre.bankSize + ' 项，由问法派生）⇒ 未进判定',
+          '信号词预过滤未命中：命中数 ' + pre.overlap + ' < ' + pre.threshold +
+          '（词表 ' + pre.table + '，' + pre.bankSize + ' 词；真源 = dsh-mana-perception/signal-words.ts）⇒ 未进判定',
       })
     }
   }
