@@ -551,9 +551,20 @@ test('W2-C3-⑩ 非降级路径的 rankBy 被钉死：真·向量通道下 rankB
 
   try {
     const { ctx, core, svc } = await mount('mana-w2c3-rrf-', { vecConfig: { embedBaseUrl: BASE, embedTimeoutMs: 5000 } })
-    // 造两条**都有常驻向量**的记忆 + 一条关联边：dense 腿必须有命中，否则会走"全未命中"降级
+    /**
+     * ⚠ **夹具前提（2026-09-27 改）——"为什么"必须写在这里，不是"删掉碍事的行"**──────────
+     * 原夹具给 **r-seed 与 r-other 两行都写向量**，理由是"dense 腿必须有命中，否则会走'全未命中'降级"。
+     * 那个理由**属于旧行为**（稠密腿只在**池空**时动作）——稠密腿现在**池非空也扫**（真双路召回），
+     * 于是 r-other 会被**向量腿直接召回**（两行共用同一条 fixture 向量 ⇒ cos = 1.0 ≥ 阈值 0.5）。
+     * 后果：r-other 成了 `outcome.items` 之一 ⇒ 它**已是图腿的种子** ⇒「图腿**新增**键」自然为空
+     * ⇒ 下面 `graph.keys === ['r-other']` 这条断言**恒假**。
+     * ⇒ **对家不得同时被向量腿直接召回**：否则图腿的新增面恒空，而"图腿带出来的"与
+     *    "本来就在候选里的"就**同形**了（本仓最忌 —— 图腿读数 `applied:false` 的全部判据都靠这条分辨）。
+     * ⚠ 本改动**只动夹具前提，断言一字不放宽**；且下面**补了一条**把"重叠"这件事本身变得可观测。
+     * （本卡：`t-mujpmv5v-tdvms1`；裁定：主持人授权 A。）
+     */
     linkPair(core, 'r-seed', 'r-other')
-    for (const k of ['r-seed', 'r-other']) {
+    for (const k of ['r-seed']) {
       const w = await svc.putMemoryVector(k, Float32Array.from(fixture(1)))
       assert.equal(w.written, true, `向量必须真写库：${k} → ${w.reason}`)
     }
@@ -579,6 +590,21 @@ test('W2-C3-⑩ 非降级路径的 rankBy 被钉死：真·向量通道下 rankB
     assert.ok(graph && graph.ran === true, '非降级路径上图腿必须照常跑：' + (graph && graph.unwiredReason))
     assert.deepEqual(graph.keys, ['r-other'], '非降级路径也必须能把对家带出来：' + JSON.stringify(graph && graph.keys))
     assert.equal(graph.applied, false, 'applied 必须恒为 false（图腿不改管道结果）')
+    /**
+     * ⚠ **补的判据（本卡 · 主持人加严）**：让"两条腿的覆盖重叠"这件事**本身可观测**。
+     * 上面那条 `graph.keys === ['r-other']` 只证明"对家被带出来了"，**没证明是谁带出来的**：
+     * 若将来有人把 r-seed/r-other 两行都写回向量（或稠密腿扩展到能召回它），
+     * r-other 会**改经稠密腿**直接进候选 ⇒ 那条断言会以**另一种原因**变红，而两种红**不同形**。
+     * ⇒ 这里显式钉死：对家**不是**稠密腿召回的（`dense.candidates` 不含 r-other），
+     *   它只可能是图腿带出来的。两件事分别可判，不靠"看着像"。
+     */
+    assert.ok(out.dense && out.dense.ran === true, '前提：稠密腿本次真跑过（否则下面那条是空断言）：' + JSON.stringify(out.dense?.unavailableReason))
+    const denseKeys = (out.dense?.candidates ?? []).map((c) => c.key)
+    assert.ok(
+      !denseKeys.includes('r-other'),
+      `对家**不得**由稠密腿召回（否则"图腿带出来的"与"本来就在候选里的"同形）：dense.candidates=${JSON.stringify(denseKeys)}`,
+    )
+    assert.equal(out.dense?.scanned, 1, '前提：库里只有 r-seed 一行带向量 ⇒ 稠密腿扫 1 行（对家没向量）')
 
     t.diagnostic(
       `[非降级·rankBy 锚点] stub 端点 hits=${hits} · degraded=${out.degraded} channel=${out.channel} rankBy=${out.rankBy} reason=${String(out.reason)} ` +

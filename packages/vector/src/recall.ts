@@ -40,6 +40,36 @@
  *   ⚠ 更关键的是：**没有"池非空也扫"的分支 ⇒ 正向提升与反向不变是同一条件**，本席无法悄悄把
  *     "词法已命中时的排序"换掉而判据看不出来。开与不开的差别、以及两种模式下的行为，
  *     都由 `tests/recall-dense.test.mjs` 逐条断言（正向真召回 / 反向仍 0 命中 / 池非空不扫）。
+ *
+ * ── ⚠ **声明③的改写（本卡）**：池非空**也扫** ──────────────────────────────────────
+ * L1 的 **声明③**（上面那段）与它的缺省论证里有一条支柱：「**只在池空时才扫** ⇒ 打开本腿
+ * **不改变池非空时的任何行为**」。本卡把扫描**提到早退之前** ⇒ **那条支柱失效**，
+ * 缺省**必须重新论证**（论证的落点是 `index.ts` 的 `Config.denseCandidates` 注释 —— **唯一真源**
+ * —— 以及提交信息里：用户要能看到"选了什么、为什么"）。本文件只落**机械事实**：
+ *   · 扫描面调用次数：池空/池非空**都是 0 或 1 次**（一次召回只问一次稠密腿）；
+ *   · 额外嵌入次数：0 或 1 —— 机械可判，**由既有读数推得出**：
+ *     `ran && scanned > 0 && unavailableReason === null` ⟺ 本腿发过恰好一次查询嵌入；
+ *     `scanned === 0` ⇒ 一次都没发（空库仍**零网络**，既有性质保住）。
+ *     ⚠ 唯一例外：**查询嵌入失败**支路（`query-embed-degraded`）沿 L1 的编码记
+ *     `ran=false / scanned=0`（该相位"没跑成"），故那一支路的扫描量与嵌入次数**不进读数** ——
+ *     已知局限，写在这里而不是藏着（见交付说明的未决风险）。
+ *   · 「没扫」/「扫了没命中」/「扫了但触顶」三态**由同一份读数分开**（本卡硬要求）：
+ *     `ran=false`（+ 具名 `unavailableReason`）/ `ran=true & scanned>0 & matched=0` /
+ *     `ran=true & scanLimitReached=true`。
+ *   · ⚠ 池非空时「扫了但 matched=0」**不等于**「本次没召回」：词法候选仍在池里（见声明④）。
+ * ⚠ 为什么必须扫：v10 §14.3 的形态是 **词法 Top50 + 向量 Top50 → RRF**（两路**各自**产生候选）。
+ *   向量腿只在池空时动作 ⇒ 它是**兜底**；池非空也动作 ⇒ 它才是**第二路**。本卡补的正是这一条。
+ *
+ * ── **声明④ · 池非空时只**增补**、不得**作废**词法候选**（RRF 的输入必须是两路的**并集**）────
+ *   融入口径仍逐字不动（既有 `rrfFuseRanked`，**不另立融合算法**）：池里的**每一条**候选
+ *   都要进 `denseRank` —— 调用方给的候选用**既有管道**算出的余弦名次（与改动前**逐位相同**），
+ *   稠密腿自产的候选带 `dense.denseRank`（词法名次为 `undefined`，语义既有），两者**并进同一张名次表**。
+ *   ⚠ 为什么是并集而不是"新通道说了算"：RRF 是**名次**融合。若池非空的候选不进 `denseRank`，
+ *     它们就只剩 `lexical` 一路的分，而本腿自产的候选两路都有名次 ⇒ **新来的把旧的挤下去** ——
+ *     那正是"拆东墙补西墙"：池非空时的排序被新通道悄悄改写。
+ *   ⚠ 可断言（`tests/recall-dualpath.test.mjs`）：池非空 + 稠密腿给出候选时，
+ *     `denseRank` 的键集 = (请求池 ∪ 稠密候选)；且请求池里的键**一条不少**地留在结果里。
+ *   ⇒ 正向提升的判据不是"TOP-1 变了"，而是**名次表里多了 dense 名次、且新候选按 RRF 真排进来**。
  */
 import { cosine } from './cosine.ts'
 import { rrfFuseRanked, RRF_DEFAULT_K, type FusedItem } from './rrf.ts'
@@ -62,10 +92,11 @@ export interface RecallConfig extends EmbedConfig {
   /** RRF 常数 k（`册:394` k=60）。 */
   rrfK: number
   /**
-   * **稠密候选腿**（本卡新增；管"候选来源"，不管排序）。
-   * ⚠ 可选：不传 = **本腿不尝试扫描**（读数 `dense` 为 `undefined`）。
+   * **稠密候选腿**（管"候选来源"，不管排序；L1 新增、本卡扩展到池非空）。
+   * ⚠ 可选：不传 = **本腿不尝试扫描**（读数 `dense` 为 `undefined`）：一次库不扫、一次嵌入不发。
    *   这是"纯重排器"那条既有调用面的口径（`tools/a1-check.mjs` 等不传库句柄的调用方），
    *   **不是**"缺省关闭"—— 生产调用面（`index.ts`）显式传它，那组缺省值在配置面。
+   * ⚠ 传了它 ⇒ **不论请求池空不空**都会尝试一次扫描（本卡行为；代价见 `index.ts` 的配置注释）。
    */
   dense?: DenseCandidateKnobs
   /** 库读面（只用于列举已嵌入行）。不传 ⇒ 本腿报 `no-db-handle`（不是故障）。 */
@@ -142,6 +173,9 @@ export const DEFAULT_DENSE_CANDIDATE_KNOBS: DenseCandidateKnobs = Object.freeze(
   scanRows: 512,
   topN: 20,
 })
+// ⚠ **缺省值为什么是这一组**（尤其 `enabled: true`）——**一处声明**在 `index.ts` 的
+//   `Config.denseCandidates` 注释里（**唯一真源**），那里有完整的代价账与反证；
+//   本文件不重复写第二份理由（两处各写一份 = 漂移的入口）。
 
 /**
  * 列表协议：本腿**只读一个列**（`memory_items.vector`）与主键，不写任何东西。
@@ -216,7 +250,16 @@ export interface DenseRow {
   readonly vector: Uint8Array | Buffer | null
 }
 
-/** 没跑成的统一形状：**唯一**构造点，避免多个分支各写一遍漏字段。 */
+/**
+ * 没跑成的统一形状：**唯一**构造点，避免多个分支各写一遍漏字段。
+ *
+ * ⚠ **已知局限（写在这里，不藏着）**：`ran=false` 的读数里 `scanned` 恒为 0 —— 包括
+ *   **查询嵌入失败**（`query-embed-degraded`）那一支：那一步**已经扫过库、也已经发过一次嵌入**，
+ *   但按 L1 的编码它落在"本腿没跑成"的相位上，故扫描量与嵌入次数**不进读数**。
+ *   本卡**不改**这条编码（改它就要动 `DenseCandidateReadout` 的既有语义，而那是 L1 的契约外增量面）。
+ *   ⇒ 该支路下"代价"不能从读数推出，只能由 `unavailableReason` 的具名原因认出是哪一支
+ *     （这是"失败态可见"与"代价可见"在本处的**分界**，不是遗漏）。
+ */
 function notRunReadout(
   knobs: DenseCandidateKnobs,
   unavailableReason: string,
@@ -447,9 +490,13 @@ export function rankDenseRows(
  * ⚠ 注意 `'degraded'` 与 `'lexical'` **不是同义词**：前者是"想走向量但没走成"（必须留痕），
  *   后者是"本来就不走向量"（不是故障）。把二者混同就是上游 `catch { return null }` 的病根。
  *
- * ── 候选来源（本卡新增的那一半，**不改**上面三态）──────────────────────────────
- * 请求池**空**时先问稠密腿（`recallDenseCandidates`）；**非空时根本不扫库**（文件头声明③）。
+ * ── 候选来源（**本卡改写的那一半**，**不改**上面三态）────────────────────────────
+ * **不论请求池空不空**都先问一次稠密腿（`enumerateEmbeddedRows` → `rankDenseRows`，两段式）；
+ * 扫到的候选与调用方给的候选**并集**进同一张 `denseRank`（文件头声明④）。
  * 扫描成败走 `RecallOutcome.dense` 读数，**不折进** `degraded`/`reason`（文件头声明①）。
+ * ⚠ 代价与缺省论证不在这里：**一处声明**在 `index.ts` 的 `Config.denseCandidates`（唯一真源）。
+ * ⚠ 唯一一条**没改变**的捷径：`cfg.dense === undefined`（调用方没要求本腿）⇒ 一次库不扫、
+ *   一次嵌入不发、不写读数键 —— 那是"纯重排器"调用面的既有口径，与本卡的缺省无关。
  */
 export async function recallVector(
   cfg: RecallConfig,
@@ -473,6 +520,17 @@ export async function recallVector(
   let pool: readonly RecallCandidate[] = candidates
   /** 稠密腿读数：**未尝试扫描**时为 `undefined`（三种读法见 `RecallOutcome.dense`）。 */
   let dense: DenseCandidateReadout | undefined
+  /** 旋钮：**先取一次**（扫描面在下面的分支里，缺省值不再有第二处解释）。 */
+  const knobs: DenseCandidateKnobs = cfg.dense ?? DEFAULT_DENSE_CANDIDATE_KNOBS
+  /**
+   * 稠密腿**自产**的候选名次（键 → 名次）；`undefined` = 本腿本次一个候选都没产出。
+   *
+   * ⚠ 为什么要单独留一份：这些键**多数不在常驻表**（它们是"库里有、内存没有"的行），
+   *   下面的既有序余弦循环（走 `store.get`）**看不到它们** ⇒ 不补这一份，它们就会
+   *   掉进 `rrfFuseRanked` 的"两路都没名次"里，**既进不了结果、也没有原因可查**。
+   *   名次口径与循环内的既有口径**同源**（都是 `rankDenseRows` 的 cos 降序、同分按 key 升序）。
+   */
+  let denseOurs: ReadonlyMap<string, number> | undefined
   /**
    * 查询向量：**整趟共用一份**（扫描与打分用的是同一个向量）。
    * ⚠ 提在这里而不是各写一次：`embedTexts` 发的是真网络请求，两处各发一次既是双倍代价，
@@ -493,31 +551,35 @@ export async function recallVector(
     }
   }
 
-  if (!candidates.length) {
-    // 请求池为空 ⇒ 改前这里就没有可检索面（N=0 显式记 0，**不判降级** —— 0 是合法值，G5）。
-    // 本卡在这条早退**之前**补上唯一的候选来源：让向量腿自己去库里找。下面这段就是那个「之前」；
-    // 没有它，本函数是重排器；有它，才有资格叫召回通道。
-    // ⚠ **`cfg.dense` 缺省 ⟺ 本腿不被调用**（`RecallConfig.dense` 的注释就是这么写的）：
-    //   缺省时连列举都不做、`dense` 键不写；给了它则必然留下读数（ran=true 或具名原因，没有第三种）。
-    //   两条**都不是**"默认关闭"：未启用是显式关（`dense-disabled`），没被叫到是**本次没要求**。
-    const knobs = cfg.dense ?? DEFAULT_DENSE_CANDIDATE_KNOBS
+  /**
+   * ── **稠密候选腿（扫描相位）**：不论请求池空不空，都问一次 ──────────────────────
+   * ⚠ 这段在**本卡之前**是包在 `if (!candidates.length)` 里的（那时的口径是"池空才扫"）。
+   *   提出来后，池非空时它同样会跑 ⇒ 向量腿从**兜底**变成**第二路**（v10 §14.3 的形态）。
+   *   代价与缺省论证在 `index.ts` 的 `Config.denseCandidates`（唯一真源），此处只写机械事实。
+   *
+   * 三条**不得**被读混的取值：
+   *   · 调用方没要求本腿（`cfg.dense === undefined`） ⇒ 不扫、不写读数键（**不是**"扫了没命中"）；
+   *   · `ran=false`（含 `dense-disabled`/`no-db-handle`/`enumerate-failed`） ⇒ 没扫成，具名原因在读数里；
+   *   · `ran=true` ⇒ 真扫过：`scanned` / `matched` / `scanLimitReached` 逐项可核。
+   */
+  if (cfg.dense !== undefined) {
     // ⚠ **两段式：先列举、再嵌入**（不是随手拆的，理由见下）：
     //   既有性质「空库 / 未开腿 ⇒ **一次嵌入都不发**」必须保住
     //   （`core/tests/chain-e2e.test.mjs` 的空候选用例正是这条口径）。若先嵌入再列举，
     //   库里**根本没有可扫的行**时也会白付一次嵌入 —— 那是把「没得扫」做成一次不必要的网络往返，
     //   并且改变了既有行为（本卡的红线是"增带，不是改写"）。
-    const phase =
-      cfg.dense === undefined
-        ? { rows: [], readout: undefined }
-        : enumerateEmbeddedRows(knobs, cfg.denseDb)
-    if (phase.readout !== undefined && phase.readout.ran && phase.readout.scanned > 0) {
-      // 库里有行要算 ⇒ 这一步才值得发嵌入（**只发一次**：下面的既有管道复用同一个查询向量，
+    //   ⚠ 本卡把扫描提到早退之前，**没有**动这条两段式的次序 ⇒ 空库仍是零嵌入、零网络。
+    const phase = enumerateEmbeddedRows(knobs, cfg.denseDb)
+    if (phase.readout.ran && phase.readout.scanned > 0) {
+      // 库里有行要算 ⇒ 这一步才值得发嵌入（**整趟只发一次**：下面的既有管道复用同一个查询向量，
       // 否则「扫描用一份、打分用另一份」就成了两个真源 —— 本仓最防的漂移形态）。
       const emb = await embedTexts(cfg, [query])
       if (emb.degraded) {
         dense = notRunReadout(knobs, `${DENSE_EMBED_DEGRADED_PREFIX}：${emb.reason}`)
       } else {
         qv = emb.vectors[0] as Float32Array
+        // ⚠ 已给键按**请求池**去重（只由本腿产出一遍）：池非空时这一条就是"调用方已有 ⇒ 不重复产出"，
+        //   与池空时的`alreadyKeys` 口径**同一份**（不按路径分叉）。
         const ranked = rankDenseRows(knobs, qv, phase.rows, {
           topK,
           alreadyKeys: candidates.map((c) => c.key),
@@ -529,26 +591,33 @@ export async function recallVector(
           candidateSims: ranked.candidateSims,
           omitted: ranked.omitted,
         }
-        if (ranked.candidates.length) pool = ranked.candidates.map((c) => ({ key: c.key }))
+        // ⚠ **合并（并集），不是替换**：调用方给的候选一条都不作废（文件头声明④）。
+        if (ranked.candidates.length) {
+          pool = [...candidates, ...ranked.candidates.map((c) => ({ key: c.key }))]
+          denseOurs = new Map(ranked.candidates.map((c) => [c.key, c.denseRank]))
+        }
       }
-    } else if (phase.readout !== undefined) {
-      // 没扫成 / 库里没得扫：**读数照记**（这才是「没得扫」与「扫了不相近」的分辨点），但**不发嵌入**。
+    } else {
+      // 没扫成（`ran=false`）/ 库里没得扫（`scanned=0`）：**读数照记**（这才是
+      // 「没得扫」「没扫成」与「扫了不相近」的分辨点），但**一次嵌入都不发**。
       dense = phase.readout
     }
-    // （`phase.readout === undefined` ⇒ 调用方没要求本腿：不扫、不写键、也不发嵌入。）
-    if (!pool.length) {
-      // 稠密腿也没给出候选 ⇒ 原样保留改前的空池返回（hitCount:0 / channel:'vector' / rankBy:'rrf' / degraded:false），
-      // 只**增带**读数 —— 态度仍由调用方说了算（文件头声明①）。
-      return {
-        query,
-        hitCount: 0,
-        channel: 'vector',
-        rankBy: 'rrf',
-        degraded: false,
-        reason: null,
-        items: [],
-        ...(dense !== undefined ? { dense } : {}),
-      }
+    // （`cfg.dense === undefined` ⇒ 调用方没要求本腿：不扫、不写键、也不发嵌入。）
+  }
+
+  if (!pool.length) {
+    // 两路都没给出候选 ⇒ 原样保留改前的空池返回（hitCount:0 / channel:'vector' / rankBy:'rrf' / degraded:false），
+    // 只**增带**读数 —— 态度仍由调用方说了算（文件头声明①）。
+    // ⚠ 池非空时**不走**这条：池非空 ⇒ 下面的管道照旧跑（既有行为），本卡的增量只在名次表与读数上。
+    return {
+      query,
+      hitCount: 0,
+      channel: 'vector',
+      rankBy: 'rrf',
+      degraded: false,
+      reason: null,
+      items: [],
+      ...(dense !== undefined ? { dense } : {}),
     }
   }
 
@@ -575,6 +644,9 @@ export async function recallVector(
   }
 
   if (!sims.length) {
+    // ⚠ 缺口读数**必须与池同口径**：池是本腿候选与调用方候选的**并集** ⇒ 本腿产出的键**必在池内**
+    //   ⇒ 不存在"产出了却没被测"的键（这正是并集的目的，不是巧合）。若将来有人把并集改回替换，
+    //   那条断言（`tests/recall-dualpath.test.mjs` 的键集用例）会先红，不会静默漏进这里。
     const base = degradedRecall(
       query,
       `候选常驻向量全未命中（${misses.length}/${pool.length} 条）：${misses.slice(0, 3).join('; ')}`,
@@ -587,6 +659,10 @@ export async function recallVector(
   sims.sort((a, b) => b.sim - a.sim || (a.key < b.key ? -1 : a.key > b.key ? 1 : 0))
   const denseRank = new Map<string, number>()
   sims.forEach((s, i) => denseRank.set(s.key, i + 1))
+  // ⚠ 并上稠密腿**自产**候选的名次（文件头声明④）：它们在常驻表里**多数不存在**，上面的循环看不见它们。
+  //   两处名次**同源**（都出自 rankDenseRows 的 cos 降序、同分按 key 升序）⇒ 直接并入，不重排、不折算分。
+  //   ⚠ 已有键**不覆盖**：调用方给的池先占了名次（池空的既有行为一字不动），本腿只补缺口。
+  if (denseOurs !== undefined) for (const [k, r] of denseOurs) if (!denseRank.has(k)) denseRank.set(k, r)
 
   const fused = rrfFuseRanked(denseRank, lexRank, cfg.rrfK)
   const out: RecallOutcome = {
@@ -598,7 +674,8 @@ export async function recallVector(
     reason: null,
     items: fused.slice(0, topK),
   }
-  // ⚠ **只在扫过时增带读数**：没尝试过扫描就不写这个键（`undefined` ≠ `ran:false`，见契约注释）。
+  // ⚠ **只在"尝试过扫描"时增带读数**：调用方没要求本腿就不写这个键（`undefined` ≠ `ran:false`，见契约注释）。
+  //   ⚠ 池空与池非空**都**会走到这里 —— 区别只在池里有谁（本卡之前，池非空时这个键恒不写）。
   return dense !== undefined ? { ...out, dense } : out
 }
 
