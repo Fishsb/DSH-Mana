@@ -227,6 +227,68 @@ export interface UserModelHistoryRow {
   source_evidence_id: string | null
 }
 
+/**
+ * 把**任意用户文本**转成合法的 FTS5 **短语**（用作 `MATCH` 的参数内容）。
+ *
+ * ⚠ **为什么必须转**（2026-09-27 实测取证，非推测）—— `MATCH` 的参数是
+ *   **查询表达式**，不是纯文本：
+ *   · 裸 `/home/lk/Mana` ⇒ `fts5: syntax error near "/"` —— **整个召回抛错**；
+ *   · 裸 `方案 A`       ⇒ 被解析成 `方案 AND A` ⇒ **0 命中**（库里明明有 `方案 A 已经落地`）；
+ *   · 裸 `a"b`          ⇒ `unterminated string`；裸 `` 空串亦抛错。
+ *   ⇒ 「库里有却查不出」正是"召回效果差"的**假象来源**；含路径的提问则召回**整个失败**。
+ *
+ * 转义规则（FTS5 语法）：**双引号包裹 = 短语**，串内 `"` 按 FTS5 规则**双写**（`""`）转义。
+ *
+ * ⚠ **不构成 SQL 注入面**：本函数只产出**参数内容**；SQL 串始终是常量 `MATCH ?`，
+ *   绑定照旧（见 `recallLexical`）。这里的引号是 **FTS5 的语法字符**，不是 SQL 的。
+ *
+ * ⚠ **不剥离控制字符**：内含 U+0000 的文本包成短语后，FTS5 的拒绝**依然可分辨**
+ *   （实测 `unterminated string` / `syntax error near ""`）⇒ 由 `recallLexical` 抛
+ *   **具名** `FtsQueryError`，不会与"库里没有"同形。剥字符会把"报不报错"绑到某条
+ *   归一规则上 —— 那种隐藏耦合不取（且"静默剔除"本身也是一种对用户的隐瞒）。
+ */
+export function buildFtsPhrase(raw: string): string {
+  return `"${String(raw ?? '').replace(/"/g, '""')}"`
+}
+
+/**
+ * **FTS5 拒绝了我们给出的查询表达式**（2026-09-27 新增）。
+ *
+ * 为何必须是**具名错误**，而不是让 FTS5 的裸错继续往上抛、也不是把它折成"0 命中"：
+ *   · **裸错**：调用方只能看到一条 `fts5: syntax error near ""`，无法与库损坏/连接故障
+ *     区分，且不知道**是哪条查询**惹的（旧实现下 `recallLexical('/home/lk/Mana')` 即如此）；
+ *   · **折成 0 命中**：返回 `hits:[], reason:'ok'` ⇒ 「**查询坏了**」与「**库里没有**」
+ *     **同形** —— 本仓最防的形态。
+ *   ⇒ 具名抛出：`name` 可判（`isFtsQueryError`）、`query` 指出肇事查询、`message` 留原文。
+ *
+ * ⚠ 本类**只**用于"查询表达式被拒"这一种事实。库已关、权限、连接故障等**不归此列**
+ *   —— 那些照旧抛原错，不被本类冒充。判据：`packages/core/tests/recall-fts-escape.test.mjs`。
+ */
+export class FtsQueryError extends Error {
+  /** 被 FTS5 拒绝的**原始用户查询**（便于定位是输入惹的祸）。 */
+  readonly query: string
+  /** 实际绑定的短语形态（`buildFtsPhrase` 的产物）。 */
+  readonly phrase: string
+  constructor(query: string, phrase: string, cause: unknown) {
+    const detail = cause instanceof Error ? cause.message : String(cause)
+    super(`FTS5 拒绝了查询表达式（查询「${query}」）：${detail}`)
+    this.name = 'FtsQueryError'
+    this.query = query
+    this.phrase = phrase
+  }
+}
+
+/**
+ * 判一个错误是否「**FTS5 拒绝查询表达式**」。
+ *
+ * 只认具名类（`name`，与 `isNoSuchFunctionError` 同形）：**不得**靠字符串匹配
+ * `syntax error` 之类去猜 —— 那会把别处的语法错也归到本类。跨包（long-term/vector）
+ * 复判时用本函数，不重复写判据。
+ */
+export function isFtsQueryError(error: unknown): error is FtsQueryError {
+  return error instanceof FtsQueryError || (error as { name?: unknown } | null)?.name === 'FtsQueryError'
+}
+
 /** 词法召回的一条命中。 */
 export interface LexicalHit {
   id: string
@@ -242,6 +304,11 @@ export interface LexicalHit {
  *   ⇒ 本结果显式带 `reason`，把三种"0 命中"分开：
  *     `ok`（真的查了、结果就是 0）/ `too_short`（被 MIN_QUERY_CHARS 挡下）/
  *     `empty_library`（库是空的，0 命中是正常的）。
+ *
+ * ⚠ **本三态语义不变**（2026-09-27）。**第四种失败面**（FTS5 拒绝表达式本身）**不并进本字段**，
+ *   而是**另立具名出口** —— `FtsQueryError`（见 `isFtsQueryError`）：那种情形下**没有"结果"可言**
+ *   （查询根本没被受理），把它塞进一个"0 命中的原因"字段会把「**查询坏了**」和「**库里没有**」
+ *   压成同形返回 —— 本仓最禁止的形态。抛出**具名**错误则二者天然可分辨。
  */
 export interface LexicalRecallResult {
   hits: LexicalHit[]
@@ -314,11 +381,17 @@ export interface ManaCoreService {
    * **词法召回**（FTS5 trigram）—— A1-10 的生产侧落点。
    *
    * ⚠ 判据 A1-10 是**负向**的：「中文串查询命中 ≥1；若为 0 且库非空即判红」。
-   *   故本方法**不只返回命中**，还返回 0 命中的**原因分类**（`too_short`/`empty_library`/`ok`），
+   *   故本方法**不只返回命中**，还返回 0 命中的**原因分类**
+   *   （`too_short`/`empty_library`/`ok`），
    *   使「静默归零」在结构上不可能与「库里本来没有」混同。
    *
    * `checkQuery` 的长度闸在此**强制生效**（trigram 下 2 字查询恒 0 命中且不报错，
    * 见 `schema.ts` 的 `MIN_QUERY_CHARS` 说明）。
+   *
+   * ⚠ 查询串**以 FTS5 短语形态绑定**（`buildFtsPhrase`）：既避免语法字符（`/` `"` `*` …）
+   *   抛错，也避免空格被当 AND 而把短语拆成词与。SQL 串自身仍是常量 `MATCH ?`（参数绑定不变）。
+   * FTS5 若仍拒绝该表达式 ⇒ 抛 **`FtsQueryError`**（具名 + 原文 + 查询串），
+   *   **不抛裸错、更不静默成 0 命中**（见 `isFtsQueryError`）。
    */
   recallLexical(rawQuery: string, limit?: number): LexicalRecallResult
   /** 写一条记忆项（供词法召回有数据源；`vector` 列由向量席另行回填）。 */
@@ -592,16 +665,44 @@ export function apply(ctx: Context, config: Config): void {
       if (!checked.ok) {
         return { hits: [], reason: 'too_short', librarySize, normalizedQuery: null }
       }
-      const rows = opened.db
-        .prepare(
-          `SELECT m.id AS id, m.content AS content, m.summary AS summary
-             FROM memory_items_fts f
-             JOIN memory_items m ON m.rowid = f.rowid
-            WHERE memory_items_fts MATCH ?
-              AND m.retired = 0
-            LIMIT ?`,
-        )
-        .all(checked.query, limit) as { id: string; content: string; summary: string | null }[]
+      /**
+       * ⚠ **绑定的是"参数内容"，不是"SQL"**：SQL 串是常量（照旧 `MATCH ?`），
+       *   这里只把查询串转成合法的 FTS5 **短语**（`buildFtsPhrase`）。
+       *   见 `buildFtsPhrase` 的注释：裸查询里的 `/` 会直接抛错、空格会被当 AND。
+       */
+      const phrase = buildFtsPhrase(checked.query)
+      let rows: { id: string; content: string; summary: string | null }[]
+      try {
+        rows = opened.db
+          .prepare(
+            `SELECT m.id AS id, m.content AS content, m.summary AS summary
+               FROM memory_items_fts f
+               JOIN memory_items m ON m.rowid = f.rowid
+              WHERE memory_items_fts MATCH ?
+                AND m.retired = 0
+              LIMIT ?`,
+          )
+          .all(phrase, limit) as { id: string; content: string; summary: string | null }[]
+      } catch (error) {
+        /**
+         * ⚠ **FTS5 拒绝表达式 ≠ 库里没有**（2026-09-27 新增，本仓最防的形态）。
+         *
+         * 实测可复现的触发面：查询串内含 **U+0000** ⇒ 即便包成短语，FTS5 仍拒绝
+         * （`unterminated string` / `syntax error near ""`）。旧实现下这种输入**抛裸错**，
+         * 调用方只拿到一句 SQLite 报文，无从判它是不是"查询本身不合法"，更分不清
+         * 它和"库里没有"（裸错一旦被某层吞掉，就与 0 命中同形）。
+         *
+         * 三种读法里取第三种：
+         *   · **折成 0 命中** ⇒ 「查询坏了」与「库里没有」在**返回值**上同形（本仓禁止）；
+         *   · **原样抛裸错** ⇒ 可分但**无名字**，且不指出肇事查询（旧行为的实害）；
+         *   · **抛具名 `FtsQueryError`** ⇒ 判据可 `isFtsQueryError(e)` 一行判定，且带
+         *     原始查询串与 FTS5 原文 ⇒ 「查询被拒」这件事**有名字、可定位、不可混同**。
+         *
+         * ⚠ 捕获面**刻意收在最内层**：只包住这一次 `MATCH` 执行，不掩盖上游的库/连接故障
+         * —— 那些照旧抛原错，不被本类**冒充**成"查询问题"（`isFtsQueryError` 只认具名类）。
+         */
+        throw new FtsQueryError(checked.query, phrase, error)
+      }
       // 0 命中的两种情形必须可分辨：① 库空（正常）② 库非空却查不到（**要判红的形态**）。
       const reason: LexicalRecallResult['reason'] =
         rows.length > 0 ? null : librarySize === 0 ? 'empty_library' : 'ok'
