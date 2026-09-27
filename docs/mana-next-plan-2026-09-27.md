@@ -121,7 +121,36 @@ v10 §14.3 的混合召回若真要生效，**向量腿必须能自己产生候�
 
 ⚠ **推荐 A 或 C**（B 会让"向量腿"名不副实）；**但此条改检索架构，属越权面 ⇒ 待你拍板**。
 
-### 2.3 ⚠ V-2：v10 阶段 1 点名的 **ITACL 状态机**未见独立落点（未验证深度）
+### 2.3 ✅ V-2 已勘察（结论：**架构选型差异，不是缺功能**）
+
+**v10 §19 要求**（原文）：ITACL = 每轮内「观察→判断→检索→行动→反馈」循环，
+含**嵌套状态机** —— 轮次级 `PRE_TASK → EXECUTING → VERIFYING → COMPLETED`、
+执行步级 `PLANNING → ACTING → OBSERVING → JUDGING`、
+判断分支 `CONTINUE / RETRIEVE / DIAGNOSE / COMPLETE`。
+
+**实测（本席逐项 grep 12 个状态名）**：**全部零命中**（`packages/*/src`）
+```
+PRE_TASK 0 · EXECUTING 0 · VERIFYING 0 · COMPLETED 0
+PLANNING 0 · ACTING 0 · OBSERVING 0 · JUDGING 0
+CONTINUE 0 · RETRIEVE 0 · DIAGNOSE 0 · COMPLETE 0
+```
+
+**但对照既有面 —— ITACL 的三阶段**功能上都在**，只是**按事件摊开**而非显式状态机**：
+
+| v10 §19 阶段 | 本仓落点（实测） |
+|---|---|
+| 一 任务前信息采集 | `agent/pre-step`（`attention` 的 waterfall，18 处 on/emit） |
+| 二 执行中观察-反馈 | `mana/observation` + `mana/decision`（`core/src/event-types.ts:34/38`，**契约已冻结**） |
+| 三 完成与固化 | `agent/turn-stopping` → 七链条（`chains.ts:334/342/404`） |
+
+⇒ **结论**：本仓用**事件驱动**实现 ITACL 语义，没有把它做成一个**具名状态机对象**。
+这不是缺失，是**选型**；v10 画的是状态机图，本仓允许等价实现。
+
+**推进动作**：**不补状态机**（会与既有事件面重复且引入第二真源 —— 本仓明令禁止）。
+⚠ 但**可做一件小事**：在 `chains.ts` 或契约档里加一段**对应表**（v10 状态名 ⇄ 本仓事件名），
+让"ITACL 在哪"这个问题有**唯一归属地**可查。**属文档改动，低风险**。
+
+### ~~2.3b 原判（已推翻）~~：先前"ITACL 未见独立落点"是 **grep 级判断**，现已逐项核实并给出上述结论。
 
 **实测**：`grep -rl "itacl\|ITACL"` 命中 `long-term/src/write-gate.ts` 与 `prompts/src/index.ts` ——
 那两处是**提示词/门禁引用**，**不是** v10 §19–§21 描述的那套「轮次内主动消费循环」状态机。
