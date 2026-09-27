@@ -422,9 +422,53 @@ const SEED_SIGNAL_CHECK = await (async () => {
  * ⚠ 两组用**不同 session 前缀**（`eval-s` / `eval-x`）⇒ 事后可按 session 归属分别对账，
  *   否则两组混在同一个读数里，就又回到"合并成一个数"的老毛病。
  */
+/**
+ * ── 第三组：**同会话相关追问**（本席 2026-09-27 新增；这是 L2 端到端读数能被解释的前提）──────
+ *
+ * ⚠ **为什么需要它**（原口径的结构性缺陷，实测确认）：
+ *   原实现把每条种子放在**各自的 session** 里、且内容是**互不相关**的句子 ⇒ 检索用"当前输入"
+ *   查"此前的输入" ⇒ 必然 0 命中。实测时序（--keep-tmp 留库后读）：
+ *     seq=6  retrieval librarySize=0（第一条时库空）
+ *     seq=20 retrieval librarySize=1（库里只有第 1 条，而此查询是第 2 条的文本 ⇒ 不相关）
+ *     lexicalReason 实测 = ok（**不是** empty_library / too_short）
+ *   ⇒ 那不是"召回效果差"，是**测量设计**测不到命中。
+ *
+ * ⚠ **本组测的是真实使用形态**：**同一 session** 里先记一条、随后就**它本身**追问 ——
+ *   这正是记忆系统存在的理由（"上次说的那个根目录在哪"）。
+ *   两条消息同 session ⇒ 检索时上一条已入库 ⇒ **这是能被命中的**。
+ * ⚠ 追问文本用**连续子串**（与记忆共享 3-gram）——词法腿的能力面就是连续子串；
+ *   换词序属于向量腿的面，**不在此组的判据内**（那会变成指控一个不坏的词法腿，见受控实验的说明）。
+ */
+const FOLLOWUP = [
+  {
+    session: 'eval-f0',
+    memo: '记住：这个项目的根目录在 /home/lk/Mana，跑测试用 npm test',
+    ask: '根目录',
+  },
+  {
+    session: 'eval-f1',
+    memo: '我偏好开源方案，长期用 WSL 做主力开发环境，不要推荐商业工具',
+    /**
+     * ⚠ **追问必须是"连续子串"**（本席 2026-09-27 实测修正，第二次踩同一形态）：
+     *   我第一版写「我偏好什么方案」——它与记忆「我偏好**开源**方案」**不是连续子串**
+     *   （"偏好"后面接的字不同）⇒ 实测 cand=0、lexicalReason=ok。
+     *   ⚠ 那不是召回缺陷，是**词法腿的能力边界**：trigram 短语查询要求连续子串。
+     *     换词序/换字的检索属**向量腿**的面（见受控召回实验的说明），不在此组的判据内 ——
+     *     否则就是"指控一个不坏的词法腿"，正是本仓点名的归因错位。
+     *   ⇒ 本组只放**连续子串**追问；"语义改写也能召回"这件事留给向量腿，**不混进这一组**。
+     */
+    ask: '开源方案',
+  },
+]
+
 const FEED = [
   ...SEED.map((text, i) => ({ text, session: 'eval-s' + String(i), msg: 'eval-m' + String(i), group: 'real' })),
   ...LEGACY_SEED.map((text, i) => ({ text, session: 'eval-x' + String(i), msg: 'eval-xm' + String(i), group: 'legacy' })),
+  // 每条追问项**拆成两条消息**（先记后问），同 session ⇒ 有先后关系
+  ...FOLLOWUP.flatMap((f, i) => [
+    { text: f.memo, session: f.session, msg: 'eval-f' + String(i) + '-memo', group: 'followup-memo' },
+    { text: f.ask, session: f.session, msg: 'eval-f' + String(i) + '-ask', group: 'followup-ask' },
+  ]),
 ]
 const timing = []
 try {
@@ -560,6 +604,20 @@ await layer('L2', '记忆质量（召回命中率，分母=真查询数）', asy
   let considered = 0
   let candidates = 0
   let ranRows = 0
+  /**
+   * ⚠ **按"这条检索属于哪一组输入"分开计**（本席 2026-09-27 新增）───────────────
+   *   不分开的话，「**同会话相关追问**」（应当命中）与「**互不相关的顺序输入**」（本就该 0 命中）
+   *   会混进同一个命中率 —— 而那正是"把两种事实读成一个数"的老毛病。
+   *   归属判定：retrieval 行的 sessionId 前缀（eval-f* = 追问组；eval-s* = 真实风格组；eval-x* = 负控组）。
+   */
+  const byGroup = { followup: { n: 0, hits: 0 }, real: { n: 0, hits: 0 }, legacy: { n: 0, hits: 0 }, other: { n: 0, hits: 0 } }
+  const groupOf = (sid) => {
+    const s = String(sid ?? '')
+    if (s.startsWith('eval-f')) return 'followup'
+    if (s.startsWith('eval-s')) return 'real'
+    if (s.startsWith('eval-x')) return 'legacy'
+    return 'other'
+  }
   for (const r of queries) {
     let p = {}
     try { p = JSON.parse(r.payload ?? '{}') } catch { continue }
@@ -567,7 +625,11 @@ await layer('L2', '记忆质量（召回命中率，分母=真查询数）', asy
     ranRows += 1
     considered += 1
     if (typeof p.candidates === 'number') candidates += p.candidates
-    if (typeof p.hitCount === 'number' && p.hitCount > 0) hits += 1
+    const hit = typeof p.hitCount === 'number' && p.hitCount > 0
+    if (hit) hits += 1
+    const g = groupOf(r.session_id ?? p.sessionId)
+    byGroup[g].n += 1
+    if (hit) byGroup[g].hits += 1
   }
   /** 前置读数：真库活记忆条数（SQL 与 core 的 librarySize **逐字同源**，可交叉核对）。 */
   const memoryCount = Number(
@@ -755,18 +817,33 @@ await layer('L2', '记忆质量（召回命中率，分母=真查询数）', asy
   if (triTag === 'formed_but_missed') {
     return {
       state,
-      detail: pre + '｜⚠ **已形成但未召回**（召回效果问题）：库里有 ' + String(memoryCount) +
-        ' 条活记忆、' + String(candidates) + ' 个候选，却 0 条命中 ⇒ 故障在**召回侧**，不在写入侧' +
-        '（与"记忆未形成"是两种故障，读数不得同形）' + probeNote,
-      evidence: ev,
+      detail: pre + '｜⚠ **已形成但未召回**：库里有 ' + String(memoryCount) +
+        ' 条活记忆、' + String(candidates) + ' 个候选，却 0 条命中。' +
+        '⚠ 归因**须看分组**（见下）：若"同会话相关追问"组也为 0，才是召回缺陷；' +
+        '若该组有命中而其它组为 0，那是"输入互不相关"使然（测量设计），**不是故障** —— 二者不得同形' +
+        '｜' + groupLine + probeNote,
+      evidence: { ...ev, byGroup },
     }
   }
+  /**
+   * ⚠ 三组**分列报**（不合并）。语义各自不同，合并即同形：
+   *   · `followup`：**同会话相关追问** —— 真实使用形态，**应当命中**（不命中才是召回缺陷）；
+   *   · `real` / `legacy`：**各自 session 里的顺序输入** —— 互不相关，本就该 0 命中，
+   *     保留是为了让"库在长、召回在跑"这件事仍可观测，**不作质量结论**。
+   */
+  const groupLine = '端到端命中率（三组分列，不合并）：' +
+    '**同会话相关追问** ' + byGroup.followup.hits + '/' + byGroup.followup.n +
+    (byGroup.followup.n === 0 ? '（无样本，未测）' : byGroup.followup.hits > 0 ? ' ✓' : ' ✗ **应命中而未命中**') +
+    ' · 真实风格组（各自 session，互不相关）' + byGroup.real.hits + '/' + byGroup.real.n +
+    ' · 负控组 ' + byGroup.legacy.hits + '/' + byGroup.legacy.n +
+    (byGroup.other.n > 0 ? ' · 其它 ' + byGroup.other.hits + '/' + byGroup.other.n : '')
   return {
     state,
-    detail: pre + '｜**端到端命中率** ' + hits + '/' + n + ' = ' + rate.toFixed(4) +
-      '（n=' + String(n) + ' 条 status=ran 的检索行；⚠ 此读数受"顺序输入互不相关"影响，**不作质量结论**）' +
+    detail: pre + '｜' + groupLine +
+      '｜⚠ **同会话相关追问那一组才是端到端的质量判据**（同一 session 里先记后问，是记忆系统存在的理由）；' +
+      '另两组的输入互不相关，0 命中是**测量设计**使然而非缺陷，**不作质量结论**' +
       probeNote,
-    evidence: ev,
+    evidence: { ...ev, byGroup },
   }
 })
 
