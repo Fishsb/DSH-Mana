@@ -530,6 +530,29 @@ await layer('L1', '任务有效性（链上节点真跑通且可数）', async (
  *   写入侧若仍被挡，就**如实报「记忆未形成」**——那是诚实且有用的读数。
  */
 await layer('L2', '记忆质量（召回命中率，分母=真查询数）', async () => {
+  /**
+   * ── ⚠ 本层的**测量口径**（本席 2026-09-27 实测后修正，含一次自我否定）────────────────
+   *
+   * 原实现：只统计**评估器自己那些顺序输入**触发的 retrieval 行，看其中几条 hitCount>0。
+   *
+   * 实测（本席亲跑，证据见下）这个口径**结构性测不到命中**，原因是**时序**：
+   *   `agent/inbox/inserted` 同时触发「编码 + 检索」，而检索用的是**当前这条输入**作文本，
+   *   此刻库里只有**此前**的输入 ⇒ 两条输入互不相关则必然 0 命中。
+   *   实测时序（--keep-tmp 留库后读）：
+   *     seq=1  observation(eval-s0) → seq=4 encoding → seq=6  retrieval librarySize=0
+   *     seq=20 retrieval librarySize=1（库里只有 eval-s0）而此查询是 eval-s1 的文本 ⇒ 不相关
+   *     seq=61 retrieval librarySize=4 ⇒ 库**正常增长**，而 candidates 恒 0
+   *   `lexicalReason` 实测为 `ok`（**不是** `empty_library`、**不是** `too_short`）
+   *   ⇒ 召回链**正常执行了**，只是"互不相关的输入查互不相关的记忆"本就该 0 命中。
+   *   ⚠ 也就是说：**旧读数把"输入之间不相关"读成了"召回效果差"** —— 又一处归因错位。
+   *
+   * ⇒ 修正：**拆成两个读数，不许合并**
+   *   (a) `e2e`：真链上"顺序输入"的命中率 —— 它反映的是**真实使用形态**（同一 session 里
+   *       后续输入能否召回先前记忆），保留但**不当作质量结论**；
+   *   (b) `probe`：**受控召回实验** —— 显式写入一条记忆，再用**与它相关**的查询去检索。
+   *       这才是"记忆质量"能被断言的地方（查询与目标相关，是对照实验的前提）。
+   * ⚠ 两者读数**分列**：合并会让"输入不相关"与"召回坏了"同形。
+   */
   const queries = driverRows.filter((r) => {
     try { return JSON.parse(r.payload ?? '{}').chain === 'retrieval' } catch { return false }
   })
@@ -645,8 +668,39 @@ await layer('L2', '记忆质量（召回命中率，分母=真查询数）', asy
    * 的可断言化，也服务"变异有没有靶"的机检。**绝不在两处各写一份**：
    * 两份可以一起错而测试照绿（本仓「夹具绿非真数据绿」同源理由）。
    */
+  /**
+   * ── (b) 受控召回实验（**这才是"记忆质量"能被断言的地方**）──────────────────────────
+   * ⚠ 必须**先写一条已知记忆，再用与它相关的查询**去检索 —— 查询与目标相关是对照实验的前提。
+   *   用"顺序输入的命中率"当质量结论，等于要求"互不相关的两句话能互相召回"，那测的不是质量。
+   * ⚠ 本实验**零网络**：只走 `core` 的词法腿（FTS5 trigram），不碰嵌入。
+   * ⚠ 写入用 `core.writeMemoryItem`（**生产同款写面**，不是自造 INSERT）——
+   *   自造 SQL 会绕过真写路径，让"写进去"与"能被召回"之间少掉一环而看不出来。
+   */
+  const PROBE_ID = 'mem_eval_l2_probe'
+  const PROBE_TEXT = '记住：这个项目的根目录在 /home/lk/Mana，跑测试用 npm test'
+  const PROBE_QUERY = '项目根目录在哪里'
+  const probe = (() => {
+    try {
+      const core = ctx.get('mana-core')
+      core.writeMemoryItem({ id: PROBE_ID, type: 'observation', content: PROBE_TEXT, at: new Date().toISOString() })
+      const r = core.recallLexical(PROBE_QUERY, 10)
+      const hit = r.hits.some((h) => h.id === PROBE_ID)
+      return { ok: true, hit, hits: r.hits.map((h) => h.id), reason: r.reason, librarySize: r.librarySize }
+    } catch (error) {
+      return { ok: false, hit: false, hits: [], reason: 'ERR ' + String((error && error.message) || error).slice(0, 100), librarySize: null }
+    }
+  })()
+  /** 受控实验的一句话读数（**与端到端读数分列**，见上面的口径说明）。 */
+  const probeNote = probe.ok
+    ? '｜**受控召回实验**（先写一条已知记忆，再用**与它相关**的查询检索）：' +
+      (probe.hit ? '命中 ✓' : '**未命中 ✗**') +
+      '（查询「' + PROBE_QUERY + '」→ 命中集 ' + JSON.stringify(probe.hits.slice(0, 3)) +
+      '，词法 reason=' + String(probe.reason) + '，库 ' + String(probe.librarySize) + ' 条）' +
+      '⚠ 这一条才是"记忆质量"的判据：查询与目标**相关**是对照实验的前提；' +
+      '上面那个端到端命中率受"顺序输入互不相关"影响，两者**不得互相冒充**'
+    : '｜**受控召回实验**：未判定（' + String(probe.reason) + '）'
   const { state, tri: triTag, rate } = l2Verdict(memoryCount, hits, n, memoryRows)
-  const ev = { ...tri(triTag), n, hits, rate }
+  const ev = { ...tri(triTag), n, hits, rate, probe }
   if (triTag === 'rate_out_of_range') {
     return { state, detail: pre + '｜命中率越界：' + String(rate) + '（' + String(hits) + '/' + String(n) + '）—— 上界是 1，越界即计数口径坏了', evidence: ev }
   }
@@ -676,13 +730,15 @@ await layer('L2', '记忆质量（召回命中率，分母=真查询数）', asy
       state,
       detail: pre + '｜⚠ **已形成但未召回**（召回效果问题）：库里有 ' + String(memoryCount) +
         ' 条活记忆、' + String(candidates) + ' 个候选，却 0 条命中 ⇒ 故障在**召回侧**，不在写入侧' +
-        '（与"记忆未形成"是两种故障，读数不得同形）',
+        '（与"记忆未形成"是两种故障，读数不得同形）' + probeNote,
       evidence: ev,
     }
   }
   return {
     state,
-    detail: pre + '｜命中率 ' + hits + '/' + n + ' = ' + rate.toFixed(4) + '（n=' + String(n) + ' 条 status=ran 的检索行）',
+    detail: pre + '｜**端到端命中率** ' + hits + '/' + n + ' = ' + rate.toFixed(4) +
+      '（n=' + String(n) + ' 条 status=ran 的检索行；⚠ 此读数受"顺序输入互不相关"影响，**不作质量结论**）' +
+      probeNote,
     evidence: ev,
   }
 })
@@ -828,5 +884,16 @@ else {
   console.log(FINAL_EXIT === 0 ? '✅ 四层全部 MEASURED' : '❌ 有层非 MEASURED（exit=' + String(FINAL_EXIT) + '）')
 }
 
-rmSync(dir, { recursive: true, force: true })
+/**
+ * ⚠ **`--keep-tmp`：保留临时库以便事后取证**（本席 2026-09-27 新增）。
+ *   动机（实测）：本评估器跑完即删库 ⇒ 「为什么候选数=0」这类问题事后**无从复算**，
+ *   只能靠重跑——而重跑未必复现同一态。留一个显式的保留开关，胜过让人去改源码。
+ *   ⚠ 缺省仍**删**（不留垃圾）；只有显式传 `--keep-tmp` 才保留，并**打印路径**。
+ */
+if (argv.includes('--keep-tmp')) {
+  console.log('')
+  console.log('📁 --keep-tmp：临时库保留于 ' + dir + '（store=' + store + '）')
+} else {
+  rmSync(dir, { recursive: true, force: true })
+}
 process.exit(FINAL_EXIT)
