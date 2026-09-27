@@ -324,11 +324,22 @@ const { ctx, store, dir } = booted
  * 造真输入：走**真生产路径**（agent/inbox/inserted ⇒ 编码链），再触发回合边界。
  * ⚠ 这里不直接调 service —— 那是夹具绿（本仓同名教训）。
  *
- * ⚠ **输入必须"够长且互相重合"**（本席实测踩到）：Write Gate 前有一道 **bigram 预过滤**
- *   （`prefilterWorthKeeping`），重合度不足的短句会被判 `skipped_prefilter` ⇒ **根本不进判定链**
+ * ⚠ **输入必须"够长且互相重合"**（本席实测踩到）：Write Gate 前有一道 **预过滤**
+ *   （`prefilterWorthKeeping`），不足者被判 `skipped_prefilter` ⇒ **根本不进判定链**
  *   ⇒ jev_log 0 行 ⇒ memory_items 0 行。那会让 L4 报"无数据"，**看起来像系统不工作**，
  *   实际是"输入没达到预过滤的门槛" —— 又一处归因错位。
- *   ⇒ 故种子文本取**同主题的长句**（共享足够 bigram），使预过滤能放行、链路真走到落库。
+ *
+ * ⚠⚠ **本段在 F1 换靶后再度过时**（2026-09-27 本席实测，如实记）：
+ *   上面"取同主题长句（共享足够 **bigram**）"是**旧口径**的适配法。F1 卡已把比对靶由
+ *   「文本 vs **问法**的 bigram」换成「文本是否含**信号词**」（`PREFILTER_MIN_SIGNAL_HITS`，
+ *   词表真源 `perception/src/signal-words.ts`）。
+ *   ⇒ **现在的门槛与"长句/互相重合"无关**，只与**文本里有没有信号词**有关。
+ *   ⚠ 而本文件现役的 4 条 SEED（"评估器输入：认知记忆架构需要可观测的度量…"）**一条信号词都没有**
+ *     ⇒ 换靶后**照样被挡**（实测 `skipped_prefilter`）。这是 F1 席发现并**按写面纪律未擅改**的问题，
+ *     留给本席处理。
+ *   ⚠ **本席不擅自改写 SEED 去凑绿**（造"为过闸而写"的输入 = 本仓点名的假绿形态）。
+ *     处理方式是**让这件事可读**：见下面的 `SEED_SIGNAL_CHECK` —— 它把"种子是否含信号词"
+ *     变成**显式读数**并印进 L2 的归因里，由人判断"该改语料还是该改闸"。
  */
 const SEED = [
   '评估器输入：认知记忆架构需要可观测的度量，检索链的命中率必须能够复算，遗忘曲线要能用手算值对拍。',
@@ -336,6 +347,35 @@ const SEED = [
   '评估器输入：认知记忆架构需要可观测的度量，遗忘曲线要能用手算值对拍，检索与遗忘都要能复算。',
   '评估器输入：记忆质量的核心指标是召回命中率，它必须能够复算，否则度量就只是自述。',
 ]
+
+/**
+ * ── 种子语料的**信号词读数**（F1 换靶后新增；本席不擅自改语料，只让结论可读）────────────
+ *
+ * ⚠ **为什么需要它**：F1 卡把 Write Gate 的预过滤靶由「文本 vs 问法的 bigram」换成「文本是否含**信号词**」后，
+ *   上面 4 条 SEED **一条信号词都没有** ⇒ 换靶后照样 `skipped_prefilter` ⇒ `memory_items` 恒空 ⇒ L2 恒 NO_DATA。
+ *
+ * ⚠ **本席的处理方式是"让结论可读"，不是"改语料到能过"** —— 理由：
+ *   造"为过闸而写"的输入正是本仓点名的**假绿形态**（F1 席亦按写面纪律拒绝擅改）。
+ *   该改语料、还是该改闸口径，属**口径决策**（v10 对"评测语料应长什么样"无规定），
+ *   ⇒ 由人拍板；本读数把它变成**可判定的事**：含几个信号词、被哪条挡住，一眼可见。
+ * ⚠ 词表**不另立**：真源是 `perception/src/signal-words.ts`（与 Write Gate 同一份）。
+ *   取不到就**如实报「取不到」**，绝不退化成"恒 0 词"（那会让"没测"与"确实没有"同形）。
+ */
+const SEED_SIGNAL_CHECK = await (async () => {
+  try {
+    const mod = await import(new URL('../packages/perception/src/signal-words.ts', import.meta.url).href)
+    const words = mod.DEFAULT_SIGNAL_WORDS ?? []
+    if (words.length === 0) return { ok: false, reason: '信号词表为空（真源存在但零词）', perSeed: [], tableSize: 0 }
+    const perSeed = SEED.map((text) => {
+      const low = String(text).toLowerCase()
+      const hits = words.filter((w) => low.includes(String(w).toLowerCase()))
+      return { hits, chars: [...String(text)].length }
+    })
+    return { ok: true, reason: null, perSeed, tableSize: words.length }
+  } catch (error) {
+    return { ok: false, reason: '取不到信号词真源：' + String((error && error.message) || error).slice(0, 120), perSeed: [], tableSize: 0 }
+  }
+})()
 const timing = []
 try {
   for (let i = 0; i < SEED.length; i += 1) {
@@ -498,9 +538,31 @@ await layer('L2', '记忆质量（召回命中率，分母=真查询数）', asy
       parts.push('writeGate=取不到（mana-long-term 未装配？）')
     }
     if (wgs?.lastState === 'skipped_prefilter') {
-      parts.push('⇒ **真因=bigram 预过滤挡下**（观察文本与问法「' + String(wgs.question ?? '') +
-        '」派生的词表重叠 <2）：该环是**设计行为**，但它使"记忆形成"在**任意评测语料**上不可达' +
-        '（预过滤的比对靶是那句问法，评测语料与它天然不重叠）—— 这是交给人拍板的结论，评估器不得自行绕过')
+      /**
+       * ⚠ **本段曾在合并后变成假话**（2026-09-27 本席实测踩到）：原写"真因 = **bigram** 预过滤，
+       *   与**问法**派生的词表重叠 <2" —— 而 F1 卡已把预过滤的比对靶**换成信号词**
+       *   （`packages/long-term/src/write-gate.ts`：`PREFILTER_MIN_SIGNAL_HITS`，
+       *   词表真源 = `perception/src/signal-words.ts`）。
+       *   ⇒ 两个席**各自都正确**，但合并后**归因文案变成假的** —— 这正是「档案事实须复验」的现场。
+       * ⇒ 修法**不是**再写一遍新文案（下次换靶还会过时），而是**引用真源**：
+       *   口径名与阈值都从 `lastState` 同源的读数里取，且**显式写"若口径再变，本段需随之复核"**。
+       */
+      parts.push('⇒ **真因=预过滤挡下**（口径见 `packages/long-term/src/write-gate.ts` 的预过滤一节；' +
+        '现役靶=**信号词**，词表真源 `perception/src/signal-words.ts`，阈值 `PREFILTER_MIN_SIGNAL_HITS`）' +
+        '：该环是**设计行为**，但它使"记忆形成"在**任意不含信号词的评测语料**上不可达' +
+        '（⚠ 比对靶是观察文本自身的信号词，**不再是**问法「' + String(wgs.question ?? '') + '」——' +
+        'F1 换靶前是后者，本句已按换靶后的口径改写）—— 这是交给人拍板的结论，评估器不得自行绕过')
+      // ⚠ 把"种子语料本身含几个信号词"直接印出来 —— 否则读者只能猜「是闸太严还是语料不适配」
+      if (SEED_SIGNAL_CHECK.ok) {
+        const counts = SEED_SIGNAL_CHECK.perSeed.map((x) => x.hits.length)
+        const zero = counts.filter((c) => c === 0).length
+        parts.push('**种子语料自检**：' + String(SEED.length) + ' 条中 ' + String(zero) +
+          ' 条含 **0** 个信号词（逐条命中数 ' + JSON.stringify(counts) + '，词表 ' + String(SEED_SIGNAL_CHECK.tableSize) + ' 词）' +
+          '⇒ **语料与现役口径不适配**：该改语料还是该改闸口径属**口径决策**，须人拍板；' +
+          '本评估器**不擅自改语料到能过**（那是假绿形态）')
+      } else {
+        parts.push('**种子语料自检**：未判定 —— ' + String(SEED_SIGNAL_CHECK.reason))
+      }
     } else if (obs === 0) {
       parts.push('⇒ 真因=源头未发（perception 未 emit mana/observation）')
     } else if (jev === 0) {
@@ -642,9 +704,9 @@ await layer('L4', '认知仿真（认知痕迹的增长曲线须非平凡）', a
     }
     const prefiltered = wgStatus?.lastState === 'skipped_prefilter'
     const conclusion = prefiltered
-      ? '⇒ **真因=bigram 预过滤挡下**（观察文本与问法 ' + '\'这条观察值得长期记住吗\'' +
-        ' 的 bigram 交集 <2）。⚠ 该环非缺陷而是**设计行为**，但它使"记忆形成曲线"在**任意评测语料**上不可测' +
-        '（预过滤的比对靶是那句问法，评测语料与它天然不重叠）⇒ 这是**要交给用户的结论**，不是评估器能自行绕过的'
+      ? '⇒ **真因=预过滤挡下**（现役口径靶=**信号词**，非问法 bigram —— 见 write-gate.ts 的预过滤一节）。' +
+        '⚠ 该环非缺陷而是**设计行为**，但它使"记忆形成曲线"在**任意不含信号词的评测语料**上不可测' +
+        '⇒ 这是**要交给用户的结论**，不是评估器能自行绕过的'
       : '⇒ 上表逐环读数即真因（不在本评估器能归因的已知形态内，如实列出）'
     return {
       state: 'NO_DATA',
