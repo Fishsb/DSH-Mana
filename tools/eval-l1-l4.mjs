@@ -477,6 +477,39 @@ await layer('L2', '记忆质量（召回命中率，分母=真查询数）', asy
     ' · status=ran 检索行=' + String(ranRows) +
     (chainLibrarySize === null ? '' : ' · 链路自报 librarySize=' + String(chainLibrarySize))
   const tri = (t) => ({ memoryCount, memoryRows, candidates, ranRows, chainLibrarySize, tri: t })
+  /**
+   * ⚠ **上游写入侧归因必须由本层自己给出**（本席实测后补，如实记）：
+   *   本层第一版只写了"写入侧归因见 L4"—— 实测那是**悬空指针**：L4 的逐环归因只在
+   *   「memory_items / inject_log / mana_trace **三者皆空**」时才打印，而本评估器下
+   *   mana_trace 恒有 52 行 ⇒ L4 走回退腿报 MEASURED，**根本不打印那条归因**。
+   *   指针指到不打印的地方 = 失败再次不可观测（本卡要消灭的形态）。
+   *   ⇒ 本层自己读一次上游读数（只读、零副作用），把"哪一环断了"直接写进 detail。
+   */
+  const upstreamCause = (() => {
+    if (memoryRows > 0) return ''
+    const obs = rows.filter((r) => r.event_type === 'observation').length
+    const jev = Number(readDb(store, 'SELECT COUNT(*) c FROM jev_log')[0]?.c ?? 0)
+    const wgs = (() => { try { return ctx.get('mana-long-term')?.writeGateStatus ?? null } catch { return null } })()
+    const parts = ['链路逐环：observation 行=' + String(obs) + ' · jev_log 行=' + String(jev)]
+    if (wgs) {
+      parts.push('writeGate.registered=' + String(wgs.registered) + ' lastState=' + String(wgs.lastState))
+      if (wgs.degradedCount) parts.push('degradedCount=' + String(wgs.degradedCount))
+    } else {
+      parts.push('writeGate=取不到（mana-long-term 未装配？）')
+    }
+    if (wgs?.lastState === 'skipped_prefilter') {
+      parts.push('⇒ **真因=bigram 预过滤挡下**（观察文本与问法「' + String(wgs.question ?? '') +
+        '」派生的词表重叠 <2）：该环是**设计行为**，但它使"记忆形成"在**任意评测语料**上不可达' +
+        '（预过滤的比对靶是那句问法，评测语料与它天然不重叠）—— 这是交给人拍板的结论，评估器不得自行绕过')
+    } else if (obs === 0) {
+      parts.push('⇒ 真因=源头未发（perception 未 emit mana/observation）')
+    } else if (jev === 0) {
+      parts.push('⇒ 真因=未进判定链（观察发了但 jev_log 无行，上游在预过滤/装配面断）')
+    } else {
+      parts.push('⇒ 真因在判定侧（观察与 jev 都有行，但无一条放行落库）')
+    }
+    return '｜' + parts.join(' · ')
+  })()
   const n = considered
   /**
    * ⚠ **变异必须打在不变式上**（本席第一版写 `Math.ceil(hits*1.5)+1` 实测**没被咬住**：
@@ -503,8 +536,8 @@ await layer('L2', '记忆质量（召回命中率，分母=真查询数）', asy
       state,
       detail: pre + '｜⚠ **记忆未形成**（上游写入侧问题）：真库 memory_items **全表与活行都是 0** ⇒ 记忆压根没进库、召回**无物可命中**，' +
         '此时任何"命中率 0"都**不是召回效果差**（两者不得同形 —— 本卡存在的理由）。' +
-        '本层无可测对象；写入侧归因见 L4（逐环读数）⇒ **NO_DATA 不是 PASS**',
-      evidence: ev,
+        '本层无可测对象 ⇒ **NO_DATA 不是 PASS**' + upstreamCause,
+      evidence: { ...ev, upstream: upstreamCause },
     }
   }
   if (triTag === 'all_retired') {
