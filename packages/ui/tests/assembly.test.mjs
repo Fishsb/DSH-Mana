@@ -86,7 +86,7 @@ test('装配② ui 经 Loader 按包名解析并 provide mana-ui（装配计数 
   assert.equal(svc.plugin, 'mana-ui')
   assert.deepEqual(
     [...svc.methods].sort(),
-    ['mana-ui/meta', 'mana-ui/panels', 'mana-ui/render', 'mana-ui/replay'],
+    ['mana-ui/channel', 'mana-ui/meta', 'mana-ui/panels', 'mana-ui/render', 'mana-ui/replay'],
   )
   assert.equal(svc.status().wired, true)
   assert.equal(assemblyCount(), 2, `装配计数须为 2，实测 ${assemblyCount()}`)

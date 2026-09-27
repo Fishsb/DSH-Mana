@@ -149,10 +149,11 @@ test('ui 插件在真 Context 中装载并 provide mana-ui（装配判据=服务
   assert.equal(st.renderTrace, true)
   assert.equal(typeof st.channel, 'boolean', 'channel 必须是布尔（不可用 undefined 表状态）')
   // ⚠ 本行是**声明式枚举**（不是"看着像就够了"）：新增协议方法必须在这里显式登记，
-  //   否则「方法默默加了一个」在判据上不可见。B6.2 新增 `mana-ui/replay`（审计回放，只读）。
+  //   否则「方法默默加了一个」在判据上不可见。B6.2 新增 `mana-ui/replay`（审计回放，只读）；
+  //   本卡新增 `mana-ui/channel`（模型通道读写 —— 用户设置入口）。
   assert.deepEqual(
     [...svc.methods].sort(),
-    ['mana-ui/meta', 'mana-ui/panels', 'mana-ui/render', 'mana-ui/replay'],
+    ['mana-ui/channel', 'mana-ui/meta', 'mana-ui/panels', 'mana-ui/render', 'mana-ui/replay'],
   )
   await uiFiber.dispose()
   await coreFiber.dispose()
@@ -427,12 +428,12 @@ test('d2-③ 渲染树可枚举：三面板节点带稳定标记，降级态有�
     return out
   }
   const panels = walk(tree, (n) => n.props && n.props['data-panel'])
-  // ⚠ 枚举面随实现扩到四块面板（B6.2 新增「认知轨迹回放」）——这是**声明**，不是放宽：
-  //   旧版写成三块，新增面板会在这里红；反过来漏挂一块也红。
+  // ⚠ 枚举面随实现扩到五块面板（B6.2「认知轨迹回放」；本卡「模型通道」）——这是**声明**，
+  //   不是放宽：旧版写成三块，新增面板会在这里红；反过来漏挂一块也红。
   assert.deepEqual(
     panels.map((p) => p.props['data-panel']),
-    ['mana-ui', 'heatmap', 'goal-tree', 'timeline', 'replay'],
-    '根 + 四块面板必须各出现一次且有稳定标记',
+    ['mana-ui', 'model-channel', 'heatmap', 'goal-tree', 'timeline', 'replay'],
+    '根 + 五块面板必须各出现一次且有稳定标记',
   )
   // 回放面板**必须**带 `data-mode` 且逐字等于审计回放：渲染树上也能把「只读审计回放」
   //   与「写回状态回放」（G10，会复活旧状态）分开。

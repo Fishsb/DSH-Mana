@@ -64,8 +64,34 @@ export interface PanelsSnapshot {
   readonly timeline: readonly TraceItem[]
   /** 认知轨迹的**审计回放**面（只读、可复现）；未取到时为 `null`（≠ 空回放）。 */
   readonly replay: ReplayFrame | null
+  /** **模型通道**面（未取到时为 `null` —— 与「取到了但没设过」由 `source` 分辨）。 */
+  readonly channel: ChannelState | null
   readonly degraded: boolean
   readonly reason: string
+}
+
+/**
+ * **模型通道**面的跨界镜像（Host 侧 `ChannelResolution` 的同形声明；两端各自声明不共享 import）。
+ *
+ * 用户指令的落点：「切需要在 UI 让用户设定」「当前默认用云端」。
+ * `source` 三态（`user` / `default` / `invalid-fallback`）**必须回显**：
+ * 「用户设的」与「缺省兜底的」在界面上不得同形，否则"我设了没生效"无从发现。
+ */
+export interface ChannelState {
+  readonly channel: string
+  readonly model: string
+  readonly source: string
+  readonly storedValue: string | null
+  readonly modelSource: string
+  /** 装配面是否挂了写入端口；true = 本次只能读。 */
+  readonly readOnly?: boolean
+  /** 可选项（Host 给，不在本半区硬编码第二份）。 */
+  readonly values?: readonly string[]
+  readonly default?: string
+  readonly key?: string
+  readonly ok?: boolean
+  readonly persisted?: boolean
+  readonly reason?: string
 }
 
 /** 渲染结果：面板数 + 落点回执（降级可枚举，不接受「看着渲染了」）。 */
@@ -116,6 +142,23 @@ export const REPLAY_MODES = {
   state: 'state-replay',
 } as const
 
+/** 通道面的稳定标记（渲染树可枚举 ⇒ 判据能贴着节点断言，不靠文案匹配）。 */
+export const CHANNEL_MARK = {
+  panel: 'model-channel',
+  select: 'channel-select',
+  current: 'channel-current',
+  status: 'channel-status',
+} as const
+
+/** 通道选项的中文标签（**展示层**用；协议面一律用 `local` / `cloud` 原值）。 */
+const CHANNEL_LABELS: Readonly<Record<string, string>> = {
+  local: '本地（Ollama）',
+  cloud: '云端（nano-gpt · JEV）',
+}
+
+/** 无通道面时的**显式**空值（≠「取到了但没设过」——后者 `source` 为 `default`）。 */
+export const NO_CHANNEL: ChannelState | null = null
+
 /** 槽注册面（只取本半区用到的两个方法）。 */
 export interface SlotsFace {
   /**
@@ -150,6 +193,7 @@ const EMPTY_SNAPSHOT: PanelsSnapshot = {
   goalTree: [],
   timeline: [],
   replay: null,
+  channel: NO_CHANNEL,
   degraded: false,
   reason: '',
 }
@@ -181,9 +225,9 @@ export function buildTree(nodes: readonly GoalNode[]): {
   return { roots, children }
 }
 
-/** 空快照（通道不可达时用；与「真的没有数据」由 `degraded` 区分）。 */
+/** 空快照（面板通道不可达时用；与「真的没有数据」由 `degraded` 区分）。 */
 function unreachable(reason: string): PanelsSnapshot {
-  return { generatedAt: '', heatmap: [], goalTree: [], timeline: [], replay: null, degraded: true, reason }
+  return { generatedAt: '', heatmap: [], goalTree: [], timeline: [], replay: null, channel: null, degraded: true, reason }
 }
 
 /** 拉一次面板数据：**先探通道再调用**，探不到即降级，不抛错也不伪装成空数据。 */
@@ -208,7 +252,45 @@ export async function fetchPanels(ctx: unknown, limit: number): Promise<PanelsSn
   } catch {
     replayFrame = null
   }
-  return { ...raw, replay: replayFrame }
+  return { ...raw, replay: replayFrame, channel: await readChannel(ctx) }
+}
+
+/**
+ * **模型通道**取数（读端；写入走 `writeChannel`）。
+ *
+ * ⚠ 与回放面同一条纪律：取不到就落 `null`（渲染侧画「通道面不可用」），
+ *   **不伪装成「用户没设过」** —— 后者是 `channel` 有值且 `source==='default'`。
+ *   两者在界面上必须可分辨，否则「UI 坏了」会读成「缺省就是这样」。
+ */
+export async function readChannel(ctx: unknown): Promise<ChannelState | null> {
+  const state = resolveHost(ctx)
+  if (!state.ok) return null
+  try {
+    const raw = (await state.host.call(METHODS.channel, {})) as ChannelState | undefined
+    if (raw === undefined || raw === null || typeof raw.channel !== 'string') return null
+    return raw
+  } catch {
+    return null
+  }
+}
+
+/**
+ * **模型通道**写入（用户改了选择框时调）。
+ *
+ * ⚠ 写的是**偏好表**（`user_model` 的一个键），**不是**记忆表：
+ *   本半区的 G10 红线是「不写回 `memory_items`」（状态回放），与此无关；
+ *   且本函数的返回值**必带回执**（`ok`/`persisted`/`reason`），
+ *   使「选择了但没存住」当场可见，而不是下次打开发现又变回去了。
+ */
+export async function writeChannel(ctx: unknown, channel: string): Promise<ChannelState | null> {
+  const state = resolveHost(ctx)
+  if (!state.ok) return null
+  try {
+    const raw = (await state.host.call(METHODS.channel, { channel })) as ChannelState | undefined
+    return raw ?? null
+  } catch {
+    return null
+  }
 }
 
 /** 一次审计回放的取数结果：**决定论字段**（`degraded`/`reason` 与面板同源纪律）。 */
@@ -374,10 +456,76 @@ function renderReplay(React: ReactFace, frame: ReplayFrame | null | undefined): 
 }
 
 /**
+ * **模型通道**面板（用户指令的 UI 落点）。
+ *
+ * 形态照抄既有面板：`section[data-panel]` + 有标记的子节点 ⇒ 渲染树可枚举、判据贴节点断言。
+ * 选项用原生 `select`（不引组件库，与既有面板同一条"零额外依赖"路线）。
+ *
+ * ⚠ **三种态必须不同形**（本仓最忌同形）：
+ *   · `channel === null`      = 通道面**取不到**（UI 读路坏了）⇒ 画「不可用」；
+ *   · `source === 'default'`  = 取到了、**用户还没设过** ⇒ 画「缺省」；
+ *   · `source === 'user'`     = **用户设的** ⇒ 画「已设定」。
+ *   三者若都画成同一个下拉框，用户分不清"我设的没生效"与"我压根没设过"。
+ */
+export function renderChannel(
+  React: ReactFace,
+  state: ChannelState | null,
+  onPick?: (value: string) => void,
+): unknown {
+  const panelProps: Record<string, unknown> = { key: 'channel', 'data-panel': CHANNEL_MARK.panel }
+  if (state === null) {
+    panelProps['data-source'] = 'unavailable'
+    return React.createElement(
+      'section',
+      panelProps,
+      React.createElement('h4', null, '模型通道'),
+      React.createElement('p', { 'data-state': 'unavailable' }, '通道面不可用（读不到当前设置）'),
+    )
+  }
+  const values = state.values ?? []
+  const options = values.map((v) =>
+    React.createElement('option', { key: v, value: v, 'data-option': v }, CHANNEL_LABELS[v] ?? v),
+  )
+  const select = React.createElement(
+    'select',
+    {
+      'data-role': CHANNEL_MARK.select,
+      'data-value': state.channel,
+      'data-source': state.source,
+      value: state.channel,
+      disabled: state.readOnly === true,
+      ...(onPick === undefined
+        ? {}
+        : { onChange: (event: unknown) => {
+            const ev = event as { target?: { value?: unknown } } | undefined
+            const next = ev?.target?.value
+            if (typeof next === 'string' && next !== '') onPick(next)
+          } }),
+    },
+    ...options,
+  )
+  return React.createElement(
+    'section',
+    panelProps,
+    React.createElement('h4', null, '模型通道'),
+    select,
+    React.createElement(
+      'p',
+      { 'data-role': CHANNEL_MARK.current, 'data-source': state.source },
+      '当前：' + state.channel + ' · 模型 ' + state.model +
+        (state.source === 'user' ? '（你在面板里设的）' : state.source === 'default' ? '（缺省，你还没设过）' : '（存储里的值非法，已回落缺省）'),
+    ),
+    state.reason !== undefined && state.reason !== ''
+      ? React.createElement('p', { 'data-role': CHANNEL_MARK.status, 'data-state': 'error' }, state.reason)
+      : null,
+  )
+}
+
+/**
  * 把一份快照渲染成元素树（**纯函数**：不吃 hooks、不碰 DOM ⇒ 可直测）。
  * 降级态渲染一条可读提示，而不是空白（失败必须可观测）。
  */
-export function renderPanels(React: ReactFace, snapshot: PanelsSnapshot): unknown {
+export function renderPanels(React: ReactFace, snapshot: PanelsSnapshot, onPick?: (value: string) => void): unknown {
   return React.createElement(
     'section',
     {
@@ -389,6 +537,7 @@ export function renderPanels(React: ReactFace, snapshot: PanelsSnapshot): unknow
     snapshot.degraded
       ? React.createElement('p', { 'data-state': 'degraded' }, `数据不可用：${snapshot.reason}`)
       : null,
+    renderChannel(React, snapshot.channel ?? null, onPick),
     renderHeatmap(React, snapshot.heatmap),
     renderGoalTree(React, snapshot.goalTree),
     renderTimeline(React, snapshot.timeline),
@@ -405,11 +554,28 @@ export function renderPanels(React: ReactFace, snapshot: PanelsSnapshot): unknow
 export function createPanelComponent(
   React: ReactFace,
   load: () => Promise<PanelsSnapshot>,
+  save?: (channel: string) => Promise<ChannelState | null>,
 ): () => unknown {
   return function ManaUiPanel(): unknown {
     const state = typeof React.useState === 'function' ? React.useState(EMPTY_SNAPSHOT) : undefined
     const snap = (state === undefined ? EMPTY_SNAPSHOT : state[0]) as PanelsSnapshot
     const setSnap = state === undefined ? undefined : state[1]
+    /**
+     * 用户在下拉框里改了通道 ⇒ 写偏好（持久化）⇒ **用回执更新界面**。
+     *
+     * ⚠ 回执来自 Host 的**写后读**（`writeChannel` 返回写完后的解析结果），不是本地
+     *   "先改界面若失败再改回来" —— 后者在写失败时会让界面**短暂显示成功**，
+     *   而那正是「设置没存住却看不出来」的形态。
+     * ⚠ `null` 回执（通道面取不到）⇒ 面板落「通道面不可用」，不保留旧值假装成功。
+     */
+    const onPick = save === undefined || setSnap === undefined
+      ? undefined
+      : (value: string) => {
+          void save(value).then(
+            (next) => setSnap({ ...snap, channel: next }),
+            () => setSnap({ ...snap, channel: null }),
+          )
+        }
     if (typeof React.useEffect === 'function' && setSnap !== undefined) {
       React.useEffect(() => {
         let live = true
@@ -438,7 +604,7 @@ export function createPanelComponent(
         }
       }, [])
     }
-    return renderPanels(React, snap)
+    return renderPanels(React, snap, onPick)
   }
 }
 
@@ -470,12 +636,13 @@ export function mountPanelWith(
   slots: SlotsFace | undefined,
   React: ReactFace,
   load: () => Promise<PanelsSnapshot>,
+  save?: (channel: string) => Promise<ChannelState | null>,
 ): MountResult {
   const base = { slot: SLOT_KEY, id: SLOT_ID, order: SLOT_ORDER }
   if (slots === undefined || typeof slots.register !== 'function' || typeof slots.inject !== 'function') {
     return { ...base, registered: false, reason: 'slots 服务不可读（注入面未就绪）' }
   }
-  const component = createPanelComponent(React, load)
+  const component = createPanelComponent(React, load, save)
   let registered = false
   try {
     slots.inject(SLOT_KEY, () => {
@@ -502,7 +669,12 @@ export function mountPanel(ctx: unknown): MountResult {
   const slots = (ctx as { slots?: SlotsFace }).slots
   const face = reactFace()
   if (!face.ok) return { ...base, registered: false, reason: face.reason }
-  return mountPanelWith(slots, face.React, () => fetchPanels(ctx, 32))
+  return mountPanelWith(
+    slots,
+    face.React,
+    () => fetchPanels(ctx, 32),
+    (channel) => writeChannel(ctx, channel),
+  )
 }
 
 /**
