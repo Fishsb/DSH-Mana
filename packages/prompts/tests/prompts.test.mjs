@@ -492,6 +492,11 @@ test('⑥c-A 声明集 == 实测集；wired:true 却无消费者**逐条可见�
   assert.equal(st.total, ALL_NAMES.length, 'total 必须 = 20')
   for (const n of SCAN_CONSUMED) assert.deepEqual([...st.wiredConsumers.sites[n]], SCAN[n], n + ' 的读数消费点必须与实测逐项相等')
   assert.deepEqual([...st.wiredConsumers.unconsumed].sort(), scannedNone, 'unconsumed 必须 == 实测无消费者集合')
+  // 如实可数：**光看 status() 就能把「登记了却没人用」的 15 条数出来**（不必再去翻扫描表）
+  const stWiredNone = mod.PROMPT_REGISTRY.filter((e) => e.wired && e.wiredSites.length === 0).map((e) => e.name).sort()
+  assert.deepEqual([...st.wiredConsumers.unconsumedWired].sort(), stWiredNone, 'unconsumedWired 必须 == 注册表里 wired:true 且无消费者的集合')
+  assert.deepEqual([...st.wiredConsumers.unconsumedWired].sort(), wiredNone, 'unconsumedWired 必须 == ⑥c 实测的 wired:true 无消费者集合')
+  assert.equal(st.wiredConsumers.unconsumedWired.length, 15, '实测 15 条（本条是**读数断言**：数字若变说明注册表/扫描口径动了，请复核后一并改）')
   assert.equal(svc.counts().withConsumers, SCAN_CONSUMED.length, 'counts().withConsumers 与 status() 必须同源同值')
   console.log('   ⑥c-B status().wiredConsumers：已接线 ' + st.wiredConsumers.withConsumers + '/' + st.total + '，无消费者 ' + st.wiredConsumers.none + ' 条')
 })

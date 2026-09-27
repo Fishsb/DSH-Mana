@@ -315,17 +315,26 @@ export interface WiredConsumers {
   readonly none: number
   /** 逐条真消费点（文件:行号），只列**有**的；键按名字升序，值按原文顺序。 */
   readonly sites: Readonly<Record<string, readonly string[]>>
-  /** 无消费者的名字（升序）。 */
+  /** 无消费者的名字（升序，含 wired=false 的两条）。 */
   readonly unconsumed: readonly string[]
+  /**
+  /** 无消费者**且 wired=true** 的名字（升序）—— 「登记了、也允许接，但没有一处真在用」。
+   *  ⚠ 这才是本读数要暴露的那件事；实测 **15** 条（2026-09-27）。
+   *  `unconsumed.length - unconsumedWired.length` = §25.8 那两条（本来就不许接）。
+   */
+  readonly unconsumedWired: readonly string[]
 }
 
 /** 由注册表**派生**「已接线数 / 无消费者名单」（口径见 WiredConsumers）。 */
 export function wiredConsumers(registry: readonly PromptEntry[] = PROMPT_REGISTRY): WiredConsumers {
   const sites: Record<string, readonly string[]> = {}
   const unconsumed: string[] = []
+  const unconsumedWired: string[] = []
   for (const e of [...registry].sort((a, b) => (a.name < b.name ? -1 : 1))) {
-    if (e.wiredSites.length === 0) unconsumed.push(e.name)
-    else sites[e.name] = Object.freeze([...e.wiredSites])
+    if (e.wiredSites.length === 0) {
+      unconsumed.push(e.name)
+      if (e.wired) unconsumedWired.push(e.name)
+    } else sites[e.name] = Object.freeze([...e.wiredSites])
   }
   const withConsumers = Object.keys(sites).length
   return Object.freeze({
@@ -334,5 +343,6 @@ export function wiredConsumers(registry: readonly PromptEntry[] = PROMPT_REGISTR
     none: unconsumed.length,
     sites: Object.freeze(sites),
     unconsumed: Object.freeze(unconsumed),
+    unconsumedWired: Object.freeze(unconsumedWired),
   })
 }
