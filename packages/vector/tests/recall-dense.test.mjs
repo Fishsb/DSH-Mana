@@ -282,30 +282,45 @@ test('dense-⑤ 四态可分辨：未传旋钮⇒无 dense 键；未启用/无�
   assert.equal(d.dense?.unavailableReason, null, '库空是"扫成了但没得扫"（不是失败，不得具名原因）')
 })
 
-test('dense-⑥ 池非空 ⇒ **一次库都不扫**（扫描面零调用），dense 读数不写；池空则恰好一次', async () => {
+test('dense-⑥ 池非空**也扫一次**（第二路）：请求池一条不作废；未要求本腿则零调用（负向控制）', async () => {
   const store = new VectorStore({ dim: 1024 })
   store.put('lex-1', fixtureVec(1024, 3))
   const knobs = { ...DEFAULT_DENSE_CANDIDATE_KNOBS }
-  const counting = { calls: 0 }
 
-  // 池非空：扫描面若被碰，这里会**抛**（stub 只允许那一条 SQL，且计数）
-  const noScanDb = {
+  // (a) ⚠ **本卡之后唯一**一条"不扫"的路径：调用方**没要求**本腿（不传 cfg.dense）。
+  //     扫描面若被碰，这里会**抛**（stub 只允许那一条 SQL，且计数）—— 这就是它的机械证据。
+  const never = { calls: 0 }
+  const neverDb = {
     prepare(sql) {
-      counting.calls += 1
-      throw new Error(`池非空时不该碰扫描面，实测调用了 ${sql}`)
+      never.calls += 1
+      throw new Error(`未要求本腿时不该碰扫描面，实测调用了 ${sql}`)
     },
   }
-  const out = await recallVector(baseCfg({ dense: knobs, denseDb: noScanDb }), store, '池非空', [{ key: 'lex-1', lexicalRank: 1 }], 5)
-  assert.equal(counting.calls, 0, '池非空时扫描面必须**零调用**（这是"只在池空时才扫"的机械证据）')
-  assert.equal('dense' in out, false, '没扫过就不写读数键')
-  assert.equal(out.hitCount, 1)
+  const out0 = await recallVector(baseCfg({ denseDb: neverDb }), store, '池非空', [{ key: 'lex-1', lexicalRank: 1 }], 5)
+  assert.equal(never.calls, 0, '不传 cfg.dense ⇒ 一次库都不扫（"纯重排器"调用面的既有口径，与本卡的缺省无关）')
+  assert.equal('dense' in out0, false, '没尝试过扫描就不写读数键')
+  assert.equal(out0.hitCount, 1)
+
+  // (b) ⚠ **本卡换掉的那条口径**：要求了本腿且**池非空** ⇒ 恰好扫一次，读数必写，请求池一条不作废。
+  // ⚠ 行向量必须与**本次查询向量**（constFetch(0.1) ⇒ 全 0.1 的均匀向量）成大于阈值 0.5 的余弦：
+  //   全 0.1 的行向量 ⇒ cos = 1.0。用 vecWithCos(...) 那种"只有前两维非零"的构造会得到 0.0417（被阈值挡下）。
+  const db = stubDb([rowOf('lex-2', constEmbedding(1024, 0.1))])
+  const out = await recallVector(baseCfg({ dense: knobs, denseDb: db }), store, '池非空', [{ key: 'lex-1', lexicalRank: 1 }], 5)
+  assert.equal(db.state.calls, 1, '池非空时也**恰好**扫一次（不是 0 次，也不是 2 次）')
+  assert.equal(out.dense?.ran, true, '真扫过 ⇒ 读数必写（改动前这里是"不写"）')
+  assert.equal(out.dense?.scanned, 1, '扫描量可见')
+  assert.deepEqual(out.dense?.candidates.map((c) => c.key), ['lex-2'])
+  // ⚠ 正向提升落在**名次表**上（不是"TOP-1 变了"）：请求池的键两路都有名次，本腿新增的键只带 dense 名次。
+  assert.deepEqual(out.items.map((i) => i.key), ['lex-1', 'lex-2'], '请求池的键一条不作废，新增候选按 RRF 排在其后')
+  assert.deepEqual(out.items[0].rank, { dense: 1, lexical: 1 }, '请求池的键：两路名次都在（**并集**，不是替换）')
+  assert.deepEqual(out.items[1].rank, { dense: 1 }, '本腿自产的键：**只有 dense 名次**（不得伪造 lexical 名次）')
 
   // 对照腿：把同一 store 该有的向量**也放进扫描面**（列举返回的就是它），再给同一个常量查询向量 ⇒
   // 池空应该真走完「列举 ⇒ 算余弦 ⇒ 进池 ⇒ RRF」，而**不是**停在"候选进不了常驻表"那里。
   // ⚠ 这里判的是**结构**（扫描面被叫到、候选进池、融合出结果），语义质量是 §3 那三条真数据用例的事。
   const okDb = stubDb([rowOf('lex-2', constEmbedding(1024, 0.1))])
   const out2 = await recallVector(baseCfg({ dense: knobs, denseDb: okDb }), store, '池空', [], 5)
-  assert.equal(okDb.state.calls, 1, '池空时扫描面恰好调用一次（对照腿）')
+  assert.equal(okDb.state.calls, 1, '池空时扫描面同样恰好一次（**同一份实现**，不按池空与否分叉）')
   assert.equal(out2.dense?.scanned, 1)
   assert.equal(out2.degraded, true, '该向量还没进常驻表 ⇒ 这一步按既有语义降级（点名哪条取不到），不是"命中"')
   store.put('lex-2', constEmbedding(1024, 0.1))
@@ -457,5 +472,13 @@ test('dense-⑩ 契约面冻结：带 dense 时结果**只多一个键**，既�
   assert.equal(deg.channel, 'degraded')
   assert.equal(deg.rankBy, 'local_score', "降级时 rankBy 必须仍是 'local_score'（A1-11 原文）")
   assert.ok(deg.reason && deg.reason.length > 0, '降级原因必须非空')
-  assert.equal('dense' in deg, false, '池非空 ⇒ 本腿不扫 ⇒ 不写读数键（**不是**"扫了没结果"）')
+  // ⚠ 本卡之后：池非空**也扫**，但扫描相位拿到查询向量的那一步就撞上同一个不可达端点 ⇒
+  //   读数落**具名**的 query-embed-degraded（ran=false），而不是"没尝试扫描"（不写键）。
+  //   「没扫」与「扫了但拿不到查询向量」在这里**必须不同形** —— 这正是本卡要保住的分辨点。
+  assert.equal(deg.dense?.ran, false, '拿不到查询向量 ⇒ 本腿没跑成（ran=false，不是"没扫"）')
+  assert.ok(
+    deg.dense?.unavailableReason?.startsWith('query-embed-degraded'),
+    `原因须以具名取值开头：${deg.dense?.unavailableReason}`,
+  )
+  assert.equal(deg.dense?.scanError, false, '嵌入失败**不是**列举失败（两者不得同形）')
 })

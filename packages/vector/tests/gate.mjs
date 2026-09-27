@@ -48,6 +48,11 @@ const FILES = [
   // 11 条 = 1 条自检 + 10 条判据（含**正向/反向两条真数据**用例，以及"没得扫/没扫成/扫了不相近"
   // 三态的分辨用例）。
   { file: 'recall-dense.test.mjs', cases: 11 },
+  // 真双路召回（本卡 t-mujpmv5v-tdvms1 新增）：**必须在此登记**，否则整份文件被删时本闸不可见。
+  // 12 条 = 1 条自检（含**结构性证据**：扫描相位不得落在 `if (!candidates.length)` 里）
+  // + 11 条判据（池非空也扫 / 并集口径 / 上限封死 / 三态可分辨 / 读数同一份 / 正向·反向真数据 /
+  // 修前修后对照 + 代价实测）。
+  { file: 'recall-dualpath.test.mjs', cases: 12 },
 ]
 
 const here = dirname(fileURLToPath(import.meta.url))
