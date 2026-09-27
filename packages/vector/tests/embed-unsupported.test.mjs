@@ -41,9 +41,9 @@ after(() => {
 })
 
 // ── 0. 自检：本文件必须**真的有判据**（防"空文件也绿"）──────────────────
-const EXPECTED_CASES = 15
+const EXPECTED_CASES = 16
 
-test('J1-⓪ 判据自检：本文件 test( 计数**等于** 15，且识别原语可从交付面导入', async () => {
+test('J1-⓪ 判据自检：本文件 test( 计数**等于** 16，且识别原语可从交付面导入', async () => {
   const { readFileSync, existsSync } = await import('node:fs')
   const { fileURLToPath } = await import('node:url')
   const self = fileURLToPath(import.meta.url)
@@ -139,6 +139,20 @@ test('J1-⑧ 反例·HTTP 200 但 data 为空 ⇒ 仍是通用失败（"服务�
   t.diagnostic('[J1-⑧] 200 空 data ⇒ ' + out.failureKind)
 })
 
+// ⚠ 本用例是**变异 ③ 抓出来的缺口**：原先本文件只断言了「降级时归类对不对」，
+//   从未断言「**未降级时归类必须 null**」—— 把成功信封的 failureKind 改成 'degraded'
+//   时 15 条判据**全绿**（实测）。缺了这条，「没降级」与「降级但归到通用类」同形。
+test('J1-⑮ 反向·成功路径（HTTP 200 + 合法 1024 维）⇒ degraded=false 且 failureKind **必须 null**', async (t) => {
+  // ⚠ 本判据**不依赖外部环境**（用桩钉死），环境怎么变都真断言 —— 真端点的成功路径另有 J1-⑫ 覆盖。
+  const okBody = JSON.stringify({ data: [{ embedding: new Array(1024).fill(0.1) }] })
+  const out = await call(mkCfg({ fetchImpl: stub(200, okBody) }))
+  assert.equal(out.degraded, false, '合法 200 + 1024 维必须**不**降级，实测 reason=' + out.reason)
+  assert.equal(out.failureKind, null, '未降级 ⇒ 归类必须 **null**，不得用 ' + "'degraded'" + ' 冒充「没失败」；实测 ' + out.failureKind)
+  assert.equal(out.reason, null, '未降级 ⇒ reason 必须是 null（不空串、不 undefined）')
+  assert.equal(out.vectors.length, 1, '成功路径必须真的带回向量')
+  assert.equal(out.vectors[0].length, 1024)
+  t.diagnostic('[J1-⑮ 成功路径] degraded=' + out.degraded + ' failureKind=' + out.failureKind + ' reason=' + out.reason)
+})
 // ── 3. 判据的**稳健性**与**可枚举性** ──────────────────────────────────
 
 test('J1-⑨ 稳健性·换措辞/换前后缀/换大小写 ⇒ 仍命中（防"全串相等，换版本即失效"）', async (t) => {

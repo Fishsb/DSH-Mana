@@ -42,8 +42,8 @@ const FILES = [
   // E2 大环路接线（生产调用方 ≥1）：桩计数 + 缺省关 + 契约面零改动。
   { file: 'bigloop-wiring.test.mjs', cases: 11 },
   // J1 嵌入腿失败态归类（本卡新增）：**必须在此登记**，否则整份文件被删时本闸不可见（形态 ②）。
-  // 15 条 = 1 条自检 + 14 条判据（双方向：该归类归 / 不该归类不被吞）。
-  { file: 'embed-unsupported.test.mjs', cases: 15 },
+  // 16 条 = 1 条自检 + 15 条判据（**双方向**：该归类归 / 不该归类不被吞；含成功路径 failureKind===null）。
+  { file: 'embed-unsupported.test.mjs', cases: 16 },
 ]
 
 const here = dirname(fileURLToPath(import.meta.url))
