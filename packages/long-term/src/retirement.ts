@@ -40,7 +40,7 @@
  */
 import { createHash } from 'node:crypto'
 import type { DatabaseSync } from 'node:sqlite'
-import { checkQuery } from 'dsh-mana-core'
+import { buildFtsPhrase, checkQuery, FtsQueryError, isFtsQueryError } from 'dsh-mana-core'
 
 /**
  * 检索默认返回条数。
@@ -231,9 +231,17 @@ export function probeFtsIndex(db: DatabaseSync, rawQuery: string, limit: number 
   const checked = checkQuery(rawQuery)
   if (!checked.ok) return []
   assertLimit(limit)
+  /**
+   * ⚠ **必须绑短语，不能绑裸查询**（2026-09-27 与 `core.recallLexical` 同批修正）：
+   *   `MATCH` 的参数是 **FTS5 查询表达式**，不是纯文本 —— 裸 `/home/lk/Mana` 会直接
+   *   `syntax error near "/"`，裸 `方案 A` 会被当 `方案 AND A`。
+   *   ⚠ 本探针是**诊断工具**（见上面的"不是检索入口"）：它抛错会让人误以为"索引有问题"，
+   *     而真因只是查询串没转义 ⇒ 归因错位。
+   *   ⚠ 转义器**不另立**：复用 `dsh-mana-core` 的 `buildFtsPhrase`（与生产检索同一份）。
+   */
   const rows = db
     .prepare('SELECT rowid FROM memory_items_fts WHERE memory_items_fts MATCH ? LIMIT ?')
-    .all(checked.query, limit) as { rowid: number }[]
+    .all(buildFtsPhrase(checked.query), limit) as { rowid: number }[]
   const ids: string[] = []
   for (const r of rows) {
     const m = db.prepare('SELECT id FROM memory_items WHERE rowid = ?').get(r.rowid) as { id?: string } | undefined
@@ -350,12 +358,37 @@ export function searchLiveMemories(db: DatabaseSync, rawQuery: string, limit: nu
   if (!checked.ok) {
     return { hits: [], reason: 'too_short', normalizedQuery: null, retiredIdsInHits: [], ...base }
   }
-  const hits = db.prepare(LIVE_SEARCH_SQL).all(checked.query, limit) as {
-    id: string
-    content: string
-    summary: string | null
-    retired: number
-  }[]
+  /**
+   * ⚠ **必须绑短语**（2026-09-27 与 `core.recallLexical` 同批修正）：
+   *   `MATCH` 的参数是 **FTS5 查询表达式**而非纯文本 ⇒ 裸查询下含 `/` 的提问
+   *   （如 `/home/lk/Mana`）会让整条生产检索**抛错**、含空格短语会被拆成 `AND`。
+   *   转义器复用 `dsh-mana-core` 的 `buildFtsPhrase`（**不另立第二份**）。
+   *
+   * ⚠ **失败必须可分辨**：FTS5 仍可能因别的原因拒绝该表达式（实测：含 U+0000 时
+   *   `unterminated string`）⇒ 此处**不吞**，转成具名 `FtsQueryError` 抛出。
+   *   若在此 catch 掉退回空集，"查询坏了"就会与"库里没有"**同形** —— 本仓最忌。
+   */
+  let hits: { id: string; content: string; summary: string | null; retired: number }[]
+  const phrase = buildFtsPhrase(checked.query)
+  try {
+    hits = db.prepare(LIVE_SEARCH_SQL).all(phrase, limit) as {
+      id: string
+      content: string
+      summary: string | null
+      retired: number
+    }[]
+  } catch (error) {
+    /**
+     * ⚠ 具名错误**只用于"查询表达式被拒"这一种事实**（与 core 同一口径）：
+     *   库已关、权限、连接故障等**不归此列** ⇒ 那些照旧抛原错，不被本类冒充。
+     */
+    if (isFtsQueryError(error)) throw error
+    const msg = error instanceof Error ? error.message : String(error)
+    if (/fts5|unterminated string|syntax error/i.test(msg)) {
+      throw new FtsQueryError(checked.query, phrase, error)
+    }
+    throw error
+  }
   const retiredIdsInHits = hits.filter((h) => Number(h.retired) !== 0).map((h) => String(h.id))
   const clean = hits.map((h) => ({ id: h.id, content: h.content, summary: h.summary }))
   const reason: LiveSearchResult['reason'] = clean.length > 0 ? null : counts.live === 0 ? 'empty_library' : 'ok'
