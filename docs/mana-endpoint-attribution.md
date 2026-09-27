@@ -74,12 +74,31 @@ await requireOllama('B1.2-1 真调 Ollama 的测量条件')   // 内部仍走 as
 
 ## 6. 盲区（如实登记，不许当成已解决）
 
-- **「服务端活着但回得慢/回得坏」**：连接层有应答 ⇒ 本层归 `behavior-wrong`（查代码）。
-  而 `docs/handoff/S12.md` 记录过该腿在 `npm test` 负载下从 23ms 飙到 6581/7055ms ——
-  这类**环境性慢**在嵌入面仍可能被读成代码问题（`a1-check.mjs` 的 A1-12 已用 TCP 探针正面处理这一类，
-  测试面本期未做同名探针）。
+- **「服务端活着但回得慢」**：读到的是 `degraded:true + reason='嵌入请求失败（…）：TimeoutError'`，
+  按本口径归 `env-unavailable`（下一步查环境）—— **类别对，但文案点的是"服务在不在"，
+  不是"为什么慢"**。`docs/handoff/S12.md` 记录过该腿在 `npm test` 负载下从 23ms 飙到 6581/7055ms。
+
+  ⚠ 2026-09-27 本席**当场观测到这一类**（不是复述旧记录），原始读数：
+
+  | 时刻 | 并发 | 宿主单次嵌入 | 判据读数 |
+  |---|---|---|---|
+  | 21:15 | 另一工作树正跑 `npm test` | 超 8s | `ms=8004 · TimeoutError` |
+  | 21:19 | 同上（load 2.25） | **26.9s** | `ms=30003 · TimeoutError`（30000ms 阈值被打穿） |
+  | 21:21 | 并发退去 | — | 判据全绿 `95/95` |
+
+  ⇒ 这类红的**归因方向是对的**（查环境），但它与被测代码问题的**分辨力来自 timeout 是否被打穿**：
+  `embed.ts` 的本地缺省 30000ms **不得调大**（调大 = 改测量条件，
+  `docs/handoff/w4-session-prompts.md:157` 明禁），正确处置是**等负载退去后复跑**并比对。
+  `a1-check.mjs` 的 A1-12 已用 TCP 探针 + 两态留档正面处理这一类（能报出"TCP 通但嵌入慢"），
+  测试面本期**未做**同名探针 —— 这是本改造**未覆盖**的一段，如实登记。
 - **本模块不覆盖「判据根本没跑到端点」的形态**（如被测面在更早处就降级为环境态）：那由被测面读数负责。
 - **`behavior-wrong` 的自动判定**只覆盖「应答里没有向量」；其余读数缺失需调用方用
   `behaviorWrongText` 显式标注（给不出就写「未验证」，不许默认成通过）。
-- **登记表**：本改造**不新增用例文件、不改任何文件的用例条数** ⇒ `packages/vector/tests/gate.mjs` 的
-  `FILES` 与 `packages/jev/tests/gate.mjs` 的 `OFFLINE/COUNTED_OTHER` **无需同步**（改文件与用例数时必须同步，此处两者都没动）。
+- **登记表**（本仓两次栽在"新文件没登记 ⇒ 外部防线不看它"，故逐处核对，不只写一句"无需同步"）：
+  | 登记表 | 管什么 | 本次是否需要同步 | 核对方式 |
+  |---|---|---|---|
+  | `packages/vector/tests/gate.mjs` 的 `FILES` | 逐文件**用例条数等式** | **否**（未新增用例文件、未改条数） | 现值与登记值逐字相同，见 §7 自证输出 |
+  | `packages/jev/tests/gate.mjs` 的 `OFFLINE`/`COUNTED_OTHER` | 同上（+ 总和等式） | **否** | `b12-jev.test.mjs` 仍 11 条 |
+  | `packages/vector/tests/pkg-registration.guard.mjs` | **包**（`packages/*/package.json` 的 main） | 不适用 | `_live-endpoints.mjs` 不是包 ⇒ 无需登记 |
+  | `tools/a1-check.mjs` 的 `readdirSync('packages')` | 只扫 `packages/*/src` | 不适用 | 不扫 tests ⇒ 无涉 |
+  ⚠ 将来若**新增**测试文件或**增删用例**，上表前两行必须同步（改条数要**同时**改闸与文件内 ⓪ 自检）。
