@@ -67,8 +67,17 @@ await requireOllama('B1.2-1 真调 Ollama 的测量条件')   // 内部仍走 as
 3. **不自己发请求**：判据自己发（或调用方已发的那一份读数），本模块只读
    （vector 侧有「一次真端点请求都不发」的硬约束，见 `embed-unsupported.test.mjs` 的 J1-⓪ 自检）。
 4. **不另立失败判据**：归类复用被测面已有的 `failureKind` 与 `unsupportedMarkerIn`（直接 import，不抄第二份特征串）。
-5. **stub 端点的调用方也要用同一把标尺**：同进程 stub 的红一律落 `behavior-wrong`
-   （例：`recall-graph.test.mjs` 的 W2-C3-⑩ 前提腿）。否则"有的红归因得了、有的归因不了"。
+4b. ⚠⚠ **不得绕过分类器**（2026-09-27 复验退回的根因，**本条是硬纪律**）：
+   「端点层前置探测刚通过」**不等于**「这一次调用拿到了可用应答」——
+   复验实测：前置通过之后，真调用仍被负载拖到 **30s 超时**（`latencyMs=30001 · aborted due to timeout`）。
+   若调用点直接用 `behaviorWrongText`，就会把**一个环境性超时**说成「行为不对 ⇒ 查代码」，
+   还附一句「别去重启服务」⇒ **归因反向错位**（本卡要治的病，换了个方向复现）。
+   ⇒ **规则**：凡文案里的读数来自一次真调用，就把那份读数作为第 3 参传给 `behaviorWrongText`，
+     或直接用 `assertLiveEmbed` / `assertLiveService`（它们内部已分类）。**不许自己猜是哪种红。**
+5. **stub 端点的调用方也要用同一把标尺**：同进程 stub 的红**由分类器判定**
+   （例：`recall-graph.test.mjs` 的 W2-C3-⑩ 前提腿 —— stub 挂了就是环境态，该去查 stub/端口）。
+   ⚠ 早期版本在此写死了"一律落 behavior-wrong"，那是**猜**不是判；现已统一交分类器。
+   否则"有的红归因得了、有的归因不了"。
 6. **一处实现**：两包（vector / jev）共用 `packages/vector/tests/_live-endpoints.mjs`，
    不各写一套措辞（措辞漂移 = 又一种"同形"）。
 
