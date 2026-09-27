@@ -70,8 +70,19 @@ const opt = (f) => {
 }
 const JSON_ONLY = has('--json')
 const SELF_CHECK = has('--self-check')
-const MUTATES = new Set(argv.flatMap((a, i) => (a === '--mutate' && argv[i + 1] ? [argv[i + 1]] : [])))
-const mutOf = (layer) => MUTATES.has(layer)
+/**
+ * ⚠ **变异名必须大小写归一**（本席 2026-09-27 实测踩到，如实记）：
+ *   本集合原样收 argv，而各层的调用点写 `mutOf('L2')`（**大写**）——
+ *   ⇒ 文件头与任务卡给的 `--mutate l2`（**小写**）**根本匹配不上**，变异腿静默不注入。
+ *   实测：`--mutate l2` → **exit 0**（看起来"没问题"，实为**假绿**）；
+ *         `--mutate L2` → exit 5（这才是真咬住）。
+ *   ⇒ 归一为小写（两种写法等价），并**对无法解析的变异名显式报错**（见 checkMutates）：
+ *     不认识的变异名绝不允许退化成"本次没有变异"。
+ */
+const MUTATES = new Set(
+  argv.flatMap((a, i) => (a === '--mutate' && argv[i + 1] ? [String(argv[i + 1]).toLowerCase()] : [])),
+)
+const mutOf = (layer) => MUTATES.has(String(layer).toLowerCase())
 
 /**
  * 负向对拍清单（每层一个）。锚点必须**恰好命中一次**，否则抛错
@@ -82,7 +93,16 @@ const mutOf = (layer) => MUTATES.has(layer)
  */
 const MUTATORS = {
   l1: { target: 'L1', why: '把 L1 的「链上等价节点计数」改成只看 encoding（丢掉其余节点）⇒ 应报 FAIL' },
-  l2: { target: 'L2', why: '把 L2 的召回命中数按 ceil 放大 ⇒ 命中率越过 100% 上界 ⇒ 应报 FAIL' },
+  /**
+   * ⚠ **本变异的射程必须写清**（本席 2026-09-27 实测）：它注入 `hits = n + 1`，
+   *   咬的是「命中数不得大于样本数」这条不变式。而**真库 memory_items 活行数为 0** 时
+   *   （= 记忆未形成的现状），L2 走**三态第一态**（NO_DATA）**先于**比值计算返回 ⇒
+   *   **变异无处可咬，`--mutate l2` 只会更响地报"记忆未形成"，不会变红**。
+   *   这不是变异腿失效，而是**射程**：它只能咬"有记忆可召回"的那种运行态。
+   *   ⇒ 变异腿**可被射程遮蔽**这件事本身必须**机检**（见 selfCheck ⑥/⑦ 与下面的 arm 读数）：
+   *     把"本次运行能不能咬住"作为读数打出来，绝不让它静默退化成"看起来跑过了"。
+   */
+  l2: { target: 'L2', why: '把 L2 的召回命中数按 ceil 放大 ⇒ 命中率越过 100% 上界 ⇒ 应报 FAIL（⚠ 仅当 memoryCount>0 才有靶）' },
   l3: { target: 'L3', why: '把 L3 的延迟读数硬写成 0 ⇒ 违反「≥0 且真计时」不变式 ⇒ 应报 FAIL' },
   l4: {
     target: 'L4',
@@ -181,6 +201,42 @@ function readDb(store, sql, params = []) {
   }
 }
 
+// ── L2 三态判定：提纯成纯函数（守卫可断言化）──────────────────────────────────
+/**
+ * 把「记忆未形成 / 已形成但未召回 / 正常命中」三态的判定**从散文提纯成可断言的函数**，
+ * 这样"三者不得同形"就不再是一句承诺，而是 selfCheck 里可机检的断言（本仓「守卫可断言化」）。
+ *
+ * 返回 `{ state, tri, rate }`：`state` 是四态（决定退出码），`tri` 是**三态标签**（机器可读）。
+ * 两者**任一不同**即视为"不同形"。
+ *
+ * ⚠ **闸的顺序是判据的一部分，不可换**（本席在此踩过一次并机检之，如实记）：
+ *   ① `n === 0` → 分母为 0，不得算比值；
+ *   ② **比值合法性**（`hits ∈ [0, n]`）；
+ *   ③ 库里有没有东西可召回（`memoryCount`）；
+ *   ④ 召回命中了吗（`hits`）。
+ *   若把 ③ 提到 ② 之前，`memoryCount === 0` 会先 return —— 于是 `--mutate l2` 注入的
+ *   "越界计数"被**同形地**读成"记忆未形成"，**负向对拍失效**（变异不变红 = 又一处失败不可观测）。
+ *   故次序在这里定死，并由 selfCheck ⑦ **机检"变异靶存在"**（不靠注释承诺）。
+ */
+function l2Verdict(memoryCount, hits, n, memoryRows = memoryCount) {
+  if (n === 0) return { state: 'NO_DATA', tri: 'no_retrieval_rows', rate: null }
+  const rate = hits / n
+  if (!(rate >= 0 && rate <= 1)) return { state: 'FAIL', tri: 'rate_out_of_range', rate }
+  if (memoryCount === 0) {
+    /**
+     * ⚠ **"活行为 0"本身还是两件事**（本席实测后补，如实记）：全表行数为 0
+     *   ⇒ 记忆**压根没进库**（上游写入侧）；全表 > 0 而活行 = 0 ⇒ **记忆形成过、全部退休**
+     *   （遗忘链的正常产物）。后者若也报"未形成"，就是**归因错位 + 假红**——
+     *   与 core 在 librarySize 注释里点名的那个坑同源。故拆成两个不同的标签。
+     */
+    return memoryRows > 0
+      ? { state: 'NO_DATA', tri: 'all_retired', rate }
+      : { state: 'NO_DATA', tri: 'memory_not_formed', rate }
+  }
+  if (hits === 0) return { state: 'MEASURED', tri: 'formed_but_missed', rate }
+  return { state: 'MEASURED', tri: 'hits', rate }
+}
+
 // ── 自检腿（--self-check 与正常跑都会执行）────────────────────────────────────
 /**
  * harness 自检：**先证判据有牙，再判被测系统**。
@@ -199,6 +255,46 @@ function selfCheck() {
   // ④ 退出码必须可区分（全等 ⇒ 失败不可观测）
   const codes = new Set(Object.values(EXIT))
   if (codes.size !== Object.values(EXIT).length) problems.push('退出码有重复值 ⇒ 失败不可区分')
+  // ⑤ **未登记的变异名必须响亮**（本席实测坑：`--mutate l2` 曾因大小写不匹配而静默不注入
+  //    ⇒ 变异腿报绿，人却以为"负向对拍跑过了"。静默降级 = 失败不可观测，故在此显式拦截。）
+  for (const m of MUTATES) if (!MUTATORS[m]) problems.push('未登记的变异名：' + m + '（可用：' + Object.keys(MUTATORS).join('/') + '）')
+  // ⑥ **L2 三态必须两两不同形**（本卡的核心：这是可机检的断言，不是散文承诺）。
+  //    ⚠ 这里用**真函数**（不是重写一遍判定）——复述一遍就是"夹具绿"：
+  //      夹具与被测各写一份，两份可以一起错而测试照绿。
+  const triShapes = [
+    l2Verdict(0, 0, 4, 0), // 记忆未形成（全表也空）
+    l2Verdict(0, 0, 4, 7), // 形成过但全部退休
+    l2Verdict(5, 0, 4), // 已形成但未召回
+    l2Verdict(5, 3, 4), // 正常命中
+  ]
+  const shapeKeys = triShapes.map((x) => x.state + '|' + x.tri)
+  if (new Set(shapeKeys).size !== shapeKeys.length) {
+    problems.push('L2 三态同形（state|tri 有重复）：' + shapeKeys.join(' , '))
+  }
+  // ⚠ **反序负控**：判定顺序若被写反（先算命中再问库），"记忆未形成"会退化成 "formed_but_missed" ⇒ 该断言必须咬住。
+  if (l2Verdict(0, 0, 4).tri !== 'memory_not_formed') {
+    problems.push('L2 三态判定顺序被写反：memoryCount=0 未先判"未形成"（会退化成与"已形成未召回"同形）')
+  }
+  // ⑦ **变异靶必须存在**（机检"负向对拍有没有靶"，不靠注释承诺）：变异注入 hits=n+1
+  //    ⇒ 必须被**比值闸**咬住，且不得被三态提前 return 掉。这一条同时守住两件事：
+  //    ① 变异腿不静默失效 ② memoryCount=0 时"计数口径坏"不与"记忆未形成"同形。
+  const mutTarget = l2Verdict(0, 4 + 1, 4)
+  if (mutTarget.state !== 'FAIL' || mutTarget.tri !== 'rate_out_of_range') {
+    problems.push('L2 变异靶失效：l2Verdict(0, n+1, n) 应报 FAIL/rate_out_of_range，实为 ' + mutTarget.state + '/' + mutTarget.tri + '（比值闸被三态提前 return 掉了）')
+  }
+  // ⑦b **"活行为 0"不得被笼统读成"未形成"**（全表 > 0 ⇒ 是"全部退休"，属正常行为而非上游故障）。
+  if (l2Verdict(0, 0, 4, 7).tri !== 'all_retired') {
+    problems.push('L2 归因错位：全表有行而活行=0 时未识别为"全部退休"，实为 ' + l2Verdict(0, 0, 4, 7).tri)
+  }
+  // ⑧ **正常态不得被误伤**：真读数（未变异）必须仍是合法比值，且三态标签正确。
+  const normal = l2Verdict(5, 3, 4)
+  if (normal.state !== 'MEASURED' || normal.rate !== 0.75) {
+    problems.push('L2 正常态被误伤：l2Verdict(5,3,4) 应为 MEASURED/0.75，实为 ' + normal.state + '/' + String(normal.rate))
+  }
+  // ⑦ **变异名必须真咬得住**（归一前的实测坑：`--mutate l2` 静默不注入 ⇒ 假绿）。
+  for (const m of MUTATES) {
+    if (!mutOf(m) || !mutOf(String(m).toUpperCase())) problems.push('变异名大小写不归一 ⇒ 变异可能静默不注入：' + m)
+  }
   return problems
 }
 
@@ -320,37 +416,119 @@ await layer('L1', '任务有效性（链上节点真跑通且可数）', async (
 })
 
 // ── L2 记忆质量：召回命中率（分母为真查询数，n=0 不参与比值）─────────────────
+/**
+ * ══ 为什么 L2 要加「前置读数 + 三态」（本卡 F2 的核心）══════════════════════════
+ * 旧实现只读 `status=ran` 的检索行算比率 ⇒ 库里**一条记忆都没有**时，它照样报
+ * `命中率 0/4 = 0.0000` 并落 **MEASURED**（实测：整机 exit=0，打 ✅）。于是两种**完全不同**的故障
+ * 在同一个 0 里同形：
+ *   (a) 记忆真写进去了、只是召回没命中（**召回效果差** —— 被测系统能自己修）；
+ *   (b) 记忆**压根没写进去** ⇒ 召回无物可命中（**上游写入侧坏了** —— 修检索是白修）。
+ * 这正是本仓最忌的「失败不可观测」。⇒ 本层补一条**前置读数**：
+ *   · `memoryCount` = 真库 `memory_items` 的**活行数**（`retired = 0`）——
+ *     ⚠ 口径**逐字对齐** `packages/core` 的 `recallLexical` 里 `librarySize` 的 SQL
+ *     （`SELECT COUNT(*) c FROM memory_items WHERE retired = 0`）：
+ *     两处若不同源，本读数就**无法与链路自报的 `librarySize` 交叉核对**（本仓「代理指标非判据」）。
+ *     `retired` 口径的理由同 core：检索 SQL 本身排除 retired 行；用全表计数会把
+ *     「唯一那条已退休」读成「库里非空却查不到」= **假红**。
+ *   · `candidates` = 检索链自报的候选数（`payload.candidates`，词法路打底的候选池）。
+ * 三态**不得同形**（各自独立 detail 文案 + 机器可读 `evidence.tri`）：
+ *   `memory_not_formed`（未形成，NO_DATA：本层无被测对象）/ `formed_but_missed`（已形成未召回，
+ *   MEASURED：真读数，召回效果问题）/ `hits`（正常命中率，MEASURED）。
+ * ⚠ 未形成为什么落 **NO_DATA 而不是 FAIL**：写入侧不在本层的被测面内（那是上游 / F1 卡的事），
+ *   评估器不得替别的层判红；但 NO_DATA **不是 PASS**（它会把 exit 顶成 2，人一眼看得见）。
+ * ⚠ **不硬凑**：绝不为了让读数好看而造与问法重叠的种子语料（本仓点名的假绿形态）。
+ *   写入侧若仍被挡，就**如实报「记忆未形成」**——那是诚实且有用的读数。
+ */
 await layer('L2', '记忆质量（召回命中率，分母=真查询数）', async () => {
   const queries = driverRows.filter((r) => {
     try { return JSON.parse(r.payload ?? '{}').chain === 'retrieval' } catch { return false }
   })
   let hits = 0
   let considered = 0
+  let candidates = 0
+  let ranRows = 0
   for (const r of queries) {
     let p = {}
     try { p = JSON.parse(r.payload ?? '{}') } catch { continue }
     if (p.status !== 'ran') continue
+    ranRows += 1
     considered += 1
+    if (typeof p.candidates === 'number') candidates += p.candidates
     if (typeof p.hitCount === 'number' && p.hitCount > 0) hits += 1
   }
+  /** 前置读数：真库活记忆条数（SQL 与 core 的 librarySize **逐字同源**，可交叉核对）。 */
+  const memoryCount = Number(
+    readDb(store, 'SELECT COUNT(*) c FROM memory_items WHERE retired = 0')[0]?.c ?? 0,
+  )
+  /**
+   * ⚠ 全表行数**必须与活行一起读**：只报活行时，"活行为 0"仍是两件事的同形 ——
+   *   · 全表 = 0 ⇒ 记忆**压根没进库**（上游写入侧问题）；
+   *   · 全表 > 0 ⇒ 记忆**形成过、全部退休**（遗忘链正常产物，**不是**上游问题）。
+   *   两者都报"记忆未形成"就是**归因错位**（并造成假红）。故一起取、一起打进报告。
+   */
+  const memoryRows = Number(readDb(store, 'SELECT COUNT(*) c FROM memory_items')[0]?.c ?? 0)
+  /** 交叉核对：把链路自报的 librarySize 与本层的真库计数并列（不同则说明两处口径已分叉）。 */
+  const chainLibrarySize = queries.length > 0
+    ? (() => { try { return JSON.parse(queries[queries.length - 1].payload ?? '{}').librarySize ?? null } catch { return null } })()
+    : null
+  const pre = '前置读数：记忆条数(memory_items 活行)=' + String(memoryCount) +
+    '／全表 ' + String(memoryRows) +
+    ' · 检索候选数=' + String(candidates) +
+    ' · status=ran 检索行=' + String(ranRows) +
+    (chainLibrarySize === null ? '' : ' · 链路自报 librarySize=' + String(chainLibrarySize))
+  const tri = (t) => ({ memoryCount, memoryRows, candidates, ranRows, chainLibrarySize, tri: t })
   const n = considered
   /**
    * ⚠ **变异必须打在不变式上**（本席第一版写 `Math.ceil(hits*1.5)+1` 实测**没被咬住**：
    *   1/4=0.25 仍是合法比值 ⇒ L2 照报 MEASURED。这正是「负控变红须重瞄」那条教训——
    *   变异不红时要**重瞄目标不变式**，不得放宽断言）。
-   * 本层的不变式是「命中数不得大于样本数」⇒ 变异就注入**越界**（hits > n）。 */
-  if (mutOf('L2')) hits = n + 1
-  if (n === 0) {
-    return { state: 'NO_DATA', detail: 'n=0 —— 没有一条 status=ran 的检索行，命中率分母为 0（不得据此算比值）', evidence: { n: 0, hits } }
+   * 本层的不变式是「命中数不得大于样本数」⇒ 变异就注入**越界**（hits > n）。
+   */
+  if (mutOf('l2')) hits = n + 1
+  /**
+   * 变异/三态/越界判定**统一走提纯函数** l2Verdict —— 同一份判定既服务本层、服务 selfCheck
+   * 的可断言化，也服务"变异有没有靶"的机检。**绝不在两处各写一份**：
+   * 两份可以一起错而测试照绿（本仓「夹具绿非真数据绿」同源理由）。
+   */
+  const { state, tri: triTag, rate } = l2Verdict(memoryCount, hits, n, memoryRows)
+  const ev = { ...tri(triTag), n, hits, rate }
+  if (triTag === 'rate_out_of_range') {
+    return { state, detail: pre + '｜命中率越界：' + String(rate) + '（' + String(hits) + '/' + String(n) + '）—— 上界是 1，越界即计数口径坏了', evidence: ev }
   }
-  const rate = hits / n
-  if (!(rate >= 0 && rate <= 1)) {
-    return { state: 'FAIL', detail: '命中率越界：' + String(rate) + '（' + String(hits) + '/' + String(n) + '）—— 上界是 1，越界即计数口径坏了', evidence: { n, hits, rate } }
+  if (triTag === 'no_retrieval_rows') {
+    return { state, detail: pre + '｜n=0 —— 没有一条 status=ran 的检索行，命中率分母为 0（不得据此算比值）', evidence: ev }
+  }
+  if (triTag === 'memory_not_formed') {
+    return {
+      state,
+      detail: pre + '｜⚠ **记忆未形成**（上游写入侧问题）：真库 memory_items **全表与活行都是 0** ⇒ 记忆压根没进库、召回**无物可命中**，' +
+        '此时任何"命中率 0"都**不是召回效果差**（两者不得同形 —— 本卡存在的理由）。' +
+        '本层无可测对象；写入侧归因见 L4（逐环读数）⇒ **NO_DATA 不是 PASS**',
+      evidence: ev,
+    }
+  }
+  if (triTag === 'all_retired') {
+    return {
+      state,
+      detail: pre + '｜⚠ **记忆已形成但全部退休**（不是上游问题）：全表有 ' + String(memoryRows) +
+        ' 行而活行为 0 ⇒ 0 命中是**遗忘链的正常产物**，' +
+        '既不得读成"记忆未形成"（归因错位），也不得读成"召回效果差"（假红）',
+      evidence: ev,
+    }
+  }
+  if (triTag === 'formed_but_missed') {
+    return {
+      state,
+      detail: pre + '｜⚠ **已形成但未召回**（召回效果问题）：库里有 ' + String(memoryCount) +
+        ' 条活记忆、' + String(candidates) + ' 个候选，却 0 条命中 ⇒ 故障在**召回侧**，不在写入侧' +
+        '（与"记忆未形成"是两种故障，读数不得同形）',
+      evidence: ev,
+    }
   }
   return {
-    state: 'MEASURED',
-    detail: '命中率 ' + hits + '/' + n + ' = ' + rate.toFixed(4) + '（n=' + String(n) + ' 条 status=ran 的检索行）',
-    evidence: { n, hits, rate },
+    state,
+    detail: pre + '｜命中率 ' + hits + '/' + n + ' = ' + rate.toFixed(4) + '（n=' + String(n) + ' 条 status=ran 的检索行）',
+    evidence: ev,
   }
 })
 
