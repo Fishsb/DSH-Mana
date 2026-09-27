@@ -102,3 +102,74 @@ await requireOllama('B1.2-1 真调 Ollama 的测量条件')   // 内部仍走 as
   | `packages/vector/tests/pkg-registration.guard.mjs` | **包**（`packages/*/package.json` 的 main） | 不适用 | `_live-endpoints.mjs` 不是包 ⇒ 无需登记 |
   | `tools/a1-check.mjs` 的 `readdirSync('packages')` | 只扫 `packages/*/src` | 不适用 | 不扫 tests ⇒ 无涉 |
   ⚠ 将来若**新增**测试文件或**增删用例**，上表前两行必须同步（改条数要**同时**改闸与文件内 ⓪ 自检）。
+
+
+## 7. 自证（原始输出，2026-09-27）
+
+### 7.1 全量：`npm run build && npm test`
+
+```
+build-exit=0
+test-exit=0
+# tests 858
+# pass 858
+# fail 0
+# skipped 0
+```
+
+### 7.2 两个方向的断言文案（**同一份坏读数**喂给改前/改后判据，受控对拍）
+
+读数：`{ degraded: true, failureKind: 'degraded', vectors: 0 }`（真死端口 `127.0.0.1:1`，走真 `embedTexts`）
+
+**改前**（`git show HEAD~:<dense 文件>` 原文，环境事实塞在 reason 里）：
+```
+本机 bge-m3 必须可达（这是测量条件）：嵌入请求失败（http://127.0.0.1:1/v1，timeoutMs=5000）：TypeError: fetch failed
+```
+
+**改后**（同一份读数）：
+```
+[live-endpoint · env-unavailable] dense-⑦⑧⑨ 真数据前提（生产写面嵌入）｜环境不可用：传输出错 / 端点不可达 / 超时（这一次调用没拿到可用应答）｜实测：端点=http://127.0.0.1:1/v1 · model=bge-m3 · degraded=true · failureKind=degraded · ms=3 · vectors=0 · reason=嵌入请求失败（http://127.0.0.1:1/v1，timeoutMs=5000）：TypeError: fetch failed｜下一步：查**测量环境**：宿主 Ollama 是否在跑 · 端点是否指对 · 该服务是否以 --embeddings 启动 · 所选模型是否具嵌入能力（这一条**不是**被测代码的问题，别去翻被测面）
+```
+
+**行为态**（环境可用、维度契约不满足 —— 真·代码缺陷形态）：
+```
+[live-endpoint · behavior-wrong] B1.1-⑩ 维度契约（A1-12，A 档）｜环境可用但被测行为不对｜实测：dim=768（应 1024）｜下一步：查**被测代码**：测量环境已应答且格式合法，读数却不对 ⇒ 缺陷在被测面（这一条**不是**环境问题，别去重启服务）
+```
+
+**服务端明确回「不支持嵌入」**（真 501 原文，走本机真 http 服务）：
+```
+[live-endpoint · env-unavailable] …｜环境不可用：服务端**明确回**「本服务不支持嵌入」（命中语义特征「does not support embeddings」）⇒ 处置方向是**服务端启动参数或模型能力**｜…
+```
+
+**方向①（环境正常）**：真实端点 `degraded=false · dim=1024` ⇒ `三态分类=ok`、判据绿。
+`vector gate` 复跑 `# tests 95 / # pass 95 / # fail 0 / # skipped 0`（exit 0）。
+
+### 7.3 零 skip 自查
+
+改动面 9 个文件（含两个闸本体），**剥掉注释后**扫 `t.skip( / context.skip( / it.skip( / test.skip( / skip: true / skip:true`：
+
+```
+⇒ skip 形态命中 0 处（零 skip）
+```
+
+### 7.4 登记表等式对账（13 处，逐处现算现值 vs 登记值）
+
+```
+vector: b11-vector=15/15 · recall-graph=11/11 · recall-gate-wiring=7/7 · bigloop=12/12 ·
+        bigloop-wiring=11/11 · embed-unsupported=16/16 · recall-dense=11/11 · recall-dualpath=12/12
+jev   : framework=23/23 · systemone=23/23 · w12-real-channel=9/9 · b12-jev=11/11 · live/systemone-live=9/9
+⇒ 全部逐字相同
+```
+
+### 7.5 假绿②防线未被削弱
+
+`node packages/jev/tests/gate.mjs` → **exit 0**，四腿全过：
+
+```
+[jev·gate] **动态腿通过**：离线命名空间下 55/55 绿（exit 0）⇒ 判据确实零网络
+[jev·gate] **显式红腿通过**：无凭据跑真通道判据 ⇒ exit=1 tests=9 fail=9 **skipped=0**（红 + 零跳过）
+[jev·gate] 绿：离线 55/55 · 合计 75 条判据全在等式内；自检腿 + 静态腿 + 动态腿（离线）+ 显式红腿 四通过
+```
+
+`git diff --name-only 0684600..HEAD -- packages/jev/tests/gate.mjs packages/jev/tests/gate-checks.mjs packages/vector/tests/gate.mjs` ⇒ **空**（判据本体一字未动）。
+
