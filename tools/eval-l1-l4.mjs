@@ -341,7 +341,40 @@ const { ctx, store, dir } = booted
  *     处理方式是**让这件事可读**：见下面的 `SEED_SIGNAL_CHECK` —— 它把"种子是否含信号词"
  *     变成**显式读数**并印进 L2 的归因里，由人判断"该改语料还是该改闸"。
  */
+/**
+ * ── 两组种子：**真实风格组**（主组）与**遗留组**（保留作负控）─────────────────────────
+ *
+ * ⚠ **为什么必须分两组**（本席 2026-09-27 决策，含两次自我否定，逐条记）：
+ *
+ *   ① 旧实现只有一组，文本是「评估器输入：认知记忆架构需要可观测的度量…」——
+ *      那是**评估器内部术语**，不是真实用户输入。它当初是为**旧口径**（比 bigram）而选的：
+ *      同主题长句共享足够 bigram 才过闸。
+ *
+ *   ② F1 换靶（bigram → 信号词）后，旧种子 **4/4 含 0 个信号词** ⇒ 恒被挡 ⇒ L2 恒 NO_DATA。
+ *      我当时选择"不擅改，只把读数印出来交人拍板"。
+ *
+ *   ③ 本轮用户授权**自主推进**，我据此拍板：**旧种子是过时夹具，该换**。
+ *      但**判断方向必须对** —— 判据不是"改成能过闸"，而是"**改成真实用户输入的样子**"：
+ *      真实该被长期记住的话（偏好/决策/事实/纠正）**本来就含信号词**，这是 v10 的模型假设，
+ *      不是为过闸而做的特调。
+ *
+ *   ④ **旧种子不删，降级为负控组**（`LEGACY_SEED`）：它现在证明的是
+ *      「**不含信号词的输入会被正确挡下**」。删掉它，"换靶前后差多少"就无从复算 ——
+ *      而"可复算"正是本仓对证据的要求。
+ *
+ * ⚠ 两组**分别报数**（见 L2 归因），**不得合并成一个命中率** ——
+ *   合并会让「真实风格输入的效果」与「无关文本被挡」混成一个数，那正是本仓最忌的同形。
+ */
 const SEED = [
+  // ── 真实风格组（主组）：每条都是"用户真会打、且真实该被长期记住"的话 ──
+  '我偏好开源方案，长期用 WSL 做主力开发环境，不要推荐商业工具',
+  '决定了：采用方案 A，因为它的回归面更小，以后都按这个口径做',
+  '记住：这个项目的根目录在 /home/lk/Mana，跑测试用 npm test',
+  '纠正一下：那条断言不是漏了，其实是口径写反了，教训是别只看输出',
+]
+
+/** 旧种子（**保留作负控**）：不含信号词 ⇒ 应当被预过滤正确挡下。删掉则对照不可复算。 */
+const LEGACY_SEED = [
   '评估器输入：认知记忆架构需要可观测的度量，检索链的命中率必须能够复算，遗忘曲线要能用手算值对拍。',
   '评估器输入：认知记忆架构需要可观测的度量，检索链的命中率必须能够复算，这样评估才有意义。',
   '评估器输入：认知记忆架构需要可观测的度量，遗忘曲线要能用手算值对拍，检索与遗忘都要能复算。',
@@ -349,43 +382,60 @@ const SEED = [
 ]
 
 /**
- * ── 种子语料的**信号词读数**（F1 换靶后新增；本席不擅自改语料，只让结论可读）────────────
+ * ── 两组种子的**信号词读数**（F1 换靶后新增；两组分别报，不合并）────────────────────
  *
- * ⚠ **为什么需要它**：F1 卡把 Write Gate 的预过滤靶由「文本 vs 问法的 bigram」换成「文本是否含**信号词**」后，
- *   上面 4 条 SEED **一条信号词都没有** ⇒ 换靶后照样 `skipped_prefilter` ⇒ `memory_items` 恒空 ⇒ L2 恒 NO_DATA。
- *
- * ⚠ **本席的处理方式是"让结论可读"，不是"改语料到能过"** —— 理由：
- *   造"为过闸而写"的输入正是本仓点名的**假绿形态**（F1 席亦按写面纪律拒绝擅改）。
- *   该改语料、还是该改闸口径，属**口径决策**（v10 对"评测语料应长什么样"无规定），
- *   ⇒ 由人拍板；本读数把它变成**可判定的事**：含几个信号词、被哪条挡住，一眼可见。
  * ⚠ 词表**不另立**：真源是 `perception/src/signal-words.ts`（与 Write Gate 同一份）。
  *   取不到就**如实报「取不到」**，绝不退化成"恒 0 词"（那会让"没测"与"确实没有"同形）。
  */
 const SEED_SIGNAL_CHECK = await (async () => {
-  try {
-    const mod = await import(new URL('../packages/perception/src/signal-words.ts', import.meta.url).href)
-    const words = mod.DEFAULT_SIGNAL_WORDS ?? []
-    if (words.length === 0) return { ok: false, reason: '信号词表为空（真源存在但零词）', perSeed: [], tableSize: 0 }
-    const perSeed = SEED.map((text) => {
+  const runOver = (words, texts) =>
+    texts.map((text) => {
       const low = String(text).toLowerCase()
       const hits = words.filter((w) => low.includes(String(w).toLowerCase()))
       return { hits, chars: [...String(text)].length }
     })
-    return { ok: true, reason: null, perSeed, tableSize: words.length }
+  try {
+    const mod = await import(new URL('../packages/perception/src/signal-words.ts', import.meta.url).href)
+    const words = mod.DEFAULT_SIGNAL_WORDS ?? []
+    if (words.length === 0) {
+      return { ok: false, reason: '信号词表为空（真源存在但零词）', perSeed: [], perLegacy: [], tableSize: 0 }
+    }
+    return {
+      ok: true,
+      reason: null,
+      perSeed: runOver(words, SEED),
+      perLegacy: runOver(words, LEGACY_SEED),
+      tableSize: words.length,
+    }
   } catch (error) {
-    return { ok: false, reason: '取不到信号词真源：' + String((error && error.message) || error).slice(0, 120), perSeed: [], tableSize: 0 }
+    return {
+      ok: false,
+      reason: '取不到信号词真源：' + String((error && error.message) || error).slice(0, 120),
+      perSeed: [],
+      perLegacy: [],
+      tableSize: 0,
+    }
   }
 })()
+/**
+ * 两组一起喂：**真实风格组**（主组，测"该记的能不能进去"）+ **遗留组**（负控，测"不该记的被正确挡"）。
+ * ⚠ 两组用**不同 session 前缀**（`eval-s` / `eval-x`）⇒ 事后可按 session 归属分别对账，
+ *   否则两组混在同一个读数里，就又回到"合并成一个数"的老毛病。
+ */
+const FEED = [
+  ...SEED.map((text, i) => ({ text, session: 'eval-s' + String(i), msg: 'eval-m' + String(i), group: 'real' })),
+  ...LEGACY_SEED.map((text, i) => ({ text, session: 'eval-x' + String(i), msg: 'eval-xm' + String(i), group: 'legacy' })),
+]
 const timing = []
 try {
-  for (let i = 0; i < SEED.length; i += 1) {
+  for (const item of FEED) {
     const t0 = performance.now()
     ctx.emit('agent/inbox/inserted', {
-      agent: { session: { id: 'eval-s' + String(i) } },
-      message: { id: 'eval-m' + String(i), role: 'user', content: [{ type: 'text', text: SEED[i] }], source: { kind: 'user' } },
+      agent: { session: { id: item.session } },
+      message: { id: item.msg, role: 'user', content: [{ type: 'text', text: item.text }], source: { kind: 'user' } },
     })
     await settle(120)
-    ctx.emit('agent/turn-stopping', { agent: { session: { id: 'eval-s' + String(i) } }, turn: 1 })
+    ctx.emit('agent/turn-stopping', { agent: { session: { id: item.session } }, turn: 1 })
     await settle(200)
     timing.push(performance.now() - t0)
   }
@@ -511,11 +561,31 @@ await layer('L2', '记忆质量（召回命中率，分母=真查询数）', asy
   const chainLibrarySize = queries.length > 0
     ? (() => { try { return JSON.parse(queries[queries.length - 1].payload ?? '{}').librarySize ?? null } catch { return null } })()
     : null
+  /**
+   * ── 种子语料自检：**无论落哪一态都必须印出**（本席 2026-09-27 修）──────────────────
+   * ⚠ 原先它只挂在 `memory_not_formed` 分支里 ⇒ 一旦记忆真形成（本轮实测：真实风格组落库 4 条），
+   *   这段读数就**不再打印** ⇒ 负控（遗留组应被挡）**变成不可见**，而"负控失效"恰恰是
+   *   最需要被发现的事（它意味着"无关文本会被挡"这句话没有证据）。
+   * ⇒ 提升到 `pre` 里：它是**语境读数**（解释上面那些数都是在什么语料下取得的），不是某态的附属品。
+   */
+  const seedNote = (() => {
+    if (!SEED_SIGNAL_CHECK.ok) return '种子自检：未判定（' + String(SEED_SIGNAL_CHECK.reason) + '）'
+    const cReal = SEED_SIGNAL_CHECK.perSeed.map((x) => x.hits.length)
+    const cLegacy = SEED_SIGNAL_CHECK.perLegacy.map((x) => x.hits.length)
+    const realOk = cReal.filter((c) => c > 0).length === cReal.length && cReal.length > 0
+    const legacyOk = cLegacy.filter((c) => c === 0).length === cLegacy.length && cLegacy.length > 0
+    return '种子自检：真实风格组 ' + String(cReal.filter((c) => c > 0).length) + '/' + String(cReal.length) +
+      ' 含信号词（逐条 ' + JSON.stringify(cReal) + '，**期望全 >0**' + (realOk ? ' ✓' : ' ✗') + '）· ' +
+      '遗留负控组 ' + String(cLegacy.filter((c) => c > 0).length) + '/' + String(cLegacy.length) +
+      ' 含信号词（逐条 ' + JSON.stringify(cLegacy) + '，**期望全 0**' + (legacyOk ? ' ✓' : ' ✗') + '）· ' +
+      '词表 ' + String(SEED_SIGNAL_CHECK.tableSize) + ' 词'
+  })()
   const pre = '前置读数：记忆条数(memory_items 活行)=' + String(memoryCount) +
     '／全表 ' + String(memoryRows) +
     ' · 检索候选数=' + String(candidates) +
     ' · status=ran 检索行=' + String(ranRows) +
-    (chainLibrarySize === null ? '' : ' · 链路自报 librarySize=' + String(chainLibrarySize))
+    (chainLibrarySize === null ? '' : ' · 链路自报 librarySize=' + String(chainLibrarySize)) +
+    '｜' + seedNote
   const tri = (t) => ({ memoryCount, memoryRows, candidates, ranRows, chainLibrarySize, tri: t })
   /**
    * ⚠ **上游写入侧归因必须由本层自己给出**（本席实测后补，如实记）：
@@ -552,17 +622,7 @@ await layer('L2', '记忆质量（召回命中率，分母=真查询数）', asy
         '：该环是**设计行为**，但它使"记忆形成"在**任意不含信号词的评测语料**上不可达' +
         '（⚠ 比对靶是观察文本自身的信号词，**不再是**问法「' + String(wgs.question ?? '') + '」——' +
         'F1 换靶前是后者，本句已按换靶后的口径改写）—— 这是交给人拍板的结论，评估器不得自行绕过')
-      // ⚠ 把"种子语料本身含几个信号词"直接印出来 —— 否则读者只能猜「是闸太严还是语料不适配」
-      if (SEED_SIGNAL_CHECK.ok) {
-        const counts = SEED_SIGNAL_CHECK.perSeed.map((x) => x.hits.length)
-        const zero = counts.filter((c) => c === 0).length
-        parts.push('**种子语料自检**：' + String(SEED.length) + ' 条中 ' + String(zero) +
-          ' 条含 **0** 个信号词（逐条命中数 ' + JSON.stringify(counts) + '，词表 ' + String(SEED_SIGNAL_CHECK.tableSize) + ' 词）' +
-          '⇒ **语料与现役口径不适配**：该改语料还是该改闸口径属**口径决策**，须人拍板；' +
-          '本评估器**不擅自改语料到能过**（那是假绿形态）')
-      } else {
-        parts.push('**种子语料自检**：未判定 —— ' + String(SEED_SIGNAL_CHECK.reason))
-      }
+      // ⚠ 种子自检已提升到 `pre`（无论落哪一态都印）⇒ 此处不重复打印（本席 2026-09-27 修）
     } else if (obs === 0) {
       parts.push('⇒ 真因=源头未发（perception 未 emit mana/observation）')
     } else if (jev === 0) {
