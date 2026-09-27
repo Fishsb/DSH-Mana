@@ -47,8 +47,17 @@ import {
   compressChunks,
   handoff,
   injectPlan,
+  foldLedgerView,
+  foldProbe,
+  ledgerFold,
+  makeFoldLedger,
+  MAX_FOLD_LEDGER_ENTRIES,
   type CompressStrategy,
   type CompressionResult,
+  type FoldBasis,
+  type FoldedRef,
+  type FoldLedgerEntry,
+  type FoldLedgerView,
   type HandoffConfig,
   type HandoffResult,
   type InjectPlanResult,
@@ -145,12 +154,16 @@ export interface ManaWorkingMemoryService {
    * ⚠ **记账由返回值携带**（beforeChunks/afterChunks/beforeChars/afterChars/savedChars），
    *   且累加进 `compressionStats()`；**不写 mana_trace**（8 事件契约不动）。
    * ⚠ `apply=false` 时**只试算不落地**（dry-run），供调用方先看账再决定 —— 二者都返回同样完整的记账。
+   * ⚠ **只有落地的那一次才进折叠账本**（`apply=false` = 内部状态没动 ⇒ 记进账本会让
+   *   「被折叠」这件事凭空多出来）。落地那次把 `result.folded` 逐条交 `foldLedger()` 入账。
    */
   compress(options?: {
     capacityChunks?: number
     strategy?: CompressStrategy
     selector?: KeepSelector
     apply?: boolean
+    /** 落地记账时刻（ISO 串）。缺省取系统时刻 —— 传它只为让判据可复现（不读墙钟）。 */
+    now?: string
   }): CompressionResult
   /**
    * **v10 §30.2 第二层：会话级压缩** —— 窗口占用超阈值时产出五段式交接摘要。
@@ -175,6 +188,32 @@ export interface ManaWorkingMemoryService {
     degradedRuns: number
     lastFailure: string | null
   }
+  /**
+   * **I3「压缩后不永久沉默」的观测点（写入侧）** —— 把一次折叠**逐条**记进折叠账本。
+   *
+   * 为什么需要它（记账字段不够）：`compress().folded` 只说明「这一次压了谁」，回答不了
+   * I3 要问的那句「**被折叠的那些，还能不能被找回**」。同一条 req-1 在
+   * 「没压过 / 压过且定位面仍在 / 压过但账目已逐出」三种处境下读同一个 result 是**同形**的。
+   *
+   * ⚠ **记账 ≠ 不设上界**：账本有界（`MAX_FOLD_LEDGER_ENTRIES = 64`，与 attention 的
+   *   `MAX_SESSION_STATES` 同族的模块常量），超界按**最旧逐出**并**留墓碑** ——
+   *   逐出是「显式让路 + 留痕」，不是静默破坏。
+   * ⚠ `apply=false` 的 compress **不**入账（内部状态没动，入账会凭空多出「被折叠」）。
+   * ⚠ 不写 mana_trace（8 事件契约不动）：记账落在**返回值**上，由调用方决定要不要上审计面。
+   */
+  foldLedger(refs: readonly FoldedRef[], now?: string): FoldLedgerView
+  /**
+   * **I3 的观测点（读取侧）** —— 逐条探测「这些被折条现在的命运」。
+   *
+   * 三态**不得同形**（本仓硬要求）：
+   *   · `never-folded`     = 本账本对这批身份一无所知（**不是**「丢了」）；
+   *   · `folded-locatable` = 定位面仍在账上 ⇒ 可回查（requestId/seq/at/码点数）；
+   *   · `folded-evicted`   = 确曾折叠、但账目已被逐出 ⇒ **如实报"查不到"**。
+   * ⚠ **逐条点名**：只要有一条查不到就不报 `folded-locatable`（不是「命中一条即算全批」）。
+   */
+  foldProbe(refs: readonly { requestId: string }[]): FoldBasis
+  /** 折叠账本读数（**单一来源**：判据与观测面都取它）。 */
+  foldLedgerView(): FoldLedgerView
   status(): {
     plugin: string
     wired: boolean
@@ -289,6 +328,12 @@ export function apply(ctx: Context, config: Config): void {
   let degradedRuns = 0
   let lastCompressionFailure: string | null = null
 
+  // ── I3「压缩后不永久沉默」：折叠账本（**有界 + 逐出留痕 + 三态可判别**）────────────
+  // ⚠ 与上面那几枚**累计计数**是**两件事**：计数回答「压了多少」，账本回答
+  //   「被折的那些还能不能找回」。只有计数时，同一条 req 在「没压过」与「压过且
+  //   已不可查」两种处境下**读数同形** —— 那是本仓首位缺陷类，也正是 I3 要消灭的形态。
+  const foldLedgerState = makeFoldLedger()
+
   /**
    * **第一层压缩入口**（service 与判据共用同一函数 ⇒ 读数不会两处各算一遍）。
    *
@@ -300,6 +345,7 @@ export function apply(ctx: Context, config: Config): void {
     strategy?: CompressStrategy
     selector?: KeepSelector
     apply?: boolean
+    now?: string
   } = {}): CompressionResult => {
     // ⚠ 缺省容量取**本包配置**（不与两闸语义冲突：同一个 capacityChunks 键，只是读来当压缩上界）。
     const cap = options.capacityChunks ?? config.capacityChunks
@@ -321,6 +367,9 @@ export function apply(ctx: Context, config: Config): void {
     if (options.apply !== false && result.compressed) {
       chunks.length = 0
       for (const c of result.chunks) chunks.push(c)
+      // I3：**落地的那一次**把被折条逐条交账本（0 条时 ledgerFold 只推进 calls —— 仍可见）。
+      // ⚠ 放在 if 内而不是无条件：apply=false 时内部状态没动，入账会让「被折叠」凭空多出来。
+      ledgerFold(foldLedgerState, result.folded, MAX_FOLD_LEDGER_ENTRIES, options.now ?? new Date().toISOString())
     }
     return result
   }
@@ -345,6 +394,15 @@ export function apply(ctx: Context, config: Config): void {
       degradedRuns,
       lastFailure: lastCompressionFailure,
     }),
+    // ── I3：折叠账本三入口（写入 / 逐条探测 / 读数）────────────────────────────
+    // ⚠ 三枚**都取同一个** foldLedgerState 与同一枚上界常量 ⇒ 读数不可能两处各算一遍。
+    foldLedger: (refs, now) =>
+      {
+        ledgerFold(foldLedgerState, refs, MAX_FOLD_LEDGER_ENTRIES, now ?? new Date().toISOString())
+        return foldLedgerView(foldLedgerState, MAX_FOLD_LEDGER_ENTRIES)
+      },
+    foldProbe: (refs) => foldProbe(foldLedgerState, refs),
+    foldLedgerView: () => foldLedgerView(foldLedgerState, MAX_FOLD_LEDGER_ENTRIES),
   }
 
   /**

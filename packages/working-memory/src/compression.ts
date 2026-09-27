@@ -43,6 +43,18 @@
  * ⚠ **不新增事件类型**：本模块**不写** mana_trace（8 事件契约不动）。
  *   记账落在**返回值**上，由调用方（index.ts 的服务面）决定是否上审计面。
  *
+ * ## I3「压缩后不永久沉默」（v10 §14.6）—— 本文件承担**记账侧**
+ * 折叠的实现是「把 N 条**移出** chunks 只留一条摘要」（见下第一层）。若没有配套的记账，
+ * 「压缩生效」与「内容被丢弃」在读数上**同形** —— 本仓首位缺陷类。修前实测（见
+ * tests/compress-i3.test.mjs 的修前读数）：`JSON.stringify(result)` 里连被折条的 requestId
+ * 都不出现，只有一行区间串 —— 于是「压了 5 条」无法回答「压的是谁、还能不能查到」。
+ * ⇒ 本文件补两样：① 结果面 `folded`/`foldedChars`（**逐条定位面**，不含内容原文）；
+ *   ② 账本面（`FoldLedger` / `ledgerFold` / `foldProbe` / `foldLedgerView`）——
+ *   有界、逐出留痕、三态可判别（`FoldBasis`）。**观测点**（服务面）在 index.ts。
+ * ⚠ 账本持有的是**定位面**（requestId/seq/at/码点数），**不是原文** —— 本包从不持有原文
+ *   （下「摘要不带原文内容」）。故三态里那条叫 `folded-locatable`（定位面可取回），
+ *   **不**声称「原文一定还在」；后者本包没有资格断言（原文去向 = 调用方的持久化职责）。
+ *
  * ## 残留盲区（如实记）
  * · degraded 的**唯一触发源**是调用方传入的 selector 抛错。因为压缩判据本身是
  *   **纯函数且总成功**（容量 <= 0 / 不超 / 无可折叠空间 ⇒ 不压缩，返回空动作而非抛错）
@@ -135,7 +147,19 @@ export interface CompressionRecord {
   overflowRemaining: number
 }
 
-/** 第一层压缩的返回：压缩后的**新**数组 + 记账 + 可回查摘要。 */
+/** 被折叠条目的**定位条目**（I3：折叠**不**等于永久沉默 —— 逐条留痕，可回查）。 */
+export interface FoldedRef {
+  /** 被折条的 requestId（定位面；原文不在这里）。 */
+  requestId: string
+  /** 被折条的 seq（回原始留存面取原文的键）。 */
+  seq: number
+  /** 被折条的进入时刻（原样透传，不改写）。 */
+  at: string
+  /** 被折条的码点数（与全局「字符一律按码点」同口径）。 */
+  chars: number
+}
+
+/** 第一层压缩的返回：压缩后的**新**数组 + 记账 + 可回查摘要 + **被折条的定位面**。 */
 export interface CompressionResult extends CompressionRecord {
   /** 压缩后的新数组（**不**修改入参数组；原数组由调用方处置）。 */
   chunks: WorkingChunk[]
@@ -144,6 +168,19 @@ export interface CompressionResult extends CompressionRecord {
    * 原文不在这里（摘要不是原文的替代品）——调用方若要回查原文，凭 seq 回原始留存面取。
    */
   foldSummary: string[]
+  /**
+   * **I3 的落点（记账侧）**：被折叠条目的**逐条定位面**（0 条 ⇒ 空数组，显式记 0）。
+   *
+   * ⚠ 修前本字段**不存在**：`JSON.stringify(result)` 里只有一行区间串，连被折条的
+   *   requestId 都不出现 ⇒ 「压缩生效」与「内容被丢弃」同形（本仓首位缺陷类）。
+   * ⚠ **只有定位，没有内容**：本模块产出的摘要从不内嵌原文（否则「压缩」原地复活成
+   *   原文搬运），故这里同样**不复制原文**。凭 requestId/seq 回原始留存面取 ——
+   *   原文有没有留是**调用方**的持久化职责（见 handoff 的 retention:'caller-owned'）。
+   *   服务面（index.ts）的账本把这件不可断言的事变成了**可判别**的三态：见 FoldBasis。
+   */
+  folded: FoldedRef[]
+  /** 被折叠条目自身的码点总数（= 各 folded[].chars 之和；与 savedChars 配对）。N=0 显式记 0。 */
+  foldedChars: number
 }
 
 /** 供调用方替换「哪些步骤要保留」的判据（第一层的**可插拔判据面**，v10 原文里的 JEV 位）。 */
@@ -202,6 +239,9 @@ export function compressChunks(
     overflowRemaining: overCap > 0 ? overCap : 0,
     chunks: chunks.map((c) => ({ ...c })),
     foldSummary: [],
+    // I3：没折叠 ⇒ **显式记 0 条 / 0 码点**（不是 undefined、不是省略 ——「输入量须可见化」）。
+    folded: [],
+    foldedChars: 0,
   })
 
   // ── 判据①：selector 先跑（可插拔判据面，抛错必须**显式降级**而不是吞掉）──
@@ -299,6 +339,10 @@ export function compressChunks(
       'seq ' + firstSeq + '-' + lastSeq + '：' + head.length + ' 条 / ' + droppedChars +
         ' 码点 ⇒ ' + codePointLen(body) + ' 码点',
     ],
+    // I3：逐条定位面（**不含内容原文**）。取 head 原序 ⇒ 与输入同序，判据可逐条对。
+    folded: head.map((c) => ({ requestId: c.requestId, seq: c.seq, at: c.at, chars: codePointLen(c.content) })),
+    // 与 droppedChars 同源（后者是 head 的码点总和，上面已算过 —— 不各算一遍）。
+    foldedChars: droppedChars,
   }
 }
 
@@ -554,5 +598,204 @@ export function injectPlan(
     budgetChars,
     content,
     dropped: dropped.map((c) => ({ ...c })),
+  }
+}
+
+// ── I3：折叠账本（「压缩后不永久沉默」的**观测点**）────────────────────────────
+//
+// ## 为什么需要这一层（记账字段**不够**）
+//   CompressionResult.folded 只说明「这一次压了谁」。它回答不了 I3 真正要问的那句：
+//   **【被折叠的那些，还能不能被找回】。** 同一条 req-1，在「压根没压过」与「压过、
+//   定位面仍在账上」与「压过、但账目已被逐出」三种处境下，**读同一个 result 是同形的**
+//   —— 正是本仓首位缺陷类（「压缩生效」与「内容被丢弃」同形）。
+//   ⇒ 故此处把「被折条的**命运**」升成一等公民：一个**有界**、**逐出留痕**、**三态可判别**
+//     的账本。它与 attention 的 I2 三件套同构（判据 + 假绿防护 + 逐出留痕）。
+//
+// ## 三态（`FoldBasis`）—— 三者**不得同形**
+//   `never-folded`     ：账是空的 ⇒ 没有条目处于「被折叠」处境（**不是**「丢了」）。
+//   `folded-locatable`：条目的定位面**仍在账上** ⇒ 足以回查（requestId/seq/at/码点数）。
+//   `folded-evicted`  ：条目的定位面**已被逐出** ⇒ 本进程再也答不出它去了哪（**如实报**）。
+//   ⚠ 判别是**内容无关**的：只看 requestId（或 seq），不看账目里有没有内容副本。
+//
+// ## ⚠ 逐出「不清空账」——与 attention I2 的处置**故意不同**（这里说清为什么）
+//   attention 在上界逐出时把 `injectedRequests` **清空**（因为搬回来会让无界集合复活，
+//   上界就白设了）。本账本**不**走那条路：它的 key 是 requestId，逐出后若清空，则
+//   「压过、账目已逐出」与「压根没压过」立刻又同形 —— 恰是 I3 要消灭的形态。
+//   ⇒ 这里逐出**只丢明细、不丢身份**：把被逐条目的 requestId/seq/chars 压进一个
+//     **有界**的墓碑环（`evictedRefs`），于是「已丢」是一个**可数、可读、可判**的事实。
+//     代价如实报：墓碑环自身也有界，**二次**逐出的条目连墓碑都进不去，被计入
+//     `evicted`（总逐出数）—— 该情形下基础探针回落 `never-folded`，
+//     但「本账本逐出过 N 条」在读数上仍看得见（不静默）。
+//
+// ## 内存代价（写清楚，不假装免费）
+//   账本上界 `ledgerMax`（缺省 64，可配）。每项存 requestId/seq/at + 两枚数字，
+//   **不存 content**（本模块从不持有原文，账本不给自己开豁免）。64 项是常数级。
+
+/** 折叠账本的一个条目（定位面；**不含内容原文**）。 */
+export interface FoldLedgerEntry extends FoldedRef {
+  /** 进入账本时刻（账本自身的记账；`at` 是被折条的时刻，两者不可混）。 */
+  foldedAt: string
+}
+
+/** 折叠账本的逐出墓碑（明细已被上界淘汰，但「丢过」这件事仍在账上）。 */
+export interface FoldEvictionMark {
+  /** 被逐出条目的 seq（**身份**，不是明细）。 */
+  seq: number
+  /** 被逐出条目的 requestId（同上）。 */
+  requestId: string
+  /** 被逐出条目自身的码点数（丢了多少字，与「丢了几条」配对）。 */
+  chars: number
+}
+
+/** 折叠账本的读数（**I3 的观测点**：一次调用即可分辨三态与逐出代价）。 */
+export interface FoldLedgerView {
+  /** 账本**当前**状态（空账 ⇒ never-folded）；逐条命运判别走 foldProbe()，两者分工不同。 */
+  basis: FoldBasis
+  /** 账本里当前可回查的条目数。 */
+  locatable: number
+  /** **逐出墓碑**里的条目数（>0 ⇒ 「曾被折叠、现已查不到」的条目至少这么多 —— 逐出留痕）。 */
+  evictedLocatableMisses: number
+  /** 账本**累计**逐出条目数（含二次逐出、连墓碑都没进的；与上一条配对）。 */
+  evicted: number
+  /** 账本上界（回填，供判据核「配置真生效」）。 */
+  ledgerMax: number
+  /** 逐出墓碑（有界 FIFO，供逐条核对；**不含内容原文**）。 */
+  evictedRefs: FoldEvictionMark[]
+  /** ledgerFold 的累计调用次数（0 与「从没折过」可分辨）。 */
+  calls: number
+  /** 「同一 requestId 又一次被折叠」的累计次数（全量，不随窗口滑动）。 */
+  reencounters: number
+}
+
+/**
+ * 「被折条**还能不能被找回**」的判别基（三态；见本文件 I3 一节）。
+ * 判别只看**身份**（requestId），**不看内容** —— 本模块不持有内容副本，
+ * 故「可取回」严格指**定位面可取回**（凭它回原始留存面取原文）。
+ */
+export type FoldBasis = 'never-folded' | 'folded-locatable' | 'folded-evicted'
+
+/**
+ * 折叠账本上界（项；超出按**最旧**逐出并**留墓碑**）。读数见 FoldLedgerView.ledgerMax。
+ *
+ * ⚠ 与 attention 的 `MAX_SESSION_STATES` 同族的**模块常量**，**不**做成配置键：那个数是
+ *   「内存代价的上界」，不是语义旋钮（attention 的 `maxFocusItems` 才是旋钮）。做成配置键
+ *   会往部署面加一格需要整仓核验的配置 —— 收益为零。
+ */
+export const MAX_FOLD_LEDGER_ENTRIES = 64
+
+/** 逐出墓碑环的上界（项）—— 独立的第二道有界，防「账清空了却把身份留成无界集」。 */
+export const FOLD_EVICTION_MARKS_MAX = 32
+
+/** 账本内部状态（`ledgerFold` 的入参；由服务面持有）。 */
+export interface FoldLedgerState {
+  /** 当前可回查条目（插入序 = 折叠序，首个键即最旧）。 */
+  readonly entries: Map<string, FoldLedgerEntry>
+  /** 逐出墓碑（FIFO，上界 FOLD_EVICTION_MARKS_MAX）。 */
+  readonly evictedRefs: FoldEvictionMark[]
+  entriesEvicted: number
+  marksEvicted: number
+  calls: number
+  reencounters: number
+}
+
+/** 造一份空账本状态（服务面在 apply() 里调一次；判据直装配纯函数时也用它）。 */
+export const makeFoldLedger = (): FoldLedgerState => ({
+  entries: new Map(),
+  evictedRefs: [],
+  entriesEvicted: 0,
+  marksEvicted: 0,
+  calls: 0,
+  reencounters: 0,
+})
+
+/**
+ * 探测一批被折条的**命运**（三态判别；**逐条点名**，绝不因一条命中就替全批作答）。
+ *
+ * ⚠ 逐条的理由（本仓既有教训：同名灌水会数出假"多"）：若实现成「有一个命中 ⇒ 整批报
+ *   可取回」，判据面会永远绿、也永远骗人。故没命中且不在墓碑里的那条如实回落 never-folded。
+ */
+export function foldProbe(
+  state: FoldLedgerState,
+  refs: readonly { requestId: string }[],
+): FoldBasis {
+  if (refs.length === 0) return 'never-folded'
+  const tombstoned = new Set(state.evictedRefs.map((m) => m.requestId))
+  let allLocatable = true
+  let anyRecentlyEvicted = false
+  for (const r of refs) {
+    if (state.entries.has(r.requestId)) continue
+    allLocatable = false
+    if (tombstoned.has(r.requestId)) anyRecentlyEvicted = true
+  }
+  if (allLocatable) return 'folded-locatable'
+  // ⚠ 「已丢」与「从没折过」**都**是"账上查不到"，故必须靠墓碑把两者分开：
+  //   墓碑命中 ⇒ 确曾折叠、现已查不到；墓碑也没命中 ⇒ 本账本对此身份一无所知。
+  return anyRecentlyEvicted ? 'folded-evicted' : 'never-folded'
+}
+
+/**
+ * **把一次折叠记进账本**（I3 的核心入口；服务面的 `foldLedger()` 调它）。
+ *
+ * 语义（与两闸同族的「严格大于才动作」）：
+ *   · `refs` 为空 ⇒ **不动作**，但 `calls` 仍 +1（「跑过但没折」与「从没跑过」可分辨）。
+ *   · 每条 ref 入账前**先探**：账上已有同 requestId ⇒ `reencounters` +1（旧读数作废，
+ *     见 FoldLedgerView.basis 的 ⚠）。
+ *   · 入账后若超上界 ⇒ **按最旧逐出**，且被逐条目**必须**落墓碑（逐出留痕；否则
+ *     「已丢」会退化成与「没压过」同形 —— 那正是本账本存在的理由）。
+ *   · `now` 显式传参（不把 `new Date()` 藏在里面）：判据可复现，注入侧也不必信墙钟。
+ *
+ * @param state  账本状态（本函数**就地**改它，与两闸「就地改 chunks」同风格）
+ * @param refs   本次被折叠的条目（取 CompressionResult.folded）
+ * @param ledgerMax 上界（项）；`<= 0` = 不设上界（沿用全仓「<=0 = 不设闸」约定）
+ * @param now    本次折叠的时刻（ISO 串；由调用方给，函数不读墙钟）
+ */
+export function ledgerFold(
+  state: FoldLedgerState,
+  refs: readonly FoldedRef[],
+  ledgerMax: number,
+  now: string,
+): void {
+  state.calls += 1
+  if (refs.length === 0) return
+
+  for (const r of refs) {
+    // 重遇探测（在覆盖之前做）：同一身份又一次被折叠 ⇒ 记数（全量口径）。
+    if (state.entries.has(r.requestId)) state.reencounters += 1
+    // 重新入账 ⇒ 它**同时**从墓碑里撤销（身份又回到"可取回"一侧，判别不得自相矛盾）。
+    const tomb = state.evictedRefs.findIndex((m) => m.requestId === r.requestId)
+    if (tomb >= 0) state.evictedRefs.splice(tomb, 1)
+    state.entries.set(r.requestId, {
+      requestId: r.requestId, seq: r.seq, at: r.at, chars: r.chars, foldedAt: now,
+    })
+  }
+
+  const gated = Number.isFinite(ledgerMax) && ledgerMax > 0
+  if (!gated) return
+  while (state.entries.size > ledgerMax) {
+    const oldest = state.entries.entries().next()
+    if (oldest.done === true) break
+    const [key, entry] = oldest.value
+    state.entries.delete(key)
+    state.entriesEvicted += 1
+    // 逐出留痕（**必做**）：明细丢了，身份必须留下，否则三态判别立刻退化。
+    state.evictedRefs.push({ seq: entry.seq, requestId: entry.requestId, chars: entry.chars })
+    while (state.evictedRefs.length > FOLD_EVICTION_MARKS_MAX) {
+      state.evictedRefs.shift()
+      state.marksEvicted += 1
+    }
+  }
+}
+
+/** 账本读数（**单一来源**：服务面与判据都取它，不各拼一遍 —— 「读数与事实脱钩」的母形）。 */
+export function foldLedgerView(state: FoldLedgerState, ledgerMax: number): FoldLedgerView {
+  return {
+    basis: state.entries.size === 0 ? 'never-folded' : 'folded-locatable',
+    locatable: state.entries.size,
+    evictedLocatableMisses: state.evictedRefs.length,
+    evicted: state.entriesEvicted,
+    ledgerMax,
+    evictedRefs: state.evictedRefs.map((m) => ({ ...m })),
+    calls: state.calls,
+    reencounters: state.reencounters,
   }
 }
