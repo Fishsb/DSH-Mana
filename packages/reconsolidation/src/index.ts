@@ -44,7 +44,19 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-agent'
 import { registerPassThroughPreStep, type ManaCoreService } from 'dsh-mana-core'
-import { MEMORY_TYPES, WINDOW_MS_BY_TYPE, WINDOW_SECONDS_BY_TYPE, type MemoryType } from './params.ts'
+import {
+  MEMORY_TYPES,
+  RETENTION_GAIN_BY_KIND,
+  RETRIEVAL_KINDS,
+  WINDOW_MS_BY_TYPE,
+  WINDOW_SECONDS_BY_TYPE,
+  isRetrievalKind,
+  resolveRetrievalKind,
+  retentionGain,
+  retentionGainMs,
+  type MemoryType,
+  type RetrievalKind,
+} from './params.ts'
 import { REQUIRED_COLUMNS, SCHEMA_MISSING_PREFIX, columnsPresent, missingColumnsReason } from './columns.ts'
 import { OWNED_TRACE_EVENTS, OWNED_TRACE_PREFIX, S1_STAGE_TAGS, TRACE_EVENTS, isOwnedTraceEvent } from './trace.ts'
 import { isMemoryType, isoAt, windowMs, windowOpen, windowUntil, type WindowReading } from './window.ts'
@@ -97,6 +109,11 @@ export const IMPLEMENTED_EXPORTS = [
   'readWindowUntil',
   'isWindowOpen',
   'applyContentUpdate',
+  // v10 §15.4 测试效应（检索类型 → 保持增益）
+  'retentionGain',
+  'retentionGainMs',
+  'resolveRetrievalKind',
+  'isRetrievalKind',
 ] as const
 
 /**
@@ -126,6 +143,13 @@ export interface ReconsolidationStatus {
   windowMs: Record<MemoryType, number>
   /** 四类窗口（秒）；与毫秒同源派生。 */
   windowSeconds: Record<MemoryType, number>
+  /**
+   * v10 §15.4 的**检索类型轴**（再认 / 回忆 / 精细提取）；三档在册、可枚举。
+   * ⚠ 与 `MemoryType` **正交**：一个记「记忆是什么」，一个记「它刚才是被怎么取回的」。
+   */
+  retrievalKinds: RetrievalKind[]
+  /** 三档保持增益（比例）的**冻结快照**（唯一出处仍是 `params.ts`）。 */
+  retentionGain: Record<RetrievalKind, number>
   /** 本包写入 `mana_trace` 的**全部**标签（判据④ 的靶子）。 */
   ownedTraceEvents: string[]
   ownedTracePrefix: string
@@ -146,6 +170,19 @@ export interface ReconsolidationService {
   /** 窗口参数纯函数（本包自用，同时是判据① 的复算入口）。 */
   windowMs(type: string): number
   windowUntil(now: number, type: string): number
+  /**
+   * v10 §15.4 —— 取某档检索类型的保持增益（比例）；未知类型**抛**（不回落 0）。
+   *
+   * ⚠ 纯函数，同时是判据的复算入口（服务面与 `pure` 面同源，不是两份实现）。
+   */
+  retentionGain(kind: string): number
+  /**
+   * v10 §15.4 —— 把调用方给的检索类型解析成三态：在册档位 / `null`（**未声明**）/ 抛（写错了）。
+   *
+   * ⚠ `null` 与「增益 0」**不是**同一件事：前者是「不知道是哪种检索」，后者是「这一档的增益就是 0」。
+   *   生产路径（`scheduler` 的注入链）目前一律是 `null`。
+   */
+  resolveRetrievalKind(value: unknown): RetrievalKind | null
   isWindowOpen(memoryId: string, now: number): boolean
   /** `update_history` 原始列 → 数组（解析失败**抛**，不回落成空）。 */
   parseUpdateHistory(raw: unknown): UpdateEntry[]
@@ -165,6 +202,8 @@ export function buildService(core: ManaCoreService): ReconsolidationService {
         requiredColumns: [...REQUIRED_COLUMNS],
         windowMs: { ...WINDOW_MS_BY_TYPE },
         windowSeconds: { ...WINDOW_SECONDS_BY_TYPE },
+        retrievalKinds: [...RETRIEVAL_KINDS],
+        retentionGain: { ...RETENTION_GAIN_BY_KIND },
         ownedTraceEvents: [...OWNED_TRACE_EVENTS],
         ownedTracePrefix: OWNED_TRACE_PREFIX,
         pendingContractBatch: 'L-00',
@@ -177,6 +216,8 @@ export function buildService(core: ManaCoreService): ReconsolidationService {
     applyContentUpdate: (req) => applyContentUpdate(core, req),
     windowMs,
     windowUntil,
+    retentionGain,
+    resolveRetrievalKind,
     isWindowOpen: (memoryId, now) => isWindowOpen(core, memoryId, now),
     parseUpdateHistory,
     historyCount,
@@ -187,6 +228,10 @@ export function buildService(core: ManaCoreService): ReconsolidationService {
 export const pure = Object.freeze({
   windowMs,
   windowUntil,
+  retentionGain,
+  retentionGainMs,
+  resolveRetrievalKind,
+  isRetrievalKind,
   windowOpen,
   isoAt,
   isMemoryType,
@@ -224,11 +269,17 @@ export function apply(ctx: Context): void {
   //   降级留痕发生在**调用时**（openWindow/applyContentUpdate/closeDueWindows），每条都带真实上下文。
 }
 
-export type { MemoryType, WindowReading, UpdateEntry, UpdateAppendResult, WindowRequest, WindowResult, CloseRequest, CloseResult, ContentUpdateRequest, ContentUpdateResult }
+export type { MemoryType, RetrievalKind, WindowReading, UpdateEntry, UpdateAppendResult, WindowRequest, WindowResult, CloseRequest, CloseResult, ContentUpdateRequest, ContentUpdateResult }
 export {
   MEMORY_TYPES,
+  RETRIEVAL_KINDS,
+  RETENTION_GAIN_BY_KIND,
   WINDOW_MS_BY_TYPE,
   WINDOW_SECONDS_BY_TYPE,
+  isRetrievalKind,
+  resolveRetrievalKind,
+  retentionGain,
+  retentionGainMs,
   REQUIRED_COLUMNS,
   SCHEMA_MISSING_PREFIX,
   OWNED_TRACE_EVENTS,
