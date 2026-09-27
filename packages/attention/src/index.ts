@@ -265,11 +265,25 @@ interface CountProbeDb {
  * @param sessionId 本次注入所属会话 —— 见上文「为什么必须排除本会话」。
  */
 export function probeRetrievalKind(core: ManaCoreService, memoryId: string, sessionId: string): RetrievalKindProbe {
+  /**
+   * ⚠ **入参闸（本席实测踩到）**：`memory_id = NULL` 在 SQL 里**匹配 0 行** ⇒ 计数 0 ⇒ 会落进
+   *   `'recall'` 那一支。那正是本函数存在的意义被抹掉：`null` / 空串不是「从没取出过」，
+   *   而是**问不出这个问题**（拿不存在的东西去查历史，得到的"没有"是假的）。
+   *   ⇒ 非空字符串之外一律 `kind=null` + 具名原因。
+   */
+  if (typeof memoryId !== 'string' || memoryId.trim() === '') {
+    return {
+      kind: null,
+      error: '定档入参非法：memoryId 必须是非空字符串（实测 ' + JSON.stringify(memoryId ?? null) +
+        '）—— 非法值若落进 recall 支，会让「查不到」被读成「从没取出过」',
+      priorInjectedRows: -1,
+    }
+  }
   try {
     const db = core.db as unknown as CountProbeDb
     const row = db
       .prepare("SELECT COUNT(*) AS n FROM inject_log WHERE memory_id = ? AND gate = 'injected' AND session_id <> ?")
-      .get(memoryId, sessionId) as { n?: unknown } | undefined
+      .get(memoryId, typeof sessionId === 'string' ? sessionId : '') as { n?: unknown } | undefined
     const n = Number(row?.n ?? 0)
     if (!Number.isFinite(n)) {
       return { kind: null, error: 'inject_log 计数非有限数：' + String(row?.n), priorInjectedRows: -1 }
