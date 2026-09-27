@@ -35,9 +35,11 @@ import type {} from '@deepseek-ai/cordis'
 import {
   PROMPT_REGISTRY,
   UNWIRED_PROMPT_NAMES,
+  wiredConsumers,
   verifyPrompts,
   type PromptEntry,
   type PromptFinding,
+  type WiredConsumers,
 } from './registry.ts'
 
 /** 插件名（`inject` 用的名字）。与 `packages/prompts/package.json` 的目录推导值一致。 */
@@ -79,6 +81,8 @@ export interface PromptCounts {
   readonly systemTemplate: number
   /** `wired=false` 的条数（§25.8 两条：定义在册但**不得接线**）。 */
   readonly unwired: number
+  /** **已接线数**（`wiredSites` 非空 = 真有消费者的条数）。⚠ 与 `wired: true` 的条数是**两回事**。 */
+  readonly withConsumers: number
 }
 
 export interface ManaPromptsService {
@@ -93,6 +97,7 @@ export interface ManaPromptsService {
   verify(): readonly PromptFinding[]
   status(): {
     plugin: string
+    /** ⚠ 服务装配态（服务可读），**不是**「19 条常量都接线了」——别误读（见 PromptEntry.wired）。 */
     wired: boolean
     total: number
     expected: number
@@ -100,6 +105,16 @@ export interface ManaPromptsService {
     requireTemplateVariables: boolean
     /** §25.8 两条（**不接线**）的名字，供宿主/面板如实显示。 */
     unwired: readonly string[]
+    /**
+     * **已接线读数**（B 新增）：谁真被消费了。
+     *
+     * 口径："已接线" = 该常量在**全仓非本包 src** 里至少有一处真引用
+     * （① 裸引用名 或 ② 字符串名 `prompts.get('X_PROMPT')`，**双路取并集**、**剥注释**）。
+     * 数据源是注册表逐条的 `wiredSites` **声明**；声明是否属实由判据⑥c 与扫描对拍
+     * （`verifyPrompts({ consumerSites })`，声明集 != 实测集 => `wired-declaration-mismatch`）。
+     * ⚠ 实测 **3/20**（2026-09-27）：SLEEP_INDICTION / INTENT_CLASSIFICATION / COMPRESSION。
+     */
+    wiredConsumers: WiredConsumers
   }
 }
 
@@ -122,6 +137,7 @@ function countsOf(registry: readonly PromptEntry[]): PromptCounts {
     jevFactory: registry.filter((e) => e.kind === 'jev-factory').length,
     systemTemplate: registry.filter((e) => e.kind === 'system-template').length,
     unwired: registry.filter((e) => !e.wired).length,
+    withConsumers: registry.filter((e) => e.wiredSites.length > 0).length,
   }
 }
 
@@ -149,6 +165,7 @@ export function apply(ctx: Context, config: Config): void {
       findings: verifyPrompts({ requireTemplateVariables, expectedConstantCount: expected }).length,
       requireTemplateVariables,
       unwired: UNWIRED_PROMPT_NAMES,
+      wiredConsumers: wiredConsumers(),
     }),
   })
 
@@ -162,11 +179,13 @@ export function apply(ctx: Context, config: Config): void {
 export {
   PROMPT_REGISTRY,
   UNWIRED_PROMPT_NAMES,
+  wiredConsumers,
   verifyPrompts,
   type PromptEntry,
   type PromptFinding,
   type PromptKind,
   type VerifyOptions,
+  type WiredConsumers,
 } from './registry.ts'
 
 export {

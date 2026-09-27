@@ -9,6 +9,7 @@
  *   ④ `JevQuestion` 是 **import 来的**（不是本包自定义）—— 静态 + 运行期两腿
  *   ⑤ 4 类**负控**：证明②③的检查器有负荷（把坏形态喂进去必须报红）
  *   ⑥ §25.8 两条 ITACL 常量 **不接线**：源码静态面 + 运行时服务面两腿
+ *   ⑥c `wired: true` 的**真消费者**双路机检 + 与注册表 `wiredSites` 声明**对拍**（A/B 耦合腿）
  *   ⑦ Config 两枚键**真参与判断**（本仓「死开关」门：提到 ≠ 拿去判）
  *
  * ⚠ 本文件 import 的是 **src**（白盒，与 a1-check 的 A1-4/11/12 同口径），
@@ -18,7 +19,7 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { readFileSync, readdirSync } from 'node:fs'
+import { readFileSync, readdirSync, statSync } from 'node:fs'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
 const DSH = '/usr/local/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai'
@@ -348,4 +349,187 @@ test('⑦ 两枚配置键都**真参与判断**（可观测差异，不是被回
   assert.match(mod.PATH_INDUCTION_SYSTEM_PROMPT, /\{\{[^}]+\}\}/, 'PATH_INDUCTION 必须真带 {{变量}} 占位符')
   assert.equal(/\{\{/.test(mod.COMPRESSION_SYSTEM_PROMPT), false, 'COMPRESSION 原文无占位符（不得擅自加）')
   assert.equal(/\{\{/.test(mod.INTENT_CLASSIFICATION_SYSTEM_PROMPT), false, 'INTENT_CLASSIFICATION 原文无占位符')
+})
+
+// ══ ⑥c wired:true 的真消费者机检（A）+ 与注册表声明的对拍（A↔B 耦合腿）═══════════
+/**
+ * 真消费者扫描（**判据侧唯一实现**；对拍判决住包内 verifyPrompts，避免两处各写一份）。
+ *
+ * ⚠ 为什么是这个口径（2026-09-27 实测，别自己重造 —— 已栽过两次）：
+ *   ① 真消费**两种写法都出现过**：裸引用名（import 名）与**字符串名**
+ *      （prompts.get('X_PROMPT')，本仓三条真消费**全是这一路**）
+ *      ⇒ 只扫一种必漏，**双路取并集**才是可靠判据；
+ *   ② **必须剥注释**：本仓实测过「注释里的字面量冒充代码」
+ *      （attention/src/index.ts:48 的注释含 ctx.on('mana/decision' ⇒ 裸 grep 命中 1、剥注释后 0）；
+ *   ③ **必须排除 prompts 包自身**：本包 src 里每个名字都出现（定义 + 再导出 + 注册表），
+ *      不排除则**恒真**（每条都「有消费者」）—— 正是旧判据的盲区。
+ */
+// ⚠ 仓根 = tests/ 往上**三层**（tests→prompts→packages→仓根）；首版写成两层 ⇒ 扫到
+//   <仓根>/packages/packages 并 ENOENT（本条实测踩到，留作路标）。
+const SCAN_ROOT = fileURLToPath(new URL('../../../', import.meta.url))
+
+/** 剥字符串字面量（反引号用 charCode 拼，避免本文件自身的嵌套）。 */
+function stripStrings(src) {
+  const tick = String.fromCharCode(96)
+  return src
+    .replace(/'(?:[^'\\\n]|\\.)*'/g, (m) => ' '.repeat(m.length))
+    .replace(/"(?:[^"\\\n]|\\.)*"/g, (m) => ' '.repeat(m.length))
+    .replace(new RegExp(tick + '(?:[^' + tick + '\\\\]|\\\\.)*' + tick, 'g'), (m) => ' '.repeat(m.length))
+}
+
+/**
+ * **递归**收集 src 下的 .ts（本仓有嵌套层：ui/src/client —— 首版只 readdir 一层，
+ * 实测漏 13 个文件 ⇒ 「零命中」里混着「零扫描」，正是本卡要区分的那件事）。
+ */
+function walkSrc(dir, relPrefix, pkg, out) {
+  for (const e of readdirSync(dir).sort()) {
+    const abs = dir + '/' + e
+    const rel = relPrefix + '/' + e
+    if (statSync(abs).isDirectory()) walkSrc(abs, rel, pkg, out)
+    else if (e.endsWith('.ts')) out.push({ pkg, rel, text: readFileSync(abs, 'utf8') })
+  }
+}
+
+/** 全仓**非本包** src 的 .ts 文件（rel 报点用，text 供负控造内存文件）。 */
+function consumerScanFiles(extra = []) {
+  const pkgs = readdirSync(SCAN_ROOT + 'packages')
+  const out = []
+  for (const pkg of pkgs.sort()) {
+    if (pkg === 'prompts') continue
+    const dir = SCAN_ROOT + 'packages/' + pkg + '/src'
+    try { if (!statSync(dir).isDirectory()) continue } catch { continue }
+    walkSrc(dir, 'packages/' + pkg + '/src', pkg, out)
+  }
+  return out.concat(extra)
+}
+
+/** 扫描面读数：文件数 + 覆盖包数（把「零命中」与「零扫描」分开 —— 后者是假绿）。 */
+function consumerScanSummary(files) {
+  return files.length + ' 个文件 / ' + new Set(files.map((f) => f.pkg)).size + ' 个非本包'
+}
+
+/**
+ * 常量名 -> 实测真消费点（packages/<包>/src/<文件>:<行号>，排序）。
+ * 双路并集：① 字符串名（在**未剥字符串**的代码面上找字面量）
+ *           ② 裸引用名（**剥字符串**后仍在 = 真标识符）；
+ * **两条路都先剥注释**。
+ */
+function scanConsumers(names, files) {
+  const found = {}
+  for (const n of names) found[n] = []
+  const tick = String.fromCharCode(96)
+  const q = String.fromCharCode(39)
+  const qc = q + '"' + tick
+  for (const f of files) {
+    const code = stripComments(f.text)
+    const noStr = stripStrings(code)
+    const Lc = code.split('\n')
+    const Ls = noStr.split('\n')
+    for (const n of names) {
+      const bare = new RegExp('\\b' + n + '\\b')
+      const str = new RegExp('[' + qc + ']' + n + '[' + qc + ']')
+      for (let i = 0; i < Lc.length; i += 1) {
+        if (str.test(Lc[i]) || bare.test(Ls[i])) found[n].push(f.rel + ':' + (i + 1))
+      }
+    }
+  }
+  for (const n of names) found[n] = Object.freeze([...new Set(found[n])].sort())
+  return Object.freeze(found)
+}
+
+const ALL_NAMES = EXPECTED_NAMES
+const SCAN_FILES = consumerScanFiles()
+const SCAN = scanConsumers(ALL_NAMES, SCAN_FILES)
+/** 「实测有消费者」的集合（= 已接线集合）。 */
+const SCAN_CONSUMED = ALL_NAMES.filter((n) => SCAN[n].length > 0)
+
+test('⑥c-面 扫描面非空，且三种已知写法都能被扫到（防「扫描器静默失效」）', () => {
+  assert.ok(SCAN_FILES.length > 10, '非本包 src 文件数必须 >10，实测=' + SCAN_FILES.length)
+  assert.ok(new Set(SCAN_FILES.map((f) => f.pkg)).size >= 5, '覆盖包数必须 >=5')
+  for (const n of ['COMPRESSION_SYSTEM_PROMPT', 'SLEEP_INDICTION_SYSTEM_PROMPT', 'INTENT_CLASSIFICATION_SYSTEM_PROMPT']) {
+    assert.ok(SCAN[n].length >= 1, n + ' 必须被扫到（否则是扫描器失效，不是「没人用」）')
+  }
+  console.log('   ⑥c 扫描面 = ' + consumerScanSummary(SCAN_FILES) + '；已接线 ' + SCAN_CONSUMED.length + '/' + ALL_NAMES.length + '：' + SCAN_CONSUMED.join(', '))
+})
+
+test('⑥c-负控 剥注释 / 排除本包 两条纪律各自都**有负荷**（去掉任一条即假绿）', () => {
+  const onlyInComment = { pkg: 'fake', rel: 'packages/fake/src/f.ts', text: '// SAFETY_GATE_PROMPT 只在注释里\nconst y = 1\n' }
+  const inRealCode = { pkg: 'fake', rel: 'packages/fake/src/f.ts', text: "import { SAFETY_GATE_PROMPT } from 'dsh-mana-prompts'\nconst y = 1\n" }
+  const strOnly = { pkg: 'fake', rel: 'packages/fake/src/g.ts', text: "const e = p.get('SAFETY_GATE_PROMPT')\n" }
+  assert.deepEqual(scanConsumers(['SAFETY_GATE_PROMPT'], [onlyInComment]).SAFETY_GATE_PROMPT, [], '只出现在注释里必须零命中（不剥注释即假绿）')
+  assert.equal(scanConsumers(['SAFETY_GATE_PROMPT'], [inRealCode]).SAFETY_GATE_PROMPT.length, 1, '裸引用路径必须有牙（证明上一条不是「扫描器全哑」）')
+  assert.equal(scanConsumers(['SAFETY_GATE_PROMPT'], [strOnly]).SAFETY_GATE_PROMPT.length, 1, '字符串名路径必须有牙')
+  // 排除本包：把 prompts 自身 src 算进扫描面 ⇒ 本该零命中的名字立刻「有消费者」
+  const withSelf = scanConsumers(['SAFETY_GATE_PROMPT'], consumerScanFiles([
+    { pkg: 'prompts', rel: 'packages/prompts/src/scheduling.ts', text: readFileSync(SRC_DIR + 'scheduling.ts', 'utf8') },
+  ]))
+  assert.ok(withSelf.SAFETY_GATE_PROMPT.length > 0, '把本包算进来必然出现假消费者（证明「排除本包」有负荷）')
+  assert.deepEqual(SCAN.SAFETY_GATE_PROMPT, [], '真扫描面里 SAFETY_GATE_PROMPT 必须零消费点')
+})
+
+test('⑥c-A 声明集 == 实测集；wired:true 却无消费者**逐条可见、可数**', async () => {
+  const base = { requireTemplateVariables: true, expectedConstantCount: 20 }
+  const findings = verifyPrompts({ ...base, consumerSites: SCAN })
+  const mismatch = findings.filter((f) => f.code === 'wired-declaration-mismatch')
+  assert.deepEqual(mismatch, [], '注册表 wiredSites 声明必须与实测逐项相等；不符=' + JSON.stringify(mismatch))
+  const declaredNone = mod.PROMPT_REGISTRY.filter((e) => e.wiredSites.length === 0).map((e) => e.name).sort()
+  const scannedNone = ALL_NAMES.filter((n) => SCAN[n].length === 0).sort()
+  assert.deepEqual(declaredNone, scannedNone, '声明「无消费者」集合必须 == 实测「零消费点」集合（**双向**）')
+  // 腿的牙：wired:true 却零消费 ⇒ 逐条 wired-consumer-missing（**只报数据，不判死**）
+  const wiredNone = mod.PROMPT_REGISTRY.filter((e) => e.wired && SCAN[e.name].length === 0).map((e) => e.name).sort()
+  const missing = findings.filter((f) => f.code === 'wired-consumer-missing').map((f) => f.name).sort()
+  assert.deepEqual(missing, wiredNone, 'wired-consumer-missing 必须逐条等于「wired:true 且零消费」集合')
+  assert.ok(wiredNone.length >= 1, '现状确实有 wired:true 无消费者的条目（若为 0 请先怀疑扫描器失效）')
+  console.log('   ⑥c-A 已接线 ' + SCAN_CONSUMED.length + '/' + ALL_NAMES.length + '；wired:true 无消费者 ' + wiredNone.length + ' 条：' + wiredNone.join(', '))
+  // B：服务面读数与实测**同一口径**
+  const ctx = new Context()
+  mod.apply(ctx, new mod.Config({}))
+  await new Promise((r) => setTimeout(r, 50))
+  const svc = ctx.get('mana-prompts')
+  const st = svc.status()
+  assert.equal(st.wiredConsumers.withConsumers, SCAN_CONSUMED.length, 'status().wiredConsumers.withConsumers 必须 == 实测已接线数')
+  assert.equal(st.wiredConsumers.none, ALL_NAMES.length - SCAN_CONSUMED.length, 'none 必须 == 实测无消费者数')
+  assert.equal(st.total, ALL_NAMES.length, 'total 必须 = 20')
+  for (const n of SCAN_CONSUMED) assert.deepEqual([...st.wiredConsumers.sites[n]], SCAN[n], n + ' 的读数消费点必须与实测逐项相等')
+  assert.deepEqual([...st.wiredConsumers.unconsumed].sort(), scannedNone, 'unconsumed 必须 == 实测无消费者集合')
+  // 如实可数：**光看 status() 就能把「登记了却没人用」的 15 条数出来**（不必再去翻扫描表）
+  const stWiredNone = mod.PROMPT_REGISTRY.filter((e) => e.wired && e.wiredSites.length === 0).map((e) => e.name).sort()
+  assert.deepEqual([...st.wiredConsumers.unconsumedWired].sort(), stWiredNone, 'unconsumedWired 必须 == 注册表里 wired:true 且无消费者的集合')
+  assert.deepEqual([...st.wiredConsumers.unconsumedWired].sort(), wiredNone, 'unconsumedWired 必须 == ⑥c 实测的 wired:true 无消费者集合')
+  assert.equal(st.wiredConsumers.unconsumedWired.length, 15, '实测 15 条（本条是**读数断言**：数字若变说明注册表/扫描口径动了，请复核后一并改）')
+  assert.equal(svc.counts().withConsumers, SCAN_CONSUMED.length, 'counts().withConsumers 与 status() 必须同源同值')
+  console.log('   ⑥c-B status().wiredConsumers：已接线 ' + st.wiredConsumers.withConsumers + '/' + st.total + '，无消费者 ' + st.wiredConsumers.none + ' 条')
+})
+
+test('⑥c-B 对拍腿有牙：声明与实测不符 ⇒ 双向都红（造一处不符）', () => {
+  const base = { requireTemplateVariables: true, expectedConstantCount: 20 }
+  assert.deepEqual(
+    verifyPrompts({ ...base, consumerSites: SCAN }).filter((f) => f.code === 'wired-declaration-mismatch'), [],
+    '正控：真表零 mismatch',
+  )
+  // 负控 1（声明有、实测无）：抹掉一条**真实**消费点
+  const dropReal = { ...SCAN, COMPRESSION_SYSTEM_PROMPT: [] }
+  const f1 = verifyPrompts({ ...base, consumerSites: dropReal })
+  assert.ok(f1.some((f) => f.name === 'COMPRESSION_SYSTEM_PROMPT' && f.code === 'wired-declaration-mismatch'), '抹掉真实消费点必须红；实测=' + JSON.stringify(f1))
+  // 负控 2（实测有、声明无）
+  const addFake = { ...SCAN, SAFETY_GATE_PROMPT: ['packages/nowhere/src/x.ts:1'] }
+  const f2 = verifyPrompts({ ...base, consumerSites: addFake })
+  assert.ok(f2.some((f) => f.name === 'SAFETY_GATE_PROMPT' && f.code === 'wired-declaration-mismatch'), '声明与实测不符必须红')
+  assert.ok(f2.some((f) => f.name === 'SAFETY_GATE_PROMPT' && f.code === 'wired-consumer-undeclared'), '反方向必须落 wired-consumer-undeclared')
+  // 负控 3（wired:false 却被消费）：§25.8 两条的防漏线
+  const leak = { ...SCAN, TASK_COMPLEXITY_PROMPT: ['packages/core/src/leak.ts:9'] }
+  assert.ok(verifyPrompts({ ...base, consumerSites: leak }).some((f) => f.name === 'TASK_COMPLEXITY_PROMPT' && f.code === 'wired-consumer-undeclared'), '§25.8 被消费必须红')
+  // 开关性：不给实测表 ⇒ 不产 wired-* finding（人工自检场景**程序性**跳过，不是静默）
+  assert.deepEqual(verifyPrompts(base).filter((f) => f.code.startsWith('wired-')), [], '不给 consumerSites 时不应有 wired-* finding')
+})
+
+test('⑥c-C 防误读：wired 字段注释写死语义（本字段被误读过，注释即契约处）', () => {
+  const src = readFileSync(SRC_DIR + 'registry.ts', 'utf8')
+  const at = src.indexOf('readonly wired: boolean')
+  assert.ok(at > 0, '必须能定位 wired 字段声明')
+  const doc = src.slice(Math.max(0, at - 1600), at)
+  assert.ok(/不许接线/.test(doc), '注释必须写明语义是「不许接线」')
+  assert.ok(/不是「已接线」/.test(doc), '注释必须**显式否定**「已接线」这个误读')
+  assert.ok(/wiredConsumers/.test(doc), '注释必须指向「已接线」读数所在（status().wiredConsumers）')
+  assert.ok(/误读/.test(doc), '注释必须记下「本字段被误读过」，防下一个读者重犯')
 })
