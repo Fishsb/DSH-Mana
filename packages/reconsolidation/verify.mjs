@@ -35,6 +35,9 @@ const TEST_FILES = [
   ['tests/update-history.test.mjs', 5],
   ['tests/degraded-three-state.test.mjs', 6],
   ['tests/trace-namespace.test.mjs', 5],
+  // v10 §15.4 测试效应（检索类型 → 保持增益）。7 条：三档复现 / 非法抛错 / 未声明不变量 /
+  // 三档×四类可分辨 / 正向作用到读侧 / 反向未检索不加增益 / 未与幂律衰减重复相乘。
+  ['tests/testing-effect.test.mjs', 7],
   ['tests/negatives.test.mjs', 6],
 ]
 
