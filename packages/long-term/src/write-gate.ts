@@ -579,8 +579,21 @@ export async function writeGate(
 
   // ② 预过滤（rollout:103 的第一段 ⇒ **换靶后的信号词口径**，见文件头）：
   //    未命中 ⇒ **未进判定**（不落 jev_log）。预筛实现不可解析 ⇒ fail-open 放行但记号。
+  //
+  // ⚠ **读数必须在"放行"路径上也可读**（本席 2026-09-26 实测踩到并改）：初版只在
+  //   skipped_prefilter 分支写 prefilter* 读数 ⇒ 放行的那些 outcome 上它们恒为 null/[]，
+  //   于是「**为什么放行**」恰恰在最需要解释的时候不可读 —— 这与本仓头号形态（让失败
+  //   不可观测）是一回事，只是方向相反。故把读数**提升**到 ③ 之前并并入 outcomeBase：
+  //   凡走过 ② 的出口（written/overwritten/rejected/degraded_written/skipped_retired…）都带真读数；
+  //   唯 not_attempted（② 之前就返回）保持 null —— 那正是"预过滤**没跑过**"，与"跑了没命中"不同形。
+  let prefilter: { overlap: number | null; table: string | null; hits: readonly string[] } = {
+    overlap: null,
+    table: null,
+    hits: [],
+  }
   if (cfg.prefilterEnabled) {
     const pre = prefilterWorthKeeping(content, cfg.prefilterMinHits)
+    prefilter = { overlap: pre.overlap, table: pre.table, hits: pre.hits }
     if (!pre.hit) {
       return done('skipped_prefilter', {
         skipped: true,
@@ -604,6 +617,9 @@ export async function writeGate(
       memoryId,
       judgeId,
       skipped: true,
+      prefilterOverlap: prefilter.overlap,
+      prefilterTable: prefilter.table,
+      prefilterHits: prefilter.hits,
       reason:
         '既有行 retired=1（已软删除）⇒ 拒绝覆盖：core.writeMemoryItem 是 INSERT OR REPLACE，' +
         '不列 retired 列 ⇒ 重写会把 retired 重置为 DEFAULT 0（实测：静默复活）。' +
@@ -678,6 +694,10 @@ export async function writeGate(
     judgeId,
     traceWritten,
     overwroteLiveRow: retired === false,
+    // 预过滤读数（② 之后的每个出口都带真值；见 ② 处的说明）
+    prefilterOverlap: prefilter.overlap,
+    prefilterTable: prefilter.table,
+    prefilterHits: prefilter.hits,
   }
 
   // ⑤ 落库决策：prob >= threshold ⇒ 写；降级 ⇒ **fail-open 仍写**；
