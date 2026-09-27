@@ -147,7 +147,35 @@ async function boot() {
   for (const [pkg, cfg] of [
     ['perception', {}],
     ['attention', {}],
-    ['vector', { embedEnabled: false }], // 词法分支 ⇒ 零网络、可逐字断言
+    /**
+     * ⚠ **默认离线（embedEnabled:false）**：词法分支 ⇒ 零网络、可逐字断言 ⇒ 评估可复现。
+     *
+     * ⚠⚠ **`--online-embed` 才走真向量腿**（本席 2026-09-27 实测后新增，含**一次自我否定**）——
+     *   我上一轮把「向量腿为什么没启用」判成了**环境阻塞**，并报告"需用户改宿主 Ollama 启动参数"。
+     *   **实测推翻**（三条证据）：
+     *     ① 宿主 Ollama v0.34.4 的 `serve --help` 里**根本没有 `--embeddings` 这个 flag**；
+     *     ② 换一个不存在的模型名去试 embed，错误**变了**：
+     *        对 `qwen3.5:0.8b` ⇒ "does not support embeddings"（**误导性文案**）
+     *        对 `nomic-embed-text` ⇒ "model not found, try pulling it first"
+     *        ⇒ 说明**服务端支持嵌入**，只是那个模型不具备 embed 能力；
+     *     ③ 环境里**早已装好 `bge-m3:latest`**（1.2 GB，两周前），实测返回 1024 维向量，
+     *        语义区分显著（相关 0.8325 vs 不相关 0.3128）。
+     *   ⇒ 真障碍**不是环境**，是本评估器**自己**把嵌入关掉了（为离线可复现），
+     *     而本仓 `vector` 的缺省 model 本来就是 `bge-m3`（配置一直是对的）。
+     *   ⇒ 结论：**不需要任何环境变更**；要测向量腿，加个开关就走真端点。
+     */
+    ['vector', has('--online-embed')
+      /**
+       * ⚠ **键名是 `embedBaseUrl`，不是 `baseUrl`**（本席 2026-09-27 实测踩到）：
+       *   我第一版写 `baseUrl` ⇒ schemastery 不认该键 ⇒ base 为空 ⇒
+       *   `embed.ts` 直接返回降级（"未配置嵌入端点（baseUrl 为空）"）。
+       *   ⚠ 表现是 `channel: 'degraded'` —— **看起来像"向量腿坏了"**，
+       *     实际只是**配置键名写错**（本仓"配置同义词"这类坑的又一例）。
+       *   ⚠ 教训：写配置前**先核 schema 的键名**，别按语义猜；
+       *     且**降级读数必须可追到具体原因**（它确实带出了"baseUrl 为空"，只是我一开始没读）。
+       */
+      ? { embedEnabled: true, model: 'bge-m3', embedBaseUrl: process.env.MANA_EMBED_BASE ?? 'http://127.0.0.1:11434/v1' }
+      : { embedEnabled: false }],
     // ⚠ **long-term 必须挂**（本席 2026-09-26 实测踩到）：memory_items 的**生产写者**是
     //   long-term 的 Write Gate（挂在 `mana/observation` 上）。不挂它 ⇒ 库里**一条记忆都没有**
     //   ⇒ L2 命中率恒 0、L4 曲线无点。而这两个读数**看起来像"系统效果差"**，
@@ -461,6 +489,18 @@ const FOLLOWUP = [
   },
 ]
 
+/**
+ * ⚠ **检索链是异步的，等待时间必须够**（本席 2026-09-27 实测踩到，如实记）：
+ *   `chains.ts` 里检索链是 `void runRetrieval(...)`（**异步不等待**，见该文件"必须显式兜错"那段）。
+ *   ⇒ 若两步之间只等 `settle(200)`，在**离线**（词法，微秒级）时够用；
+ *     但**在线**（真嵌入，每条 ~1s）时**不够** —— 检索还没落痕，评估器已经开始读库，
+ *     表现为 `eval-f` 组的 retrieval 行**一条都没有**（实测：离线 4 条 / 在线 0 条）。
+ *   ⚠ 那种"0"**不是召回失败**，是**测量没等够** —— 又一处会把"测不到"读成"功能坏"的坑。
+ *   ⇒ 在线模式下把每步等待拉长（`SETTLE_STEP`），并把该值印进报告（读数自带语境）。
+ */
+const SETTLE_STEP = has('--online-embed') ? 2500 : 200
+const SETTLE_TURN = has('--online-embed') ? 1500 : 200
+
 const FEED = [
   ...SEED.map((text, i) => ({ text, session: 'eval-s' + String(i), msg: 'eval-m' + String(i), group: 'real' })),
   ...LEGACY_SEED.map((text, i) => ({ text, session: 'eval-x' + String(i), msg: 'eval-xm' + String(i), group: 'legacy' })),
@@ -478,9 +518,9 @@ try {
       agent: { session: { id: item.session } },
       message: { id: item.msg, role: 'user', content: [{ type: 'text', text: item.text }], source: { kind: 'user' } },
     })
-    await settle(120)
+    await settle(SETTLE_STEP)
     ctx.emit('agent/turn-stopping', { agent: { session: { id: item.session } }, turn: 1 })
-    await settle(200)
+    await settle(SETTLE_TURN)
     timing.push(performance.now() - t0)
   }
 } catch (error) {
@@ -821,7 +861,7 @@ await layer('L2', '记忆质量（召回命中率，分母=真查询数）', asy
         ' 条活记忆、' + String(candidates) + ' 个候选，却 0 条命中。' +
         '⚠ 归因**须看分组**（见下）：若"同会话相关追问"组也为 0，才是召回缺陷；' +
         '若该组有命中而其它组为 0，那是"输入互不相关"使然（测量设计），**不是故障** —— 二者不得同形' +
-        '｜' + groupLine + probeNote,
+        '｜' + groupLineText() + probeNote,
       evidence: { ...ev, byGroup },
     }
   }
@@ -831,15 +871,27 @@ await layer('L2', '记忆质量（召回命中率，分母=真查询数）', asy
    *   · `real` / `legacy`：**各自 session 里的顺序输入** —— 互不相关，本就该 0 命中，
    *     保留是为了让"库在长、召回在跑"这件事仍可观测，**不作质量结论**。
    */
-  const groupLine = '端到端命中率（三组分列，不合并）：' +
-    '**同会话相关追问** ' + byGroup.followup.hits + '/' + byGroup.followup.n +
-    (byGroup.followup.n === 0 ? '（无样本，未测）' : byGroup.followup.hits > 0 ? ' ✓' : ' ✗ **应命中而未命中**') +
-    ' · 真实风格组（各自 session，互不相关）' + byGroup.real.hits + '/' + byGroup.real.n +
-    ' · 负控组 ' + byGroup.legacy.hits + '/' + byGroup.legacy.n +
-    (byGroup.other.n > 0 ? ' · 其它 ' + byGroup.other.hits + '/' + byGroup.other.n : '')
+  /**
+   * ⚠ **用函数声明而不是 const**（本席 2026-09-27 修改，修一个自己的真缺陷）：
+   *   原先写成 `const groupLine = ...` 且声明在下、使用在上 ⇒ **TDZ**：
+   *   当 L2 落 `formed_but_missed` 分支时抛
+   *   `ReferenceError: Cannot access 'groupLine' before initialization`。
+   *   ⚠ 该缺陷**潜伏过一轮**：早先那些运行都没走到那个分支（记忆未形成 / 已命中），
+   *     直到本轮启用真向量腿、L2 首次落进 `formed_but_missed` 才暴露。
+   *     ⇒ 教训：**分支里的引用必须在所有可达路径上都有定义**，不能靠"当前跑不到"过活。
+   *   函数声明**有提升**，故顺序无关 —— 这是本次修法的要点。
+   */
+  function groupLineText() {
+    return '端到端命中率（三组分列，不合并）：' +
+      '**同会话相关追问** ' + byGroup.followup.hits + '/' + byGroup.followup.n +
+      (byGroup.followup.n === 0 ? '（无样本，未测）' : byGroup.followup.hits > 0 ? ' ✓' : ' ✗ **应命中而未命中**') +
+      ' · 真实风格组（各自 session，互不相关）' + byGroup.real.hits + '/' + byGroup.real.n +
+      ' · 负控组 ' + byGroup.legacy.hits + '/' + byGroup.legacy.n +
+      (byGroup.other.n > 0 ? ' · 其它 ' + byGroup.other.hits + '/' + byGroup.other.n : '')
+  }
   return {
     state,
-    detail: pre + '｜' + groupLine +
+    detail: pre + '｜' + groupLineText() +
       '｜⚠ **同会话相关追问那一组才是端到端的质量判据**（同一 session 里先记后问，是记忆系统存在的理由）；' +
       '另两组的输入互不相关，0 命中是**测量设计**使然而非缺陷，**不作质量结论**' +
       probeNote,
