@@ -1642,6 +1642,13 @@ export function createChainDriver(deps: ChainDriverDeps): ChainDriver {
         // ── 分列读数（三态各占一列，不相加成一个"验证率"）──
         verifications: sample.verifications,
         failures: sample.failures,
+        // ⚠ 这四个字段**每一态都写全**（含 disabled / no-session-identity）：
+        //   缺字段会让"压根没扫"与"扫了但读不出"在机检面上同形 ——
+        //   本仓对"缺字段 vs 显式 0"的既有纪律（见 forgetting 的 `retiredWritten: 0`）。
+        scannedEvents: 0,
+        turnEvents: 0,
+        capped: false,
+        unreadable: null,
         ...extra,
       })
       state.verificationScanned += 1
