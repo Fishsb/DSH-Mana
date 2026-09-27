@@ -8,7 +8,12 @@
  *   · 降级必须显式：`degraded:true` + 非空 `reason` + `probability:null`
  *     （**不得用 0 冒充「概率为零」**），禁 `catch { return null }`（G8）
  *
- * ⚠ 本测试**不联网**：`judgeGuarded` 走注入的 `judgeFn` 桩，端点/模型不影响判定。
+ * ⚠ 本测试**不联网** —— 靠的是**装配面显式 pin**，不是"环境恰好没配 key"（本卡 t-mujzyy6m 修）：
+ *   ① `channel:'ollama'`（替身通道）+ ② `endpoint:'http://127.0.0.1:1'`（恒不可达），
+ *   两条都在 `boot()` 里显式给、并在装配后断言生效通道（显式声明必须自证，否则它只是注释）。
+ *   ⚠ 旧版只 pin 了端点、**没 pin 通道** ⇒ 判据语义取决于环境：jev 的 channel **缺省是云端**
+ *   （`systemone`，读 `NANOGPT_API_KEY`）⇒ 有真 key 时会**真联网**并可能**判得出** ⇒
+ *   监听器走成功路径、按设计**不调 next()** ⇒ J1 必红（实测：无 key 5/5 绿 · 有真 key 1 红）。
  *   库一律用临时库（本仓硬纪律）。
  */
 import { test } from 'node:test'
@@ -53,11 +58,33 @@ async function boot() {
     //        实测：本文件与 b12 同时在 `npm test` 里跑时，b12 的 3 条真调用判据全红，
     //        而单独跑 b12 全绿。**那是我的测试污染了别人的判据**（跨用例干扰），
     //        不是 b12 的缺陷。修法就是把本文件变成零网络。
-    const config = pkg === 'dsh-mana-core' ? { storePath: store } : { endpoint: 'http://127.0.0.1:1' }
+    // ⚠ **两件事都必须显式**（缺一件，判据的语义就取决于环境）：
+    //   ① `channel:'ollama'`：jev 的 channel **缺省是 `'systemone'`（云端）**，systemone 驱动读
+    //      `NANOGPT_API_KEY` ⇒ **有真 key 时监听器会真联网**。实测（本卡 t-mujzyy6m）：
+    //      真联网判得出 ⇒ 成功路径 ⇒ 按设计**不调 next()** ⇒ 下游哨兵不动 ⇒ J1 红；
+    //      且判据的红绿变成"取决于本机配没配 key / 网络通不通"（不是"偶发"，是"环境一变就必红"）。
+    //   ② `endpoint` 指向恒不可达端口：留空 ⇒ 走 `OLLAMA_DEFAULT_ENDPOINT`（真本机 Ollama），
+    //      判据会发起真模型调用（既不自足，又会抢占并行跑的真调用判据，见下方长注）。
+    //   两条一起 ⇒ 判据自足：只走本机替身通道 + 恒不可达端点，与云端/凭据/外部服务无关。
+    const config = pkg === 'dsh-mana-core' ? { storePath: store } : { channel: 'ollama', endpoint: 'http://127.0.0.1:1' }
     await ctx.loader.create({ name: pkg, config })
     await settle(200)
     assert.ok(ctx.get(svc), `${pkg} 应装配（服务可读）`)
   }
+  // ⚠ **显式声明要自证**（照抄 `packages/long-term/tests/recall-gate-jevlog.test.mjs` ⑥c 的处理）：
+  //   上面那行配置是"用显式声明隔离全局缺省"，而**显式声明本身不会被机检** —— 若被改回缺省（或
+  //   jev 侧把 channel 语义改名），本判据会**静默**重新依赖环境、红绿随别人改动漂移而无告警。
+  //   ⇒ 断言生效通道 = 'ollama'：缺省再被翻转时本判据自己报红并点名原因。
+  //   ⚠ 断言**无条件跑**（不放在"装 jev 的那一圈"里）—— 否则它会变成"条件性断言"，
+  //     而这正是本仓反复踩过的"看着有断言、实则被条件包住"形态。
+  const jevStatus = ctx.get('mana-jev').status()
+  assert.equal(
+    jevStatus.channel,
+    'ollama',
+    `本判据必须挂在**替身通道**上（显式 channel:'ollama'）；实测生效通道 = ${jevStatus.channel}` +
+      `（endpoint=${jevStatus.endpoint}、凭据就绪=${jevStatus.credentialPresent}）` +
+      ` —— 若这里变了，先看 jev 的 channel 缺省是否被改，别去改下游断言`,
+  )
   return { ctx, store }
 }
 
@@ -181,9 +208,16 @@ test('J3 next() 义务：jev 降级时下游哨兵必须被调到（不吞掉下
   // ② 再装配 core / jev（jev 的监听器注册在哨兵之后 ⇒ 在外层）
   await ctx.loader.create({ name: 'dsh-mana-core', config: { storePath: store } })
   await settle(200)
-  await ctx.loader.create({ name: 'dsh-mana-jev', config: { endpoint: 'http://127.0.0.1:1' } })
+  // ⚠ 与 `boot()` 同一处理：**通道与端点都要显式 pin**（只 pin 端点不够 —— channel 缺省是云端，
+  //   有 key 时本次分发会真联网并可能判得出 ⇒ 成功路径不调 next() ⇒ 本判据测不到"降级时调 next()"）。
+  await ctx.loader.create({ name: 'dsh-mana-jev', config: { channel: 'ollama', endpoint: 'http://127.0.0.1:1' } })
   await settle(200)
   assert.ok(ctx.get('mana-jev'), 'jev 应装配')
+  assert.equal(
+    ctx.get('mana-jev').status().channel,
+    'ollama',
+    '本判据必须挂在替身通道上（显式 channel:' + "'ollama'" + '）；实测 ' + ctx.get('mana-jev').status().channel,
+  )
 
   // ③ 分发：端点不可达 ⇒ 必然降级 ⇒ jev 应调 next() ⇒ 哨兵被调到
   const got = await ctx.waterfall('mana/jev/judge', req({ state: 'S3' }), async () => ({

@@ -361,8 +361,22 @@ test('RG-JL-★ 反向：真 jev ★ 下游抛错 ⇒ 声明必须**仍等于**�
   //    只有降级分支才会「先落痕（judgeGuarded）→ 后 await next()」，本用例要测的正是那一段。
   //    ⚠ 若端点可达（本机 Ollama 在跑），jev 走**成功路径直接返回 ⇒ 不调 next()** ⇒ 本用例
   //      会变成"没走到那条路径"，故必须显式把端点钉死为不可达。
-  ctx.plugin(jevMod, { endpoint: 'http://127.0.0.1:1', concurrencyWaitTimeoutMs: 200 })
+  //    ⚠⚠ **端点不可达还不够**（本卡 t-mujzyy6m 实测的假前提）：jev 的 `channel` **缺省是云端**
+  //      （`systemone`，其驱动读 `NANOGPT_API_KEY`）——**有真 key 时端点参数根本不被使用**：
+  //      它走云端判定、**判得出** ⇒ 成功路径 ⇒ 不调 next() ⇒ 下面那个"必抛的下游"压根不被调到
+  //      ⇒ 本用例红（实测：无 key 12/12 绿 · 有真 key 11/12，红在本条）。
+  //      ⇒ 必须**同时** pin 通道为替身（'ollama'），端点才是"生效端点"（status().endpoint 同源，见下）。
+  //    ⚠ 这是**判据的前提缺陷**，不是产品缺陷：监听器"判得出就直接返回、不调 next()"是设计。
+  ctx.plugin(jevMod, { channel: 'ollama', endpoint: 'http://127.0.0.1:1', concurrencyWaitTimeoutMs: 200 })
   await settle(200)
+  // ⚠ **显式声明自证**（与 ⑥c / Q1 同一处理，理由见那两处的长注）：把"本用例确实挂在替身通道上"
+  //   变成可读读数 —— 缺省再被翻转时本用例自己报红并点名原因，而不是静默改道云端。
+  assert.equal(
+    ctx.get('mana-jev').status().channel,
+    'ollama',
+    '本用例必须挂在**替身通道**上（显式 channel:' + "'ollama'" + '）—— 否则端点参数不被使用、判定会走云端；实测生效通道 = ' +
+      ctx.get('mana-jev').status().channel,
+  )
   // ② 在 jev **下游**挂一个必抛的监听器（jest 的 `ctx.on` 后注册者在更内层）
   ctx.on('mana/jev/judge', async () => {
     throw new Error('downstream-boom-fixture')
