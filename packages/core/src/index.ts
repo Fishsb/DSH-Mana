@@ -243,8 +243,9 @@ export interface UserModelHistoryRow {
  *   绑定照旧（见 `recallLexical`）。这里的引号是 **FTS5 的语法字符**，不是 SQL 的。
  *
  * ⚠ **不剥离控制字符**：内含 U+0000 的文本包成短语后，FTS5 的拒绝**依然可分辨**
- *   （实测 `syntax error near ""`）⇒ 由 `recallLexical` 归为 `fts_error` 报出，
- *   不会与"库里没有"同形。剥字符会把"报不报错"绑到某条归一规则上 —— 那种隐藏耦合不取。
+ *   （实测 `unterminated string` / `syntax error near ""`）⇒ 由 `recallLexical` 抛
+ *   **具名** `FtsQueryError`，不会与"库里没有"同形。剥字符会把"报不报错"绑到某条
+ *   归一规则上 —— 那种隐藏耦合不取（且"静默剔除"本身也是一种对用户的隐瞒）。
  */
 export function buildFtsPhrase(raw: string): string {
   return `"${String(raw ?? '').replace(/"/g, '""')}"`
