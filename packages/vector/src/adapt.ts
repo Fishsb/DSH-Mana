@@ -75,6 +75,74 @@ export interface RecallOutcome {
   readonly reason: string | null
   /** 融合后的命中（降级时为**有序的本地分结果**，不是空 —— 有资格不落空）。 */
   readonly items: readonly { key: string; score: number; rank: Record<string, number>; hits: number }[]
+  /**
+   * **稠密候选腿读数**（契约外增量字段；**可缺省**：不填该字段即不存在，既有构造点不必逐个改）。
+   *
+   * 为什么必须有它（本仓硬要求「输入量须可见化」）：本腿是**唯一**会去扫库的候选来源，
+   * 而它的两种"产出 0 条"在结果面上同形 ——
+   *   · 库里**没有已嵌入行**（`scanned = 0`）：本次**没得扫**；
+   *   · 扫了 `scanned > 0` 行而都**没进候选池**（`candidates = 0`）：**扫了但不相近**。
+   * 没有本字段，这两件事都会表现为「本次 0 命中」，事后无法反查是哪一种。
+   * 同理，列举 SQL 失败必须给**具名** `unavailableReason`（不得静默折成空候选）。
+   *
+   * ⚠ **缺省字段的三种读法**（互不冒充，消费方须显式区分）：
+   *   · `undefined`          = **本腿本次未尝试扫描**（未启用 / 请求池已由调用方给足）；
+   *   · `ran = false`    = **尝试过但没扫成**（`unavailableReason` 具名，`scanError` 标真故障）；
+   *   · `ran = true`     = 真扫过：`scanned`（读了多少行）/ `candidates`（进了池几条）逐项可核。
+   * ⚠ 它**不改变** `channel` / `rankBy` / `degraded` / `hitCount` / `items`
+   *   任何一个的语义：本腿只管"候选怎么来"，不决定结果的态度（理由见 `recall.ts` 文件头）。
+   */
+  readonly dense?: DenseCandidateReadout
+}
+
+/**
+ * 稠密候选腿的**读数面**（`RecallOutcome.dense` 的类型）。
+ *
+ * ⚠ 本类型刻意放在契约文件里：它是**信封的字段形状**，不是实现细节 ——
+ *   放这里才不会出现"契约面与实现面各存一份读数"（本仓最防的漂移形态）。
+ */
+export interface DenseCandidateReadout {
+  /** 配置要求跑吗（`enabled`）；与 `ran` 分列，使「没开」与「开了没跑成」不互相冒充。 */
+  readonly enabled: boolean
+  /** 本次是否**真的扫过库**（`false` 时 `unavailableReason` 必非空）。 */
+  readonly ran: boolean
+  /** 未跑成的原因（**具名**，可枚举口径见 `recall.ts` 的 `DENSE_UNAVAILABLE`）；跑成时为 `null`。 */
+  readonly unavailableReason: string | null
+  /** 相似度下限（低于它不进池）。 */
+  readonly threshold: number
+  /** 扫描上限（行）。 */
+  readonly scanRows: number
+  /** 取名次上限（条）。 */
+  readonly topN: number
+  /** **实际读到**的行数（N=0 显式记 0；这是"没得扫"与"扫了不命中"的分辨点）。 */
+  readonly scanned: number
+  /** 其中余弦 ≥ `threshold` 的条数（**与 `candidates` 不是一回事**：过阈值的可能多于取数上限）。 */
+  readonly matched: number
+  /** 扫描上限是否**被用满**（= 库中可能还有未扫到的行；**不等于**确定被截断，见实现注释）。 */
+  readonly scanLimitReached: boolean
+  /** 真正进了候选池的键与名次（按余弦降序、同分按 key 升序）。 */
+  readonly candidates: readonly DenseCandidate[]
+  /** 与 `candidates` **逐位对齐**的余弦读数（平行数组，便于判据逐条取证）。 */
+  readonly candidateSims: readonly number[]
+  /** 扫到而**没进池**的键，逐条具名原因（"量过而漏掉"不得与"从未扫到"同形）。 */
+  readonly omitted: readonly DenseOmission[]
+  /** 列举失败是"真故障"（`true`，必须与"扫了但没有候选"可分辨）。 */
+  readonly scanError: boolean
+}
+
+/** 稠密腿产出的一条候选（**只有键与名次**：刻意不带相似度，见 `recall.ts` 文件头声明②）。 */
+export interface DenseCandidate {
+  /** 稳定键（本仓口径 = `memory_items.id`）。 */
+  readonly key: string
+  /** 稠密名次（从 1 起，按余弦降序、同分按 key 升序 ⇒ 逐位可复现）。 */
+  readonly denseRank: number
+}
+
+/** 一条"扫到但没进候选池"的具名原因。 */
+export interface DenseOmission {
+  readonly key: string
+  /** 人可读原因（**具名**）；不复用空串。 */
+  readonly reason: string
 }
 
 /** 把任意失败折叠成显式降级信封（**唯一**构造失败信封的出口，避免各处手写漏字段）。 */
