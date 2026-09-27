@@ -64,8 +64,9 @@ async function tempDb() {
  * 口径：docs/mana-endpoint-attribution.md。
  */
 async function requireOllama(title) {
-  if (await ollamaReachable()) return
-  assert.fail(attributionText(lastReachFailure, { title }))
+  // ⚠ **极性**：不可达 ⇒ 走到 assert.fail（**红**）；可达 ⇒ 什么也不做、继续跑。
+  //   这里刻意**不写** `if (可达) return` 之外的任何形态，也**不写** t.skip —— 见口径文档 §5 硬边界 1。
+  if (!(await ollamaReachable())) assert.fail(attributionText(lastReachFailure, { title }))
 }
 
 /** 真调一次 Ollama；不可达则**显式失败**（不许静默跳过，否则判据假绿）。 */
