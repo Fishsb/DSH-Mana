@@ -198,7 +198,28 @@ async function boot() {
     // ⚠ 这正是**本评估器的形态**：它要量的是"链有没有跑通"，不是"JEV 判得准不准"
     //   （后者属 H3 人工判据）。**降级导致记忆写不进 = 真实行为**，L4 据此报 NO_DATA 是诚实的。
     //   若要看"记忆真写进去"的效果面，须接真 JEV（联网）——本评估器**刻意为离线可复现**。
-    ['jev', { channel: 'ollama', endpoint: 'http://127.0.0.1:1', model: 'eval-offline' }],
+    /**
+     * ⚠⚠ **`--online-judge` 才接真判定链**（本席 2026-09-27 实测后新增，补一个**真缺口**）──
+     *
+     *   起因：给 `--online-embed` 开了真向量腿后，**语义召回仍然测不到**。实测追因：
+     *     · 判定链的**提供者**是 `packages/jev/src/index.ts:531`（`ctx.on('mana/jev/judge', …)`）；
+     *     · `attention` 是**调用方**（`ctx.waterfall('mana/jev/judge', …)`），**不是**监听者；
+     *     · 本评估器把 jev 指向**死端点** `127.0.0.1:1` ⇒ 判定必然降级 ⇒ Recall Gate **丢弃候选**。
+     *   反证实验（本席亲跑）：jev 改指真端点后 ⇒ `judged=1/1`、`gate='below_threshold'`
+     *     ⇒ **整条链贯通**（embed → store → recall → JEV 判定 → gate）。
+     *
+     *   ⇒ 即：`--online-embed` **只开了嵌入、没开判定链** ⇒ 语义召回在评估里**仍测不到**。
+     *     故单立此开关，使"语义相近能否被召回"这件事**可测**（那才是向量腿存在的理由）。
+     *
+     *   ⚠ 缺省仍**离线**（死端点）⇒ 评估可复现，且**降级本身**是被判据钉住的既有行为。
+     */
+    ['jev', has('--online-judge')
+      ? {
+          channel: 'ollama',
+          endpoint: process.env.MANA_JEV_ENDPOINT ?? 'http://127.0.0.1:11434',
+          model: process.env.MANA_JEV_MODEL ?? 'qwen3.5:0.8b',
+        }
+      : { channel: 'ollama', endpoint: 'http://127.0.0.1:1', model: 'eval-offline' }],
     ['reconsolidation', {}],
     ['forgetting', {}],
     ['learning', {}],
@@ -799,6 +820,76 @@ await layer('L2', '记忆质量（召回命中率，分母=真查询数）', asy
    */
   const PROBE_QUERY = '根目录'                                  // 连续子串 ⇒ 词法腿应命中
   const PROBE_QUERY_REORDERED = '项目根目录在哪里'              // 换词序 ⇒ 词法腿做不到（非缺陷）
+  /**
+   * ── (c) **语义召回实验**：换词序也能量到（**向量腿存在的理由**）────────────────────
+   *
+   * ⚠ 本席 2026-09-27 新增，补一个**真缺口**（实测发现）：先前 `--online-embed` 只开了嵌入，
+   *   而判定链仍指向死端点 ⇒ Recall Gate 报 `no-judge-listener` 并**丢弃候选** ⇒
+   *   语义召回**在评估里压根测不到**（不是"测出来 0"，是"没测"）。
+   *   实测反证：jev 改指真端点后 ⇒ `judged=1/1`、gate 正常放行 ⇒ 整条链贯通。
+   *
+   * ⚠ **本组必须与"换词序查询"那条区分开**：
+   *   · `PROBE_QUERY_REORDERED`（上面的 ②）：**只断言词法腿做不到** ⇒ 在任何模式下都**不该**命中，
+   *     它是"词法腿的能力边界"的证据；
+   *   · 本组：**语义相近**（与记忆共享意思、不共享连续子串）⇒ 词法腿注定查不到，
+   *     **只有向量腿 + 判定链都通了**才可能命中。
+   *   ⇒ 两者的"命中/不命中"含义**相反**，合并即同形（本仓最忌）。
+   *
+   * ⚠ **离线时必须报"未测"而不是"0 命中"**：离线态判定链是死的 ⇒ 0 命中是**测量缺失**，
+   *   不是能力缺失。若报成 0，就会把"我们没测"读成"向量腿不行"—— 又一次归因错位。
+   */
+  const PROBE_SEMANTIC_ID = 'mem_eval_semantic_probe'
+  const PROBE_SEMANTIC = { memo: '我偏好开源方案，长期用 WSL 做主力开发环境，不要推荐商业工具', ask: '我不想用收费的软件' }
+  /**
+   * ⚠ **必须 await**：向量召回是异步的（走嵌入通道 + 判定链），
+   *   与检索链同源（`chains.ts` 里也是异步不等待）—— 不 await 就会读到"还没跑完"的态。
+   */
+  const semanticProbe = await (async () => {
+    if (!has('--online-judge')) {
+      return {
+        measured: false,
+        why: '未测（离线态：判定链指向死端点 ' + '127.0.0.1:1' + ' ⇒ Recall Gate 必降级并丢候选）',
+        ask: PROBE_SEMANTIC.ask,
+      }
+    }
+    try {
+      const core = ctx.get('mana-core')
+      const vector = ctx.get('mana-vector')
+      if (vector === undefined) return { measured: false, why: '未测（本模式未装配 vector 服务）', ask: PROBE_SEMANTIC.ask }
+      core.writeMemoryItem({ id: PROBE_SEMANTIC_ID, type: 'observation', content: PROBE_SEMANTIC.memo, at: new Date().toISOString() })
+      /**
+       * ⚠ **先给这条记忆生成向量**（否则向量腿查它时该行 vector 为 NULL ⇒ 必查不到）。
+       *   走 `vector.putMemoryVector`（**生产同款写面**，不是自造 SQL）——
+       *   与 K1 落库路径用的是同一个面，故这里测的就是生产形态。
+       */
+      /**
+       * ⚠ **`vector.embed` 收的是数组**（签名 `(texts) => embedTexts(embedCfg, texts)`，见 index.ts:291）
+       *   —— 我第一版传了裸字符串 ⇒ `ERR texts.map is not a function`。
+       *   对照 K1 的生产用法也是数组：`legs.embed([content])`（write-gate.ts:379）。
+       */
+      const emb = await vector.embed([PROBE_SEMANTIC.memo])
+      const vec0 = emb?.vectors?.[0]
+      if (vec0) await vector.putMemoryVector(PROBE_SEMANTIC_ID, vec0, { type: 'observation', content: PROBE_SEMANTIC.memo })
+      const lex = core.recallLexical(PROBE_SEMANTIC.ask, 10)
+      const cands = lex.hits.map((h, i) => ({ key: h.id, lexicalRank: i + 1 }))
+      const out = await vector.recall(PROBE_SEMANTIC.ask, cands, 10, { sessionId: 'eval-semantic', turnId: 0, requestId: 'eval-semantic' })
+      const gate = (() => { try { return vector.lastRecallGate?.() ?? null } catch { return null } })()
+      return {
+        measured: true,
+        ask: PROBE_SEMANTIC.ask,
+        embedded: vec0 !== undefined,
+        lexicalHits: lex.hits.length,
+        vectorHit: out.hitCount ?? null,
+        channel: out.channel ?? null,
+        degraded: out.degraded === true,
+        gate: gate ? String(gate.gate ?? '') : null,
+        judged: gate && typeof gate.judged === 'number' ? String(gate.judged) + '/' + String(gate.probed) : null,
+        failureKind: gate ? (gate.failureKind ?? null) : null,
+      }
+    } catch (error) {
+      return { measured: false, why: 'ERR ' + String((error && error.message) || error).slice(0, 140), ask: PROBE_SEMANTIC.ask }
+    }
+  })()
   const probe = (() => {
     try {
       const core = ctx.get('mana-core')
@@ -817,6 +908,26 @@ await layer('L2', '记忆质量（召回命中率，分母=真查询数）', asy
       return { ok: false, hitContiguous: false, hitReordered: false, hits: [], reason: 'ERR ' + String((error && error.message) || error).slice(0, 100), librarySize: null }
     }
   })()
+  /**
+   * 语义召回的一句话读数（**第三组，与上面两组分开**，口径见 PROBE_SEMANTIC 上方说明）。
+   * ⚠ **离线时必须说未测**，绝不许报成 0 命中 —— 那是把"我们没测"读成"能力不行"。
+   * ⚠ 用 `function` 声明（**有提升**）：下面多个分支都可能用到它，
+   *   而 const 会因声明顺序引发 TDZ（本文件已在该形态上栽过一次，见 groupLineText 的注释）。
+   */
+  function semanticNoteText() {
+    if (!semanticProbe.measured) {
+      return '｜**语义召回实验**：**未测** —— ' + String(semanticProbe.why) +
+        '。⚠ 这是**测量缺失**（**不是**能力为 0）：离线态判定链是死的，0 命中不得读成向量腿不行；' +
+        '要测它须加 --online-judge（本席实测：接真端点后 judged=1/1、gate 正常放行）'
+    }
+    return '｜**语义召回实验**（换词序、与记忆不共享连续子串 ⇒ 词法腿注定查不到）：' +
+      '查询「' + String(semanticProbe.ask) + '」→ 词法命中 ' + String(semanticProbe.lexicalHits) + ' 条' +
+      '（**预期 0**，这是词法腿的正常边界）· 向量腿 hit=' + String(semanticProbe.vectorHit) +
+      '（channel=' + String(semanticProbe.channel) + '，degraded=' + String(semanticProbe.degraded) +
+      '，judged=' + String(semanticProbe.judged) + '，gate=' + String(semanticProbe.gate) +
+      (semanticProbe.failureKind ? '，failureKind=' + String(semanticProbe.failureKind) : '') + '）' +
+      '｜⚠ **这一条才是向量腿的存在理由**：词法腿 0 命中属正常，**向量腿命中才说明语义召回通了**'
+  }
   /** 受控实验的一句话读数（**与端到端读数分列**，见上面的口径说明）。 */
   const probeNote = probe.ok
     ? '｜**受控召回实验**（先经生产写面写一条已知记忆，再用同一目标的两种查询检索）：' +
@@ -894,7 +1005,7 @@ await layer('L2', '记忆质量（召回命中率，分母=真查询数）', asy
     detail: pre + '｜' + groupLineText() +
       '｜⚠ **同会话相关追问那一组才是端到端的质量判据**（同一 session 里先记后问，是记忆系统存在的理由）；' +
       '另两组的输入互不相关，0 命中是**测量设计**使然而非缺陷，**不作质量结论**' +
-      probeNote,
+      probeNote + semanticNoteText(),
     evidence: { ...ev, byGroup },
   }
 })
