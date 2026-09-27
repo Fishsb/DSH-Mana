@@ -37,8 +37,8 @@ function stageLabel(i: number): ManaStage {
 
 import { VectorStore } from './vec-blob.ts'
 import { embedTexts, type EmbedConfig } from './embed.ts'
-import { recallVector, type RecallCandidate } from './recall.ts'
-import type { EmbedOutcome, RecallOutcome } from './adapt.ts'
+import { recallVector, type DenseCandidateKnobs, type RecallCandidate } from './recall.ts'
+import type { DenseCandidateReadout, EmbedOutcome, RecallOutcome } from './adapt.ts'
 import { vec0UnavailableReason, VEC0_SEMANTICS } from './vec0.ts'
 import { RRF_DEFAULT_K } from './rrf.ts'
 import {
@@ -111,6 +111,17 @@ export interface Config {
    *   它把**大环路的判定读数**（status/stopReason/roundsRun/merged…）作为增量字段带出来。
    */
   bigLoop: BigLoopWiringKnobs
+  /**
+   * **稠密候选腿**（本卡新增）—— 向量腿自己产生候选（v10 §14.3 的「向量检索 → Top50」那一腿）。
+   *
+   * ⚠ 与三条既有腿同处置：旋钮**不改变** `recall()` 的契约字段
+   *   （`channel`/`rankBy`/`degraded`/`hitCount` 仍由向量管道决定），
+   *   它把**本腿的判定读数**（ran/scanned/matched/candidates/omitted…）作为增量字段带出来。
+   * ⚠ **只在请求池（词法候选）为空时才扫库**：池非空时它是重排腿（既有行为一字不变），
+   *   池空时它才是召回腿 ⇒ 本键的 `enabled` **不改变池非空时的任何行为**
+   *   （原因与代价见 `recall.ts` 文件头声明③）。
+   */
+  denseCandidates: DenseCandidateKnobs
 }
 
 export const Config: Schema<Config> = Schema.object({
@@ -155,6 +166,29 @@ export const Config: Schema<Config> = Schema.object({
     lexicalLimit: Schema.number().default(50),
     topK: Schema.number().default(50),
   }).default({ enabled: false, maxRounds: 6, lexicalLimit: 50, topK: 50 }),
+  /**
+   * 稠密候选腿（**缺省开** —— 缺省值的选择与理由写在下面，也就是提交信息里那段）：
+   *
+   * · `enabled: true`：本腿是**唯一**能让「词法查不到但语义相近」的记忆进候选池的通道，
+   *   关掉即退回「重排器」（实测：词法 0 条 ⇒ 池空 ⇒ hit 0）。它**只在池空时才动作**，
+   *   池非空时一次库都不扫、一次嵌入都不多发 ⇒ 打开它**不改变池非空时的任何行为**
+   *   （这是对「改了缺省 = 改了所有调用方行为」那句警告在本处的回答：改的正是那条**原本必然空手**的路径）。
+   * · `threshold: 0.5`：全库扫描下唯一没有近似结构兜底的地方 —— 阈值一旦失效，
+   *   向量腿就退化成「永不空手」（无关查询也召回落库项），这比召回不足更坏（失败不可观测）。
+   *   本机 bge-m3 实测（同一条记忆、同一个模型）：无关查询 0.2909 / 0.3149 / 0.3249 / 0.4008，
+   *   语义相近 0.5409 / 0.6216 ⇒ 0.5 落在两类之间、且离相近侧留有余量。
+   *   ⚠ 这是**测量条件下的取值**（bge-m3、中文短句），不是普适常数；换嵌入模型须重测
+   *   （判据里有正向/反向两组用例，改阈值即见红绿）。
+   * · `scanRows: 512` / `topN: 20`：显式上限（本仓硬要求）。512 行是**代价上限**（每行一次余弦），
+   *   不是能力上限 —— 库大到超限时读数里 `scanLimitReached=true` 会显式报出「上限被用满」，不是静默截断。
+   *   二者与 `DEFAULT_DENSE_CANDIDATE_KNOBS`（唯一真源）同值：schemastery 的 default 要字面量，故此处再写一遍。
+   */
+  denseCandidates: Schema.object({
+    enabled: Schema.boolean().default(true),
+    threshold: Schema.number().default(0.5),
+    scanRows: Schema.number().default(512),
+    topN: Schema.number().default(20),
+  }).default({ enabled: true, threshold: 0.5, scanRows: 512, topN: 20 }),
 })
 
 export interface ManaVectorService {
@@ -220,6 +254,16 @@ export interface ManaVectorService {
    *   `enabled=false` / `unwiredReason` 的事；三种取值互不冒充）。
    */
   lastBigLoop(): BigLoopReadout | null
+  /**
+   * **最近一次检索的稠密候选腿读数**（本卡接线面的即时可观测出口）。
+   *
+   * ⚠ 与上面三条同处置：返回的 `DenseCandidateReadout` **与 `RecallOutcome.dense` 里那份是同一个
+   *   对象**（不是转换函数的两次调用）⇒ 服务面查到的与调用方拿到的不可能漂开。进程内、只保留最近一次。
+   * ⚠ `null` ⇔ 本进程还没走过 `recall()` **或**最近这次没尝试扫描（`RecallOutcome.dense` 为
+   *   `undefined`）—— 两者在服务面上**同形**，故本出口只作"最近一次扫成什么样"的快照；
+   *   "这次到底尝试扫描没有"必须以调用方拿到的 `RecallOutcome.dense` 为准（那是精确面）。
+   */
+  lastRecallDense(): DenseCandidateReadout | null
 }
 
 /** `recall()` 的会话信封：给了就 emit `mana/recall`（A1-11 的字段断言读它）。 */
@@ -277,6 +321,8 @@ export function apply(ctx: Context, config: Config): void {
   let lastGraph: RecallGraphReadout | null = null
   /** **最近一次检索的大环路读数**（与 `lastGate` 同处置：只留最近一次、进程内）。 */
   let lastLoop: BigLoopReadout | null = null
+  /** **最近一次检索的稠密候选腿读数**（与 `lastGate` 同处置：只留最近一次、进程内）。 */
+  let lastDense: DenseCandidateReadout | null = null
 
   const service: ManaVectorService = {
     plugin: name,
@@ -290,7 +336,21 @@ export function apply(ctx: Context, config: Config): void {
     }),
     embed: (texts) => embedTexts(embedCfg, texts),
     recall: async (query, candidates, topK = 10, envelope) => {
-      const outcome = await recallVector({ ...embedCfg, rrfK: config.rrfK }, store, query, candidates, topK)
+      /**
+       * **稠密候选腿的接线**（本卡）：把**配置面的那组缺省值**与**库读面**交给向量管道。
+       * ⚠ 库句柄在这里**只借用读面**（core 是开库器的独占写点，本包不自己开库、也不写它）；
+       *   传的不是 `core.db` 而是它的 `prepare().all()` 面 —— 让"本腿不会写库"成为类型事实。
+       * ⚠ `config.denseCandidates` 原样透传（**不在这里重新解释旋钮**：一处的值只有一处解释）。
+       */
+      const outcome = await recallVector(
+        { ...embedCfg, rrfK: config.rrfK, dense: config.denseCandidates, denseDb: core.db },
+        store,
+        query,
+        candidates,
+        topK,
+      )
+      // ⚠ 服务面的读数**就是**结果里那一份（同一个对象），不是再算一次：两处不可能漂开。
+      if (outcome.dense !== undefined) lastDense = outcome.dense
 
       /**
        * ── **Recall Gate 接线**（W1-4）：检索路径的出口调用 `recallGate` ────────────────
@@ -403,6 +463,8 @@ export function apply(ctx: Context, config: Config): void {
           readonly recallGate: RecallGateReadout
           readonly recallGraph: RecallGraphReadout
           readonly bigLoop: BigLoopReadout
+          /** ⚠ **可缺省**：本次没尝试扫描时该键不存在（与 `RecallOutcome.dense` 的三种读法同口径）。 */
+          readonly dense?: DenseCandidateReadout
         } = {
           sessionId: envelope.sessionId,
           turnId: envelope.turnId,
@@ -420,6 +482,9 @@ export function apply(ctx: Context, config: Config): void {
           // ⚠ 大环路读数同样挂在这一条记录上（第三条腿）：`ManaRecall` 的既有字段一个都没动，
           //   `applied:false` 恒成立（本批只带读数、不改管道排序）。
           bigLoop: loopReadout,
+          // ⚠ 稠密腿读数与上面三条**同一条审计记录**（不二次查询、不与之漂开），同样是契约外增量字段：
+          //   `ManaRecall` 的既有字段一个都没动；本次没尝试扫描时该键**不存在**（不是空对象）。
+          ...(outcome.dense !== undefined ? { dense: outcome.dense } : {}),
         }
         // ⚠ A1-1 的 recall 段落点（F-01）：此前本包**只广播、不落库** ⇒
         //   五类里的 'recall' 在 mana_trace 上**永远为空**，判据结构上不可能满足。
@@ -467,6 +532,7 @@ export function apply(ctx: Context, config: Config): void {
     lastRecallGate: () => lastGate,
     lastRecallGraph: () => lastGraph,
     lastBigLoop: () => lastLoop,
+    lastRecallDense: () => lastDense,
   }
 
   ctx.effect(() => {
@@ -475,6 +541,8 @@ export function apply(ctx: Context, config: Config): void {
       // 卸载即净（插件层）：常驻向量随 fiber 释放；**库里的 BLOB 不动**
       // （数据层回滚须显式处置，见 docs/contract/handoff-protocol.md 的双层表）。
       store.clear()
+      // 读数同为进程内状态：与常驻表一并清掉（否则重载后 `lastRecallDense()` 会报上一代的读数）。
+      lastDense = null
       dispose()
     }
   }, 'dsh-mana-vector: service')
@@ -483,6 +551,20 @@ export function apply(ctx: Context, config: Config): void {
 }
 
 export type { ManaCoreService, EmbedOutcome, RecallOutcome, RecallCandidate, EmbedConfig }
+export type { DenseCandidate, DenseCandidateReadout, DenseOmission } from './adapt.ts'
+export {
+  DENSE_DISABLED_REASON,
+  DENSE_EMBED_DEGRADED_PREFIX,
+  DENSE_ENUMERATE_FAILED_REASON,
+  DENSE_ENUMERATE_SQL,
+  DENSE_NO_DB_REASON,
+  DENSE_UNAVAILABLE,
+  DEFAULT_DENSE_CANDIDATE_KNOBS,
+  enumerateEmbeddedRows,
+  rankDenseRows,
+  recallDenseCandidates,
+} from './recall.ts'
+export type { DenseCandidateKnobs, DenseCandidateQuery, DenseCandidatesResult, DenseDbLike, DenseRow, DenseUnavailable } from './recall.ts'
 export { RRF_DEFAULT_K }
 
 /**
