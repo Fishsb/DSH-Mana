@@ -27,6 +27,10 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const PLUGIN = new URL('../src/index.ts', import.meta.url).href
+// 端点判据的**归因读数**（三态：env-unavailable / behavior-wrong / ok）。
+// ⚠ 本文件跑的是**同进程 stub 端点** ⇒ 它的红一律落 behavior-wrong，文案点"查被测代码"；
+//   调用方传入的读数形状与真端点腿**同一把标尺**（口径：docs/mana-endpoint-attribution.md）。
+import { behaviorWrongText, classifyLiveEndpoint, readLiveService } from './_live-endpoints.mjs'
 const GRAPH_SRC = new URL('../src/graph.ts', import.meta.url)
 const INDEX_SRC = new URL('../src/index.ts', import.meta.url)
 const CORE = new URL('../../core/src/index.ts', import.meta.url).href
@@ -577,7 +581,17 @@ test('W2-C3-⑩ 非降级路径的 rankBy 被钉死：真·向量通道下 rankB
 
     // ── 前提断言：必须真走到**非降级**（否则本用例平凡通过 —— 这是最关键的一条）──────
     assert.equal(hits > 0, true, 'stub 嵌入端点必须真被请求到（hits>0）；实测 ' + hits)
-    assert.equal(out.degraded, false, '前提：本条必须走**非降级**路径（degraded=false）；reason=' + String(out.reason))
+    // ⚠ 端点是本进程内的 stub ⇒ 这里红**只可能是行为面**（环境不在名单上），文案给"查被测代码"，
+    //   并带上同进程内的实测字段（hits/null 端点/归因类别）供归因，见 docs/mana-endpoint-attribution.md。
+    assert.equal(
+      out.degraded,
+      false,
+      behaviorWrongText(
+        'W2-C3-⑩ 非降级前提（同进程 stub 端点）',
+        'stub hits=' + hits + ' · degraded=' + out.degraded + ' channel=' + out.channel +
+          ' reason=' + String(out.reason) + ' · 归因=' + classifyLiveEndpoint(readLiveService(BASE, '(stub fixture)', { degraded: out.degraded, reason: out.reason })).cls,
+      ),
+    )
     assert.equal(out.channel, 'vector', "前提：非降级 ⇒ channel 必须是 'vector'")
     assert.equal(out.reason, null, '非降级时 reason 必须是 null（不得用空串/占位冒充）')
 

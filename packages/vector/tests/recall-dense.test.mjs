@@ -26,6 +26,9 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { encodeVector, VectorStore } from '../src/vec-blob.ts'
+// 真端点判据的**归因读数**（口径：docs/mana-endpoint-attribution.md）：只换文案/类别，不换判据。
+import { assertLiveEmbed } from './_live-endpoints.mjs'
+import { DEFAULT_EMBED_MODEL } from '../src/adapt.ts'
 import {
   DENSE_DISABLED_REASON,
   DENSE_NO_DB_REASON,
@@ -357,7 +360,8 @@ async function bootReal(over = {}) {
 async function remember(core, svc, id, text) {
   core.writeMemoryItem({ id, type: 'observation', content: text, at: new Date().toISOString() })
   const emb = await svc.embed([text])
-  assert.equal(emb.degraded, false, `本机 bge-m3 必须可达（这是测量条件）：${emb.reason}`)
+  // 测量条件那一腿：环境不可用 ⇒ 红且点名"查环境"；环境可用而读数不对 ⇒ 红且点名"查代码"。
+  assertLiveEmbed(emb, { title: 'dense-⑦⑧⑨ 真数据前提（生产写面嵌入）', baseUrl: OLLAMA, model: DEFAULT_EMBED_MODEL })
   const w = await svc.putMemoryVector(id, emb.vectors[0], { type: 'observation', content: text })
   assert.equal(w.written, true, `落库必须成功：${w.reason}`)
 }

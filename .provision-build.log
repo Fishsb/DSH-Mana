@@ -1,0 +1,80 @@
+(node:703719) [UNDICI-EHPA] Warning: EnvHttpProxyAgent is experimental, expect them to change at any time.
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+> mana@0.1.0 build
+> npm run build --workspaces --if-present
+
+(node:703732) [UNDICI-EHPA] Warning: EnvHttpProxyAgent is experimental, expect them to change at any time.
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+> dsh-mana-attention@0.1.0 build
+> tsc -p tsconfig.json
+
+
+> dsh-mana-consolidation@0.1.0 build
+> tsc -p tsconfig.json
+
+
+> dsh-mana-core@0.1.0 build
+> tsc -p tsconfig.json
+
+
+> dsh-mana-forgetting@0.1.0 build
+> tsc -p tsconfig.json
+
+
+> dsh-mana-jev@0.1.0 build
+> tsc -p tsconfig.json
+
+
+> dsh-mana-learning@0.1.0 build
+> tsc -p tsconfig.json
+
+
+> dsh-mana-llm@0.1.0 build
+> tsc -p tsconfig.json
+
+
+> dsh-mana-long-term@0.1.0 build
+> tsc -p tsconfig.json
+
+
+> dsh-mana-metacognition@0.1.0 build
+> tsc -p tsconfig.json
+
+
+> dsh-mana-perception@0.1.0 build
+> tsc -p tsconfig.json
+
+
+> dsh-mana-prompts@0.1.0 build
+> tsc -p tsconfig.json
+
+
+> dsh-mana-reconsolidation@0.1.0 build
+> tsc -p tsconfig.json
+
+
+> dsh-mana-scheduler@0.1.0 build
+> tsc -p tsconfig.json
+
+
+> dsh-mana-ui@0.1.0 build
+> tsc -p tsconfig.json && node scripts/build-client.mjs
+
+(node:703922) [UNDICI-EHPA] Warning: EnvHttpProxyAgent is experimental, expect them to change at any time.
+(Use `node --trace-warnings ...` to show where the warning was created)
+bundle:client → /home/lk/Mana/.dsh-worktrees/t-mujtowyp-3dcdhz/packages/ui/lib/client.js (27228 bytes, single artifact)
+(node:703922) ExperimentalWarning: stripTypeScriptTypes is an experimental feature and might change at any time
+
+> dsh-mana-user-model@0.1.0 build
+> tsc -p tsconfig.json
+
+
+> dsh-mana-vector@0.1.0 build
+> tsc -p tsconfig.json
+
+
+> dsh-mana-working-memory@0.1.0 build
+> tsc -p tsconfig.json
+

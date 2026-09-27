@@ -30,6 +30,10 @@ import { after } from 'node:test'
 const OLLAMA = new URL('../src/ollama.ts', import.meta.url).href
 const JEV = new URL('../src/index.ts', import.meta.url).href
 const CORE = new URL('../../core/src/index.ts', import.meta.url).href
+// 真端点判据的**归因读数**（口径：docs/mana-endpoint-attribution.md）：
+// 环境态与行为态不同形、红文案给"下一步查什么"。**一处实现**（与 vector 侧共用同一模块），
+// 免得两个包各写一套措辞而漂移。
+import { attributionText, behaviorWrongText } from '../../vector/tests/_live-endpoints.mjs'
 
 const { judgeWithOllama, normalizeYesNo, extractPos0Candidates, stateHash, chatUrl, DEGRADED_REASONS } =
   await import(OLLAMA)
@@ -54,6 +58,16 @@ async function tempDb() {
   return { db, path, count, close: () => db.close() }
 }
 
+/**
+ * 端点层前置：不可达 ⇒ **显式失败**（不许静默跳过，否则判据假绿 —— 假绿② 的防线一字未动），
+ * 但红文案必须让读者一眼看出这是**测量环境**坏了，并给出下一步动作。
+ * 口径：docs/mana-endpoint-attribution.md。
+ */
+async function requireOllama(title) {
+  if (await ollamaReachable()) return
+  assert.fail(attributionText(lastReachFailure, { title }))
+}
+
 /** 真调一次 Ollama；不可达则**显式失败**（不许静默跳过，否则判据假绿）。 */
 async function liveJudge(extra = {}) {
   const q = 'Is the statement true? Answer strictly yes or no.'
@@ -61,12 +75,28 @@ async function liveJudge(extra = {}) {
   return out
 }
 
-/** 预检：Ollama 是否达。不达时给出明确失败原因，而不是让测试变成假绿。 */
+/** 真端点（本机 Ollama）：**环境态**那一腿的读数源。 */
+const OLLAMA_BASE = 'http://127.0.0.1:11434'
+const OLLAMA_TAGS = OLLAMA_BASE + '/api/tags'
+/** 端点层最近一次失败的**读数**（形状与 vector 侧的读数是同一把标尺）。 */
+let lastReachFailure = null
+
+/** 预检：Ollama 是否达。**判定与改前逐字相同**（r.ok），只是把"哪一步没达"记下来供归因文案用。 */
 async function ollamaReachable() {
   try {
-    const r = await fetch('http://127.0.0.1:11434/api/tags', { signal: AbortSignal.timeout(5000) })
+    const r = await fetch(OLLAMA_TAGS, { signal: AbortSignal.timeout(5000) })
+    lastReachFailure = r.ok
+      ? null
+      : { baseUrl: OLLAMA_TAGS, model: '(端点预检面)', degraded: true, failureKind: null, reason: 'GET ' + OLLAMA_TAGS + ' → HTTP ' + r.status }
     return r.ok
-  } catch {
+  } catch (error) {
+    lastReachFailure = {
+      baseUrl: OLLAMA_TAGS,
+      model: '(端点预检面)',
+      degraded: true,
+      failureKind: null,
+      reason: 'GET ' + OLLAMA_TAGS + ' 不可达：' + (error instanceof Error ? error.message : String(error)),
+    }
     return false
   }
 }
@@ -74,14 +104,13 @@ async function ollamaReachable() {
 // ── 1. 单 token 原语：真调用 + 逐项对账 ─────────────────────────────────────
 
 test('B1.2-1 真调 Ollama：pos0 取到候选，且 yes/no 归一对得上原始 top_logprobs', async (t) => {
-  if (!(await ollamaReachable())) {
-    assert.fail('Ollama 127.0.0.1:11434 不可达 —— 本判据要求真调用，不静默跳过（否则是假绿）')
-  }
+  await requireOllama('B1.2-1 真调 Ollama 的测量条件')
 
   const out = await liveJudge()
 
   // 正常路径：不得降级
-  assert.equal(out.degraded, false, `正常路径不得降级，实际 reason=${out.reason}`)
+  // ⚠ 前置已过（环境可用）⇒ 这里的红**只能是行为面**：文案点"查被测代码"，不再与"环境不可用"同形。
+  assert.equal(out.degraded, false, behaviorWrongText('B1.2-1 正常路径', 'latencyMs=' + out.latencyMs + ' · reason=' + String(out.reason)))
   assert.equal(out.reason, null, '正常路径 reason 必须是 null（非空字符串只在降级时出现）')
   assert.notEqual(out.probability, null, '正常路径必须给出概率（null 表示"概率不可用"）')
   assert.equal(out.value, out.probability >= 0.5 ? 'yes' : 'no')
@@ -128,7 +157,7 @@ test('B1.2-1 真调 Ollama：pos0 取到候选，且 yes/no 归一对得上原�
 })
 
 test('B1.2-2 大小写变体不得被静默漏掉（真返回上的直接断言）', async (t) => {
-  if (!(await ollamaReachable())) assert.fail('Ollama 不可达 —— 本判据要求真调用')
+  await requireOllama('B1.2-2 大小写变体判据的测量条件')
 
   const out = await liveJudge()
   const candidates = out.candidates
@@ -227,13 +256,13 @@ test('B1.2-4 骨架测试同款口径的 fetch stub（500）也走同一降级+�
 })
 
 test('B1.2-5 正常反例：degraded=false 且 reason===null，并落一行 degraded=0 的痕', async (t) => {
-  if (!(await ollamaReachable())) assert.fail('Ollama 不可达 —— 本判据要求真调用')
+  await requireOllama('B1.2-5 正常反例的测量条件')
 
   const { db, count, close } = await tempDb()
   try {
     const out = await liveJudge({ db, sessionId: 's-ok', turnId: 3 })
 
-    assert.equal(out.degraded, false, `正常路径不得降级：reason=${out.reason}`)
+    assert.equal(out.degraded, false, behaviorWrongText('B1.2-5 正常反例', 'reason=' + String(out.reason)))
     assert.equal(out.reason, null, '正常路径 reason 必须是 null')
     assert.notEqual(out.probability, null, '正常路径概率不得为 null')
     assert.ok(['yes', 'no'].includes(out.value), `正常路径 value 必须是 yes/no，实测 ${out.value}`)
@@ -339,13 +368,13 @@ test('B1.2-10 服务面 judge 真写进 core 的库（装配态证据，非机�
   assert.ok(svc, 'mana-jev 服务必须可读')
   assert.equal(svc.status().wired, true, '既有 status() 必须仍为 true（骨架判据不得失效）')
 
-  if (!(await ollamaReachable())) assert.fail('Ollama 不可达 —— 本判据要求真调用')
+  await requireOllama('B1.2-8 服务面判据的测量条件')
 
   const before = Number(ctx.get('mana-core').db.prepare('SELECT count(*) c FROM jev_log').get().c)
   const out = await svc.judge({ state: 'the sky is blue', question: 'Is the statement true? yes or no', sessionId: 'svc', turnId: 1 })
   const afterCount = Number(ctx.get('mana-core').db.prepare('SELECT count(*) c FROM jev_log').get().c)
 
-  assert.equal(out.degraded, false, `服务面正常路径不得降级：${out.reason}`)
+  assert.equal(out.degraded, false, behaviorWrongText('B1.2-8 服务面正常路径', 'reason=' + String(out.reason)))
   assert.equal(afterCount, before + 1, '服务面调用必须经 core 的库落一行 jev_log（"接上"的产物证据）')
   t.diagnostic(`[服务面] pYes=${out.probability?.toFixed(4)} value=${out.value} rows ${before}→${afterCount}`)
 })
