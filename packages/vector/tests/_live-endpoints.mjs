@@ -104,9 +104,43 @@ export function attributionText(reading, opts = {}) {
   )
 }
 
-/** 环境已应答之后仍不达的读数 ⇒ **行为面**红（与 env 红分开写，读者不会两处都去查 Ollama）。 */
-export function behaviorWrongText(title, detail) {
+/**
+ * 环境**已应答**之后仍不达的读数 ⇒ **行为面**红（读者不会两处都去查 Ollama）。
+ *
+ * ⚠⚠ **调用纪律（2026-09-27 复验退回的根因，务必先读）**：
+ *   「端点层前置探测刚通过」**不等于**「这一次调用拿到了可用应答」——
+ *   本席复验实测：前置通过后，真调用仍可能被负载拖到 **30s 超时**
+ *   （\`latencyMs=30001 · aborted due to timeout\`）。
+ *   若此时用本函数，就会把**一个环境性超时**标成「行为不对 ⇒ 去查代码」，还附一句
+ *   「别去重启服务」—— **归因错位**，正是本卡要治的病，只是换了个方向（实测形态）。
+ *
+ * ⇒ **凡是本函数展示的读数来自一次真调用，就必须把那份读数传进来（第 3 参 \`reading\`）**：
+ *   本函数会**先过分类器**——读数实为 env-unavailable（不可达/超时/服务端不支持）时，
+ *   自动改说环境态的话、点「查测量环境」。
+ *   不传 \`reading\`（纯自造 detail 的补强断言）时，调用方必须**在同一表达式里**已由
+ *   \`assertLiveEmbed/assertLiveService\` 证明过该读数是"应答且合法"。
+ */
+export function behaviorWrongText(title, detail, reading) {
+  if (reading) {
+    const c = classifyLiveEndpoint(reading)
+    if (c.cls === 'env-unavailable') {
+      // 读数其实是环境态 ⇒ **不许**说成行为错（这就是被退回的那条缺陷）
+      return '[live-endpoint · env-unavailable] ' + title + '｜**读数实为环境态，不是行为错**｜' + c.why +
+        '｜实测：' + liveReadingText(reading) + '｜下一步：' + c.next
+    }
+  }
   return '[live-endpoint · behavior-wrong] ' + title + '｜环境可用但被测行为不对｜实测：' + detail + '｜下一步：' + CODE_NEXT_ACTION
+}
+
+/** 按读数**分类后**再落断言：读数不达时的文案由分类器决定，不由调用点猜。 */
+export function assertLiveReading(reading, opts = {}) {
+  assert.equal(reading.degraded, false, attributionText(reading, opts))
+  return reading
+}
+
+/** 真端点**服务面**（jev 聊天通道）的统一入口：与 \`assertLiveEmbed\` 同一把标尺、同一分类器。 */
+export function assertLiveService(outcome, opts) {
+  return assertLiveReading(readLiveService(opts.baseUrl, opts.model, outcome), opts)
 }
 
 /** 把一次 svc.embed() 的返回信封 + 环境事实（端点 / model）拼成**同一把标尺**上的读数。 */
@@ -145,7 +179,6 @@ export function readLiveService(baseUrl, model, outcome) {
  *   （那是 jev live 文件的形态；本模块若用 assert.fail 反而与"断言读数"混形）。
  */
 export function assertLiveEmbed(outcome, opts) {
-  const reading = readLiveEmbed(opts.baseUrl, opts.model, outcome)
-  assert.equal(reading.degraded, false, attributionText(reading, opts))
+  assertLiveReading(readLiveEmbed(opts.baseUrl, opts.model, outcome), opts)
   return outcome
 }

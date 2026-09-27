@@ -581,15 +581,18 @@ test('W2-C3-⑩ 非降级路径的 rankBy 被钉死：真·向量通道下 rankB
 
     // ── 前提断言：必须真走到**非降级**（否则本用例平凡通过 —— 这是最关键的一条）──────
     assert.equal(hits > 0, true, 'stub 嵌入端点必须真被请求到（hits>0）；实测 ' + hits)
-    // ⚠ 端点是本进程内的 stub ⇒ 这里红**只可能是行为面**（环境不在名单上），文案给"查被测代码"，
+    // ⚠ 端点是本进程内的 stub ⇒ 它挂了就是**环境态**（本行红多半该去查 stub/端口，不是查被测代码）。
+    //   故**先把读数交给分类器**（behaviorWrongText 的第 3 参），由它决定说"查环境"还是"查代码"；
     //   并带上同进程内的实测字段（hits/null 端点/归因类别）供归因，见 docs/mana-endpoint-attribution.md。
+    const stubReading = readLiveService(BASE, '(stub fixture)', { degraded: out.degraded, reason: out.reason })
     assert.equal(
       out.degraded,
       false,
       behaviorWrongText(
         'W2-C3-⑩ 非降级前提（同进程 stub 端点）',
         'stub hits=' + hits + ' · degraded=' + out.degraded + ' channel=' + out.channel +
-          ' reason=' + String(out.reason) + ' · 归因=' + classifyLiveEndpoint(readLiveService(BASE, '(stub fixture)', { degraded: out.degraded, reason: out.reason })).cls,
+          ' reason=' + String(out.reason) + ' · 归因=' + classifyLiveEndpoint(stubReading).cls,
+        stubReading,
       ),
     )
     assert.equal(out.channel, 'vector', "前提：非降级 ⇒ channel 必须是 'vector'")

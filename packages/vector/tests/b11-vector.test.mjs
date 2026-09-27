@@ -365,15 +365,16 @@ test('B1.1-⑩ 真嵌入（本机 Ollama）：dim==1024；重复同一文本 cos
   //   本条只管**测量条件**那一腿：环境不可用 ⇒ 红，且文案点名"查环境"；
   //   环境可用而读数不对 ⇒ 也是红，但文案点名"查被测代码"（三态不同形，2026-09-27 起）。
   assertLiveEmbed(probe, { title: 'B1.1-⑩ 嵌入端点的测量条件', baseUrl: cfg.baseUrl, model: cfg.model })
-  // 环境已应答 ⇒ 下面这两条只能是**行为面**红（走 behavior-wrong 文案，不再与 env 态同形）
+  // ⚠ 上面**已由 assertLiveEmbed 证明**这两条的前提（应答且合法）；但仍把读数交给第三个参数，
+  //    让行为面文案**先过分类器**（前置过 ≠ 本次应答，见 _live-endpoints.mjs 的调用纪律）。
   const probeRead = readLiveEmbed(cfg.baseUrl, cfg.model, probe)
-  assert.equal(probeRead.vectorCount, 1, behaviorWrongText('B1.1-⑩ 应答条数', `vectors=${probeRead.vectorCount}`))
-  assert.equal(probeRead.dims[0], 1024, behaviorWrongText('B1.1-⑩ 维度契约（A1-12，A 档）', `dim=${probeRead.dims[0]}`))
+  assert.equal(probeRead.vectorCount, 1, behaviorWrongText('B1.1-⑩ 应答条数', `vectors=${probeRead.vectorCount}`, probeRead))
+  assert.equal(probeRead.dims[0], 1024, behaviorWrongText('B1.1-⑩ 维度契约（A1-12，A 档）', `dim=${probeRead.dims[0]}`, probeRead))
 
   const again = await embedTexts(cfg, ['向量适配判据探针'])
   assertLiveEmbed(again, { title: 'B1.1-⑩ 嵌入端点的测量条件（第二次调用）', baseUrl: cfg.baseUrl, model: cfg.model })
   const sim = cosine(probe.vectors[0], again.vectors[0])
-  assert.ok(sim >= 0.999999, behaviorWrongText('B1.1-⑩ 同文两次的余弦', `cos=${sim}（应 ≥0.999999）`))
+  assert.ok(sim >= 0.999999, behaviorWrongText('B1.1-⑩ 同文两次的余弦', `cos=${sim}（应 ≥0.999999）`, readLiveEmbed(cfg.baseUrl, cfg.model, again)))
 
   const changed = await embedTexts(cfg, ['完全换一句别的意思的话'])
   // ⚠ 改前这一路**没有**终检：环境在换句调用上坏掉时，下一行的 cosine(probe, changed.vectors[0])

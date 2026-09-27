@@ -33,7 +33,7 @@ const CORE = new URL('../../core/src/index.ts', import.meta.url).href
 // 真端点判据的**归因读数**（口径：docs/mana-endpoint-attribution.md）：
 // 环境态与行为态不同形、红文案给"下一步查什么"。**一处实现**（与 vector 侧共用同一模块），
 // 免得两个包各写一套措辞而漂移。
-import { attributionText, behaviorWrongText } from '../../vector/tests/_live-endpoints.mjs'
+import { assertLiveService, attributionText } from '../../vector/tests/_live-endpoints.mjs'
 
 const { judgeWithOllama, normalizeYesNo, extractPos0Candidates, stateHash, chatUrl, DEGRADED_REASONS } =
   await import(OLLAMA)
@@ -109,9 +109,15 @@ test('B1.2-1 真调 Ollama：pos0 取到候选，且 yes/no 归一对得上原�
 
   const out = await liveJudge()
 
-  // 正常路径：不得降级
-  // ⚠ 前置已过（环境可用）⇒ 这里的红**只能是行为面**：文案点"查被测代码"，不再与"环境不可用"同形。
-  assert.equal(out.degraded, false, behaviorWrongText('B1.2-1 正常路径', 'latencyMs=' + out.latencyMs + ' · reason=' + String(out.reason)))
+  // 正常路径：不得降级。
+  // ⚠⚠ **2026-09-27 复验退回的勘误（原文写错，如实留痕）**：
+  //   我原先在这里写「前置已过 ⇒ 这里的红只能是行为面」—— **该前提不成立**：
+  //   端点层前置只证明**那一刻**可达，**本次真调用仍可能超时**（复验实测 latencyMs=30001
+  //   aborted due to timeout），于是这句会把**一个环境性超时**说成"行为不对 ⇒ 查代码"、
+  //   还附一句"别去重启服务" ⇒ 归因**反向错位**。
+  //   ⇒ 改为**先过分类器**：assertLiveService 内部对 out.degraded 分类，
+  //     环境态说环境的话（查环境）、行为态才说查代码。断言字段与期望值**一字未放宽**。
+  assertLiveService(out, { title: 'B1.2-1 正常路径', baseUrl: OLLAMA_BASE, model: '(缺省腿)' })
   assert.equal(out.reason, null, '正常路径 reason 必须是 null（非空字符串只在降级时出现）')
   assert.notEqual(out.probability, null, '正常路径必须给出概率（null 表示"概率不可用"）')
   assert.equal(out.value, out.probability >= 0.5 ? 'yes' : 'no')
@@ -263,7 +269,7 @@ test('B1.2-5 正常反例：degraded=false 且 reason===null，并落一行 degr
   try {
     const out = await liveJudge({ db, sessionId: 's-ok', turnId: 3 })
 
-    assert.equal(out.degraded, false, behaviorWrongText('B1.2-5 正常反例', 'reason=' + String(out.reason)))
+    assertLiveService(out, { title: 'B1.2-5 正常反例', baseUrl: OLLAMA_BASE, model: '(缺省腿)' })
     assert.equal(out.reason, null, '正常路径 reason 必须是 null')
     assert.notEqual(out.probability, null, '正常路径概率不得为 null')
     assert.ok(['yes', 'no'].includes(out.value), `正常路径 value 必须是 yes/no，实测 ${out.value}`)
@@ -375,7 +381,7 @@ test('B1.2-10 服务面 judge 真写进 core 的库（装配态证据，非机�
   const out = await svc.judge({ state: 'the sky is blue', question: 'Is the statement true? yes or no', sessionId: 'svc', turnId: 1 })
   const afterCount = Number(ctx.get('mana-core').db.prepare('SELECT count(*) c FROM jev_log').get().c)
 
-  assert.equal(out.degraded, false, behaviorWrongText('B1.2-8 服务面正常路径', 'reason=' + String(out.reason)))
+  assertLiveService(out, { title: 'B1.2-8 服务面正常路径', baseUrl: OLLAMA_BASE, model: '(缺省腿)' })
   assert.equal(afterCount, before + 1, '服务面调用必须经 core 的库落一行 jev_log（"接上"的产物证据）')
   t.diagnostic(`[服务面] pYes=${out.probability?.toFixed(4)} value=${out.value} rows ${before}→${afterCount}`)
 })
