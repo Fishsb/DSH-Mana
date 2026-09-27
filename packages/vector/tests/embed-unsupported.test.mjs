@@ -18,6 +18,8 @@ import assert from 'node:assert/strict'
 import { createServer } from 'node:http'
 
 import { embedTexts, isUnsupportedByServer, unsupportedMarkerIn } from '../src/embed.ts'
+// 真端点判据的**归因读数**（口径：docs/mana-endpoint-attribution.md）：只换文案/类别，不换判据。
+import { attributionText } from './_live-endpoints.mjs'
 import { EMBED_FAILURE_KINDS, degradedOutcomeQuery } from '../src/adapt.ts'
 
 const OLLAMA = 'http://127.0.0.1:11434/v1'
@@ -197,8 +199,23 @@ test('J1-⑪ 既有字段语义未变：degradedOutcomeQuery 缺省仍= 通用�
 
 test('J1-⑫ 真端点·双条件断言：真回应带该语义 ⇒ 必须归类；不带 ⇒ 不得归类（贴原始原文）', async (t) => {
   // 先取本机模型清单，挑一个**声明不含 embedding 能力**的模型（这正是真触发面）。
-  const tagsRes = await fetch(OLLAMA_TAGS)
-  assert.equal(tagsRes.ok, true, '本机 Ollama 必须可达（这是测量条件，非本判据的被测对象）')
+  // ⚠ 这一条是**测量条件**那一腿（本判据的被测对象是"嵌入腿的归类"，不是"服务在不在"）：
+  //   服务端坏了 ⇒ 仍然是**红**（不许 skip），但文案必须点名是**环境**坏在哪、下一步查什么。
+  const tagsRes = await fetch(OLLAMA_TAGS).catch((e) => ({ ok: false, status: 0, statusText: String(e && e.message ? e.message : e) }))
+  assert.equal(
+    tagsRes.ok,
+    true,
+    attributionText(
+      {
+        baseUrl: OLLAMA_TAGS,
+        model: '(模型清单面)',
+        degraded: true,
+        failureKind: null,
+        reason: 'GET ' + OLLAMA_TAGS + ' → HTTP ' + tagsRes.status + (tagsRes.statusText ? ' ' + tagsRes.statusText : ''),
+      },
+      { title: 'J1-⑫ 本机 Ollama 的测量条件（模型清单面）' },
+    ),
+  )
   const tags = await tagsRes.json()
   const models = (tags.models ?? []).map((m) => ({ name: m.name, caps: m.capabilities ?? [] }))
   assert.ok(models.length > 0, '本机必须有模型才能做真端点取证')
